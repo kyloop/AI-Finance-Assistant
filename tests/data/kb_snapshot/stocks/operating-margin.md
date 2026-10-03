@@ -1,0 +1,272 @@
+# Operating margin
+
+<!-- https://en.wikipedia.org/wiki/Operating_margin | revision 1375019312 -->
+
+In business, operating margin—also known as operating income margin, operating profit margin, EBIT margin and return on sales (ROS) - is the ratio of operating income ("operating profit" in the  UK) to net sales, usually expressed in percent.
+
+  
+    
+      
+        
+          Operating margin
+        
+        =
+        
+          
+            Operating income
+            Revenue
+          
+        
+        .
+      
+    
+    {\displaystyle {\text{Operating margin}}={\frac {\text{Operating income}}{\text{Revenue}}}.}
+  
+
+Net profit measures the profitability of ventures after accounting for all costs.
+Return on sales (ROS) is net profit as a percentage of sales revenue. ROS is an indicator of profitability and is often used to compare the profitability of companies and industries of differing sizes. Significantly, ROS does not account for the capital (investment) used to generate the profit. In a survey of nearly 200 senior marketing managers, 69 percent responded that they found the "return on sales" metric very useful.
+Unlike Earnings before interest, taxes, depreciation, and amortization (EBITDA) margin, operating margin takes into account depreciation and amortization expenses.   {NNP = GNP- depreciation /GNP = GDP- depreciation}
+
+## Purpose
+
+These financial metrics measure levels and rates of profitability. Probably the most common way to determine the successfulness of a company is to look at the net profits of the business. Companies are collections of projects and markets, individual areas can be judged on how successful they are at adding to the corporate net profit. Not all projects are of equal size, however, and one way to adjust for size is to divide the profit by sales revenue. The resulting ratio is return on sales (ROS), the percentage of sales revenue that gets 'returned' to the company as net profits after all the related costs of the activity are deducted.
+
+## Construction
+
+Net profit measures the fundamental profitability of the business. It is the revenues of the activity less the costs of the activity. The main complication is in more complex businesses when overhead needs to be allocated across divisions of the company. Almost by definition, overheads are costs that cannot be directly tied to any specific product or division. The classic example would be the cost of headquarters staff.
+Net profit: To calculate net profit for a unit (such as a company or division), subtract all costs, including a fair share of total corporate overheads, from the gross revenues.
+
+  
+    
+      
+        
+          Net profit
+        
+         
+        (
+        $
+        )
+        =
+        
+          Sales revenue
+        
+         
+        (
+        $
+        )
+        −
+        
+          Total costs
+        
+         
+        (
+        $
+        )
+      
+    
+    {\displaystyle {\text{Net profit}}\ (\$)={\text{Sales revenue}}\ (\$)-{\text{Total costs}}\ (\$)}
+  
+
+Return on sales (ROS): Net profit as a percentage of sales revenue.
+
+  
+    
+      
+        
+          Return on sales
+        
+         
+        (
+        %
+        )
+        =
+        
+          
+            
+              
+                Net profit
+              
+               
+              (
+              $
+              )
+            
+            
+              
+                Sales revenue
+              
+               
+              (
+              $
+              )
+            
+          
+        
+      
+    
+    {\displaystyle {\text{Return on sales}}\ (\%)={\frac {{\text{Net profit}}\ (\$)}{{\text{Sales revenue}}\ (\$)}}}
+  
+
+Earnings Before Interest, Taxes, Depreciation, and Amortization (EBITDA) is a very popular measure of financial performance. It is used to assess the 'operating' profit of the business. It is a rough way of calculating how much cash the business is generating and is even sometimes called the 'operating cash flow'. It can be useful because it removes factors that change the view of performance depending upon the accounting and financing policies of the business. Supporters argue it reduces management's ability to change the profits they report by their choice of accounting rules and the way they generate financial backing for the company. This metric excludes from consideration expenses related to decisions such as how to finance the business (debt or equity) and over what period they depreciate fixed assets. EBITDA is typically closer to actual cash flow than is NOPAT. ... EBITDA can be calculated by adding back the costs of interest, depreciation, and amortization charges and any taxes incurred. 
+
+  
+    
+      
+        
+          EBITDA
+        
+         
+        (
+        $
+        )
+        =
+        
+          Net profit
+        
+         
+        (
+        $
+        )
+        +
+        
+          Interest Payments
+        
+         
+        (
+        $
+        )
+        +
+        
+          Taxes Incurred
+        
+         
+        (
+        $
+        )
+        +
+        
+          Depreciation and Amortization Charges
+        
+         
+        (
+        $
+        )
+      
+    
+    {\displaystyle {\text{EBITDA}}\ (\$)={\text{Net profit}}\ (\$)+{\text{Interest Payments}}\ (\$)+{\text{Taxes Incurred}}\ (\$)+{\text{Depreciation and Amortization Charges}}\ (\$)}
+  
+Example: The Coca-Cola Company
+
+  
+    
+      
+        
+          Operating margin
+        
+        =
+        
+          
+            
+              
+                6
+                ,
+                318
+              
+              
+                20
+                ,
+                088
+              
+            
+          
+        
+        =
+        
+          
+            
+              
+                31.45
+                %
+              
+              _
+            
+            _
+          
+        
+      
+    
+    {\displaystyle {\text{Operating margin}}={\tfrac {6,318}{20,088}}={\underline {\underline {31.45\%}}}}
+  
+
+It is a measurement of what proportion of a company's revenue is left over, before taxes and other indirect costs (such as rent, bonus, interest, etc.), after paying for variable costs of production as wages, raw materials, etc. A good operating margin is needed for a company to be able to pay for its fixed costs, such as interest on debt.  A higher operating margin means that the company has less financial risk.
+Operating margin can be considered total revenue from product sales less all costs before adjustment for taxes, dividends to shareholders, and interest on debt.
+
+## Decomposition and interpretation
+
+Some authors have proposed analytical decompositions of return on sales to clarify the drivers underlying operating profitability. Delfino (2025), for example, proposes expressing return on sales (ROS) as the product of two components: the contribution margin ratio (CMR) and the margin of safety (MOS).
+Under this formulation, ROS can be written as:
+
+  
+    
+      
+        
+          ROS
+        
+        =
+        
+          CMR
+        
+        ×
+        
+          MOS
+        
+      
+    
+    {\displaystyle {\text{ROS}}={\text{CMR}}\times {\text{MOS}}}
+  
+
+where the contribution margin ratio measures the proportion of each sales dollar remaining after variable costs, and the margin of safety measures how far actual or expected sales exceed the break-even point. Using standard cost–volume–profit notation, this relationship can be expressed as:
+
+  
+    
+      
+        
+          ROS
+        
+        =
+        
+          
+            
+              p
+              −
+              v
+            
+            p
+          
+        
+        ×
+        
+          
+            
+              x
+              −
+              
+                x
+                
+                  b
+                  e
+                  p
+                
+              
+            
+            x
+          
+        
+      
+    
+    {\displaystyle {\text{ROS}}={\frac {p-v}{p}}\times {\frac {x-x_{bep}}{x}}}
+  
+
+where p denotes unit price, v unit variable cost, x sales volume, and xbep the break-even sales level.
+This decomposition highlights that a given ROS may arise from different combinations of margin strength and sales resilience. A high contribution margin ratio combined with a low margin of safety reflects strong per-unit profitability but limited protection against sales declines, whereas a lower contribution margin ratio combined with a higher margin of safety reflects thinner margins but greater operating stability.
+Delfino (2025) also introduces the notion of a profitability transition point, defined as the sales level at which the contribution margin ratio and the margin of safety are equal. At this point, profitability reflects a balance between margin efficiency and sales volume relative to break-even. Firms operating above or below this transition point may therefore exhibit similar ROS values driven by different underlying price, cost, and volume structures.

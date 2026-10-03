@@ -1,0 +1,65 @@
+llm:
+  provider: auto            # auto = first provider whose API key is set (anthropic, openai, gemini); "none" disables the LLM
+  temperature: 0.2
+  models:
+    anthropic: claude-sonnet-5-5
+    openai: gpt-4o
+    gemini: gemini-2.0-flash
+workflow:
+  history_turns: 8          # prior messages passed to the graph
+  history_window: 4         # of those, the latest messages that agent prompts and follow-up checks read
+  history_chars: 1000       # each cut to this many characters (enough for an answer's figures)
+  market_tool_calls: 4      # market agent: most tool calls the LLM may make per question (quote, performance, profiles)
+  market_tool_rounds: 1     # replies in which it may call them (1 = everything requested at once; each extra round is one more LLM call)
+  wiki_max_words: 150       # extract length per knowledge lookup (scaled by knowledge level)
+  proofread: true           # fix spelling/grammar/abbreviations before routing (proofread node; needs an LLM)
+  max_replans: 3            # times per question the graph may send an unanswered question to other agents (replan node)
+market:
+  cache_ttl_seconds: 1800   # 30 min, per spec FR-M2
+  news_cache_ttl_seconds: 300   # 5 min; headlines change faster than the default
+  fund_cache_ttl_seconds: 86400  # 1 day; fund holdings, sector weights and fees change slowly (Research tab)
+  stock_cache_ttl_seconds: 21600 # 6 h; statements change quarterly, but estimates and earnings dates move during the day
+  primary_provider: yfinance
+  secondary_provider: alpha_vantage
+portfolio:                  # Portfolio tab report and Portfolio agent (src/core/portfolio_data.py)
+  benchmark: "^GSPC"        # performance is compared with this index (S&P 500)
+  risk_free_rate: 0.04      # annual, for the Sharpe and Sortino ratios (illustrative)
+  trading_days: 252         # per year, to annualize daily volatility
+  default_purchase_date: "2026-01-01"   # performance counts a holding from here when it has no purchase date
+risk_profiles:              # nominal annual return assumptions (illustrative)
+  conservative: 0.04
+  moderate: 0.06
+  aggressive: 0.08
+allocations:                # illustrative stock/bond/cash split per risk profile
+  conservative: {stocks: 30, bonds: 55, cash: 15}
+  moderate:     {stocks: 60, bonds: 35, cash: 5}
+  aggressive:   {stocks: 85, bonds: 12, cash: 3}
+rag:                        # knowledge-base retrieval; design and evidence in mds/rag-data-design.md
+  qdrant_path: src/data/qdrant      # local embedded Qdrant; set qdrant_url (+ QDRANT_API_KEY in .env) for a server / Qdrant Cloud
+  qdrant_url: null
+  collection: finnie_kb
+  categories: [basics, bonds, stocks, etfs-and-mutual-funds]      # indexed categories; add one only after its token stats + retrieval test (mds/)
+  embedding_model: BAAI/bge-small-en-v1.5
+  max_tokens: 250                   # one chunk per section up to this (sections above are split); chosen for token cost, see mds/rag-data-design.md
+  split_target_tokens: 200          # piece size for split sections (capped at max - overlap - heading anyway)
+  overlap_tokens: 50
+  top_k: 5
+  min_score: 0.68                  # provisional: below this the Q&A/tax agents fall back to live Wikipedia (topic not indexed)
+news_index:                 # news stories embedded for the News agent's topic / cross-ticker search
+  collection: finnie_news           # separate from finnie_kb; one point per story (title + summary), same embedding model
+  poll_seconds: 900                 # background refresh of the tracked tickers (market feed, holdings, recently viewed)
+  retention_days: 14                # older stories are deleted
+  default_days: 7                   # search window when the question names none
+  top_k: 6
+  min_score: 0.60                   # a story scoring below this is not relevant (hand-written headlines: on-topic >= 0.62, off-topic <= 0.61)
+  score_margin: 0.08                # ...and neither is one this far below the best match, which drops the weak tail of a short list
+  max_tracked_symbols: 30
+  recent_view_days: 7               # a ticker quoted or opened within this many days stays in the poll
+symbols_index:              # every US-listed stock and ETF (symbol + company name) so names and mistyped tickers resolve without Yahoo; src/rag/tickers.py
+  collection: finnie_symbols        # one point per listing, vector = the company name; exact and mistyped-ticker lookups use src/data/raw/tickers.csv instead
+  min_score: 0.80                   # provisional: a name scoring below this is not the company the user meant
+  score_margin: 0.03                # within this of the best score counts as a tie (the better-ranked company wins)
+features:
+  news: true
+  tax: true
+  mcp: false

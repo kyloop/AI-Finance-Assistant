@@ -1,0 +1,39 @@
+# Loan-to-value ratio
+
+<!-- https://en.wikipedia.org/wiki/Loan-to-value_ratio | revision 1377046155 -->
+
+The loan-to-value (LTV) ratio is a financial concept used by lenders to express the ratio of a loan to the value of an asset purchased. 
+In real estate, the term is commonly used by banks and building societies to represent the ratio of the first mortgage line as a percentage of the total appraised value of real property. For instance, if someone borrows $130,000 to purchase a house worth $150,000, the LTV ratio is $130,000 to 150,000 or ⁠$130,000/$150,000⁠, or 87%. The remaining 13% represent the lender's haircut, adding up to 100% and being covered from the borrower's equity. The higher the LTV ratio, the riskier the loan is for a lender.
+The valuation of a property is typically determined by an appraiser, but a better measure is an arm's-length transaction between a willing buyer and a willing seller. Typically, banks will utilize the lesser of the appraised value and purchase price if the purchase is "recent" (within 1–2 years).
+
+## Risk
+
+Loan to value is one of the key risk factors that lenders assess when qualifying borrowers for a mortgage. The risk of default is always at the forefront of lending decisions, and the likelihood of a lender absorbing a loss increases as the amount of equity decreases. Therefore, as the LTV ratio of a loan increases, the qualification guidelines for certain mortgage programs become much more strict. Lenders can require borrowers of high LTV loans to buy mortgage insurance to protect the lender from the buyer's default, which increases the costs of the mortgage.
+Low LTV ratios (below 80%) may carry with them lower rates for lower-risk borrowers and allow lenders to consider higher-risk borrowers, such as those with low credit scores, previous late payments in their mortgage history, high debt-to-income ratios, high loan amounts or cash-out requirements, insufficient reserves and/or no income. However, an LTV higher than 80% may carry Mortgage Insurance requirements, which will in turn offer the borrower a lower interest rate.  Higher LTV ratios are primarily reserved for borrowers with higher credit scores and a satisfactory mortgage history. Full financing, or 100% LTV, is reserved for only the most credit-worthy borrowers. The loans with LTV ratios higher than 100% are called underwater mortgages.
+
+## Combined loan to value ratio
+
+Combined loan to value ratio (CLTV) is the proportion of loans (secured by a property) in relation to its value. The term "combined loan to value" adds additional specificity to the basic loan to value which simply indicates the ratio between one primary loan and the property value. When "combined" is added, it indicates that additional loans on the property have been considered in the calculation of the percentage ratio.
+The aggregate principal balance(s) of all mortgages on a property divided by its appraised value or purchase price, whichever is less. Distinguishing CLTV from LTV serves to identify loan scenarios that involve more than one mortgage. For example, a property valued at $100,000 with a single mortgage of $50,000 has an LTV of 50%. A similar property with a value of $100,000 with a first mortgage of $50,000 and a second mortgage of $25,000 has an aggregate mortgage balance of $75,000. The CLTV is 75%.
+Combined loan to value is an amount in addition to the Loan to Value, which simply represents the first position mortgage or loan as a percentage of the property's value.
+
+## Countries
+
+### United States
+
+In the United States, conforming loans that meet Fannie Mae and Freddie Mac underwriting guidelines are limited to a loan-to-value ratio (LTV) that is less than or equal to 80%. Conforming loans above 80% are allowed but typically require private mortgage insurance. Other over-80% LTV loan options exist as well. The Federal Housing Administration (FHA) insures purchase loans to 96.5% and the United States Department of Veterans Affairs and United States Department of Agriculture guarantee purchase loans to 100%.
+Properties with more than one lien, such as a second lien, are subject to combined loan to value (CLTV) criteria. The CLTV for a property valued at $100,000 with a $50,000 first mortgage and a home equity lines of credit (HELOC) balance of $10,000 would be the 60% ($50,000 + $10,000)/$100,000. The LTV for the stand-alone seconds and Home Equity Line of Credit would be the loan balance as a percentage of the appraised value.  However, in order to measure the riskiness of the borrower, one should look at all outstanding mortgage debt.
+
+### Australia
+
+In the Australian financial context, the loan-to-value ratio (LVR) is a critical metric in the mortgage industry. Typically, an LVR of 80% or lower is deemed low risk for conforming loans, and 60% and below for a no doc loan or low doc loan. Unique to the Australian market is the availability of higher LVR loans, which can extend up to 95% with mortgage insurance and even 100% LVR loans under certain conditions. These 100% LVR loans, designed for buyers without a deposit, are contingent upon stringent requirements, including a guarantor, also known as a guarantor home loan. This flexibility in LVR reflects the market's capacity to cater to a diverse range of borrowing needs while balancing the inherent risks associated with high LVR lending.
+The structure of LVR in Australia, particularly for high LVR loans, showcases the evolving dynamics of real estate financing. The option of high LVR loans expands access to property ownership but also introduces increased risk for both lenders and borrowers. Managing these risks, especially in the context of 100% LVR loans, is critical to the Australian mortgage sector. It underscores the market's nuanced approach to promoting homeownership while maintaining financial stability, primarily through risk mitigation strategies like guarantor-backed loans.
+
+### New Zealand
+
+In New Zealand, the Reserve Bank has introduced loan-to-value restrictions on the banks in order to slow the rapidly growing property market - particularly in Auckland. The LVR restrictions mean that banks are not permitted to make more than 10 percent of their residential mortgage lending to high-LVR (less than 20 percent deposit) owner-occupier borrowers and they must restrict their high-LVR (less than 40 percent deposit) lending to investors to no more than 5 percent of residential mortgage lending.
+
+### United Kingdom
+
+In the UK, the loan-to-value ratio (LTV) ranges typically range between 60% and 95% LTV, with fewer 95% mortgages available.
+In the run-up to the national / global economic problems mortgages with an LTV of up to 125% were quite common, but lenders stopped offering them in 2008.

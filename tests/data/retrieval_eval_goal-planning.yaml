@@ -1,0 +1,437 @@
+# Retrieval ground truth for the `goal-planning` category (python -m scripts.eval_retrieval --category goal-planning).
+# Same format as retrieval_eval_basics.yaml: expect = "<doc_id> :: <section path>" (any one counts), hints = answer
+# phrases (any one counts), band = size of the expected section in tokens: S < 150, M 150-249, L 250-512, XL > 512.
+# reference / key_points: the true answer, from the source section; used by the generation test.
+# 2026-10-02: 150 pages; q01-q30 written from the pages, q31-q32 are out of scope.
+# After the first retrieval run, q02, q10, q16 and q29 gained correct sections that other pages/sections also answer.
+
+- id: q01
+  band: S
+  q: What is a debt-to-income ratio?
+  expect:
+  - 'debt-to-income-ratio :: (lead)'
+  hints:
+  - percentage of a consumer's monthly gross income that goes toward paying debts
+  reference: Debt-to-income ratio (DTI) is the percentage of a person's monthly gross income that goes toward paying debts. Mortgage lenders use it, and in practice it can also include principal, taxes, fees and insurance premiums.
+  key_points:
+  - DTI is the share of monthly gross income that goes to debt payments
+  - Used in the mortgage industry
+  - Can also include taxes, fees and insurance premiums
+
+- id: q02
+  band: S
+  q: What does disability insurance cover?
+  expect:
+  - 'disability-insurance :: (lead)'
+  - 'insurance :: Types > Income protection insurance'
+  hints:
+  - insures the beneficiary's earned income
+  - unable to work because of disabling illness or injury
+  reference: Disability insurance (also called disability income insurance or income protection) insures a person's earned income against the risk that a disability, injury or illness stops them from working. It covers paid sick leave, short-term disability and long-term disability benefits.
+  key_points:
+  - Protects earned income if a disability prevents working
+  - Also called disability income insurance or income protection
+  - Includes short-term and long-term disability benefits
+
+- id: q03
+  band: S
+  q: How does a donor-advised fund work?
+  expect:
+  - 'donor-advised-fund :: (lead)'
+  - 'donor-advised-fund :: Details'
+  hints:
+  - charitable giving vehicle administered by a public charity
+  reference: A donor-advised fund is a charitable giving vehicle run by a public charity. The donor opens an account and deposits cash or securities, giving up ownership but keeping advisory privileges over how the account is invested and which charities it pays.
+  key_points:
+  - A charitable giving account run by a public charity
+  - Donor deposits cash or securities and gives up ownership
+  - Donor keeps advisory privileges over investment and grants to charities
+
+- id: q04
+  band: S
+  q: What is an ABLE account?
+  expect:
+  - 'able-account :: (lead)'
+  hints:
+  - savings program for eligible people with disabilities
+  reference: An ABLE account (529A) is a state-run savings program in the US for eligible people with disabilities. Within limits, the money is not counted against asset limits for benefits such as SSI and Medicaid, and earnings are free of federal income tax.
+  key_points:
+  - A US state-run savings account for people with disabilities
+  - Funds are exempt from asset limits of many benefit programs
+  - Earnings are exempt from federal income tax
+
+- id: q05
+  band: S
+  q: What is the FAFSA used for?
+  expect:
+  - 'fafsa :: (lead)'
+  hints:
+  - to determine their eligibility for student financial aid
+  reference: The Free Application for Federal Student Aid (FAFSA) is a form current and prospective US college students fill in to determine their eligibility for student financial aid. It differs from the CSS Profile, which some private colleges use for their own funds.
+  key_points:
+  - A form filled in by US college students
+  - Determines eligibility for federal student financial aid
+  - Different from the CSS Profile used by some colleges
+
+- id: q06
+  band: S
+  q: What is umbrella insurance?
+  expect:
+  - 'umbrella-insurance :: (lead)'
+  - 'umbrella-insurance :: Excess versus Umbrella'
+  hints:
+  - provides coverage when liability exceeds the limits of other insurance policies
+  reference: Umbrella insurance is liability insurance that pays when a liability exceeds the limits of other policies such as auto or homeowners insurance, and can also cover some losses those policies don't. The primary policies pay up to their limits and the umbrella pays the rest, up to its own limit.
+  key_points:
+  - Extra liability coverage above auto or homeowners policy limits
+  - Pays after the underlying policies reach their limits
+  - Can also cover losses the underlying policies exclude
+
+- id: q07
+  band: M
+  q: What is the FIRE movement?
+  expect:
+  - 'fire-movement :: (lead)'
+  hints:
+  - Financial Independence, Retire Early
+  reference: 'FIRE (Financial Independence, Retire Early) is a personal finance movement built on very high savings rates and aggressive investing, aiming to build enough assets to cover living expenses without a job. A common target is based on the 4% rule.'
+  key_points:
+  - Stands for Financial Independence, Retire Early
+  - High savings rate and aggressive investing
+  - Goal is enough assets to live without traditional employment
+
+- id: q08
+  band: M
+  q: What does it take to become a Certified Financial Planner?
+  expect:
+  - 'certified-financial-planner :: (lead)'
+  - 'certified-financial-planner :: Requirements for initial certification > Education requirements'
+  hints:
+  - education, examination, experience, and ethics requirements
+  reference: The CFP mark is granted by the CFP Board (in the US). A candidate must meet education, examination, experience and ethics requirements and pay an ongoing certification fee. It is not a government designation or an accredited degree.
+  key_points:
+  - Awarded by the CFP Board, not the government
+  - Requires education, an exam, experience and ethics
+  - An ongoing certification fee is paid
+
+- id: q09
+  band: M
+  q: What is a will?
+  expect:
+  - 'will-and-testament :: (lead)'
+  hints:
+  - how their property (estate) is to be distributed after their death
+  reference: A will is a legal document in which a person (the testator) says how their property is to be distributed after their death and names an executor to manage it until it is distributed. A will can also create a testamentary trust.
+  key_points:
+  - Legal document saying how property is distributed after death
+  - Names an executor to manage the estate
+  - Can create a testamentary trust
+
+- id: q10
+  band: M
+  q: What is probate?
+  expect:
+  - 'probate :: (lead)'
+  - 'estate-planning :: Probate'
+  - 'will-and-testament :: Probate'
+  - 'probate :: United Kingdom > England and Wales > Definition'
+  hints:
+  - judicial process whereby a will is "proved" in a court of law
+  - deceased's assets are collected together
+  reference: Probate is the court process that proves a will is valid (or, without a will, settles the estate under intestacy law). It is the first step in administering a deceased person's estate, resolving claims and distributing property, and it gives the executor authority to act.
+  key_points:
+  - Court process that validates a will
+  - Without a will, the estate is settled under intestacy rules
+  - Lets the executor administer and distribute the estate
+
+- id: q11
+  band: M
+  q: What is a durable power of attorney?
+  expect:
+  - 'power-of-attorney :: Types > Durable'
+  hints:
+  - continue to be effective (endure) even if the grantor becomes incapacitated
+  reference: An ordinary power of attorney ends if the grantor dies or becomes incapacitated. A durable (enduring or lasting) power of attorney continues even if the grantor becomes incapacitated, until the grantor's death or until it is revoked.
+  key_points:
+  - A normal power of attorney ends on incapacity
+  - A durable one stays effective if the grantor becomes incapacitated
+  - It lasts until death or revocation
+
+- id: q12
+  band: M
+  q: How is the loan-to-value ratio calculated on a house?
+  expect:
+  - 'loan-to-value-ratio :: (lead)'
+  hints:
+  - ratio of a loan to the value of an asset purchased
+  reference: Loan-to-value (LTV) is the loan divided by the value of the property, e.g. borrowing $130,000 for a $150,000 house is an LTV of 87%, with the other 13% covered by the buyer's equity. A higher LTV is riskier for the lender.
+  key_points:
+  - LTV = loan amount ÷ property value
+  - 'Example: $130,000 loan on a $150,000 house is 87%'
+  - Higher LTV means more risk for the lender
+
+- id: q13
+  band: M
+  q: When do I have to pay private mortgage insurance?
+  expect:
+  - 'mortgage-insurance :: United States > Private mortgage insurance'
+  hints:
+  - less than 20% of the property value
+  reference: PMI is usually required on conventional mortgages when the down payment or equity is less than 20% of the property value (LTV above 80%). It costs roughly 0.14% to 2.24% of the loan balance a year, usually paid monthly with the mortgage payment.
+  key_points:
+  - Required on conventional loans with under 20% down or equity
+  - Costs about 0.14%–2.24% of the principal a year
+  - Usually paid monthly as part of the mortgage payment
+
+- id: q14
+  band: M
+  q: What is a living will?
+  expect:
+  - 'advance-healthcare-directive :: (lead)'
+  - 'advance-healthcare-directive :: Living will'
+  hints:
+  - no longer able to make decisions for themselves
+  reference: A living will is a form of advance healthcare directive, a document saying what medical treatment a person wants if they can no longer make decisions because of illness or incapacity. Another form names a health care proxy to decide for them.
+  key_points:
+  - A document giving instructions for medical treatment
+  - Applies when the person can no longer decide for themselves
+  - A health care proxy is the related form that names a decision-maker
+
+- id: q15
+  band: M
+  q: What is a cash-out refinance?
+  expect:
+  - 'refinancing :: Types (US loans only) > Cash-out'
+  hints:
+  - refinance with a loan amount larger than their current mortgage and keep the cash out
+  reference: In a cash-out refinance the borrower takes a new loan larger than the current mortgage and keeps the difference in cash, using their home equity, e.g. for home improvements or to consolidate credit card debt. It does not necessarily lower the monthly payment.
+  key_points:
+  - New mortgage is larger than the old one
+  - Borrower keeps the difference in cash, drawn from home equity
+  - Often used for home improvements or debt consolidation
+
+- id: q16
+  band: M
+  q: How can I keep my estate out of probate?
+  expect:
+  - 'estate-planning :: Probate > Probate avoidance'
+  - 'probate :: United States > Avoiding probate'
+  hints:
+  - probate-avoidance strategies include
+  - also avoids probate
+  reference: Common ways to avoid probate are revocable living trusts, joint ownership of assets, naming beneficiaries who receive assets at death, lifetime gifts and life insurance. A living trust only avoids probate if assets are actually re-registered in the trust's name.
+  key_points:
+  - Revocable living trusts
+  - Joint ownership and naming death beneficiaries
+  - Lifetime gifts and life insurance
+  - A trust must be funded (assets retitled) to work
+
+- id: q17
+  band: L
+  q: How does term life insurance work?
+  expect:
+  - 'term-life-insurance :: (lead)'
+  hints:
+  - provides coverage at a fixed rate of payments for a limited period of time
+  reference: Term life insurance covers the insured for a fixed period at a fixed premium; if they die during the term the death benefit is paid to the beneficiary. After the term, coverage at that price is no longer guaranteed. It is usually the cheapest way to buy a large death benefit.
+  key_points:
+  - Coverage for a limited term at a fixed premium
+  - Pays the death benefit only if the insured dies during the term
+  - Usually the cheapest way to get a large death benefit
+
+- id: q18
+  band: L
+  q: How is whole life insurance different from term life insurance?
+  expect:
+  - 'whole-life-insurance :: (lead)'
+  - 'term-life-insurance :: (lead)'
+  hints:
+  - guaranteed to remain in force for the insured's entire lifetime
+  reference: Whole life insurance stays in force for the insured's entire lifetime as long as premiums are paid, while term insurance only covers a set period. Because of this, whole life premiums start higher than term premiums; they are fixed at issue and don't rise with age.
+  key_points:
+  - Whole life covers the entire lifetime; term covers a limited period
+  - Whole life premiums are higher than term premiums
+  - Whole life premiums are fixed and don't increase with age
+
+- id: q19
+  band: L
+  q: Why do lenders want a down payment?
+  expect:
+  - 'down-payment :: (lead)'
+  hints:
+  - recover some of the balance due on the loan in the event that the borrower defaults
+  reference: A down payment is an up-front partial payment for an expensive purchase like a house or car, with a loan covering the rest. It gives the lender a cushion to recover what is owed if the borrower defaults; the house itself is collateral the lender can sell.
+  key_points:
+  - An up-front partial payment, with a loan for the rest
+  - Protects the lender if the borrower defaults
+  - The property serves as collateral
+
+- id: q20
+  band: L
+  q: What is a robo-advisor?
+  expect:
+  - 'robo-advisor :: (lead)'
+  - 'robo-advisor :: Definition'
+  hints:
+  - investment management online with moderate to minimal human intervention
+  reference: A robo-advisor is an online financial adviser that gives personalised advice and manages investments with little human involvement, using algorithms designed by people. Portfolio management, including rebalancing, is automated.
+  key_points:
+  - Online financial advice with minimal human involvement
+  - Based on algorithms designed by humans
+  - Portfolio management and rebalancing are automated
+
+- id: q21
+  band: L
+  q: How does a trust work?
+  expect:
+  - 'trust-law :: (lead)'
+  - 'trust-law :: How trust works'
+  hints:
+  - solely for the benefit of a designated person
+  reference: A trust is a legal arrangement where the owner of property (the settlor) gives it to a trustee to manage solely for the benefit of a beneficiary. The trustee is the legal owner, the beneficiaries are the equitable owners, and the trustee has a fiduciary duty to manage it for them.
+  key_points:
+  - Settlor gives property to a trustee to manage for a beneficiary
+  - Trustee is legal owner; beneficiaries are equitable owners
+  - Trustee has a fiduciary duty to the beneficiaries
+
+- id: q22
+  band: L
+  q: How does a reverse mortgage work?
+  expect:
+  - 'reverse-mortgage :: (lead)'
+  hints:
+  - typically do not require monthly mortgage payments
+  reference: A reverse mortgage lets older homeowners borrow against the equity in their home without monthly mortgage payments; the loan is repaid when they die, sell or move out. Interest is added to the balance each month, so the debt grows, though the borrower must still pay property taxes and insurance.
+  key_points:
+  - Lets older homeowners access their home equity
+  - No monthly payments; repaid on death, sale or moving out
+  - Interest is added to the balance, so the loan grows
+  - Borrower still pays property taxes and insurance
+
+- id: q23
+  band: L
+  q: What is a HELOC?
+  expect:
+  - 'home-equity-line-of-credit :: (lead)'
+  hints:
+  - revolving type of secured loan
+  reference: A home equity line of credit (HELOC) is a revolving loan secured by the borrower's home, letting them borrow up to a maximum during an agreed term. It is often used for big expenses like home improvements or education, and lenders classify it as a second mortgage.
+  key_points:
+  - A revolving credit line secured by the home
+  - Borrow up to a maximum during a set term
+  - Used for large purchases; counts as a second mortgage
+
+- id: q24
+  band: L
+  q: Why do people mentally put money into separate buckets?
+  expect:
+  - 'mental-accounting :: (lead)'
+  hints:
+  - self control strategy
+  reference: Mental accounting, described by Richard Thaler, is how people code and categorize money into mental accounts, such as savings for a home or expense categories like gas or clothing. People use these accounts as a self-control strategy to manage spending and save for larger goals.
+  key_points:
+  - Mental accounting is a model by Richard Thaler
+  - People split money into mental accounts for savings goals or expense categories
+  - It works as a self-control strategy for spending and saving
+
+- id: q25
+  band: L
+  q: How is value averaging different from dollar cost averaging?
+  expect:
+  - 'value-averaging :: (lead)'
+  hints:
+  - portfolio balance reaches a predetermined monthly or quarterly target
+  reference: With value averaging the investor adds (or withdraws) whatever is needed so the portfolio reaches a preset target each month or quarter, rather than investing a fixed amount each time as in dollar cost averaging. E.g. aiming for $100, then $200, then $300; if the portfolio grew to $101, only $99 is added.
+  key_points:
+  - Contributions bring the portfolio to a preset target value each period
+  - Dollar cost averaging invests a fixed amount instead
+  - Investor may add less, or withdraw, after gains
+
+- id: q26
+  band: L
+  q: What makes a goal SMART?
+  expect:
+  - 'smart-criteria :: (lead)'
+  hints:
+  - specific, measurable, assignable, realistic, and time-bound
+  reference: SMART is an acronym for goals that are specific, measurable, assignable, realistic and time-bound; common variations use attainable, relevant and timely. It was proposed by George T. Doran in 1981.
+  key_points:
+  - Specific, measurable, assignable (or attainable), realistic (or relevant), time-bound
+  - Proposed by George T. Doran in 1981
+  - Variations of the acronym exist
+
+- id: q27
+  band: XL
+  q: What does it mean that a financial adviser is a fiduciary?
+  expect:
+  - 'fiduciary :: (lead)'
+  - 'financial-adviser :: Regulation > United States > Fiduciary standard'
+  hints:
+  - relationship of trust
+  reference: A fiduciary holds a legal or ethical relationship of trust with another party and takes care of their money or assets. Financial advisers and planners can be fiduciaries, which means they must act in good faith in the client's interest rather than their own.
+  key_points:
+  - A fiduciary has a relationship of trust with a client
+  - Manages money or assets on the client's behalf
+  - Must act in the client's interest, in good faith
+
+- id: q28
+  band: XL
+  q: How does a UGMA account for a child work?
+  expect:
+  - 'uniform-gifts-to-minors-act :: (lead)'
+  hints:
+  - held in the custodian's name for the benefit of the minor
+  reference: Under the Uniform Gifts to Minors Act, assets such as securities can be held in a custodian's name for a minor without setting up a trust. The gift is irrevocable, and when the child reaches 18 or 21 (depending on the state) the assets become theirs to use for any purpose. Contributions may count toward the gift tax, within the annual exclusion.
+  key_points:
+  - Assets held by a custodian for a minor, no trust needed
+  - The donor gives up control of the gift
+  - Child gets the assets at 18 or 21, depending on the state
+  - Gift tax annual exclusion applies to contributions
+
+- id: q29
+  band: XL
+  q: Should I choose a higher insurance deductible?
+  expect:
+  - 'deductible :: (lead)'
+  - 'insurance :: Insurance practices and controversies > Limited consumer benefits'
+  hints:
+  - premiums are typically cheaper when they involve higher deductibles
+  - consumers are advised to select high deductibles
+  reference: A deductible is the amount the policyholder pays out of pocket before the insurer pays. Insurers use it to avoid many small claims, so policies with higher deductibles usually have cheaper premiums, and lower deductibles mean higher premiums. Consumer advocates advise high deductibles, insuring only losses that would disrupt your life.
+  key_points:
+  - The deductible is what you pay before insurance pays
+  - Higher deductible means lower premiums
+  - Lower deductible means higher premiums
+
+- id: q30
+  band: XL
+  q: What is a testamentary trust?
+  expect:
+  - 'testamentary-trust :: (lead)'
+  hints:
+  - trust which arises upon the death of the testator
+  reference: A testamentary trust is a trust created by a person's will that takes effect when they die. It is irrevocable, unlike an inter vivos trust created during the settlor's lifetime, and involves a settlor, a trustee who carries out the will's terms, and beneficiaries.
+  key_points:
+  - Created by a will and takes effect at death
+  - Irrevocable, unlike a trust set up during the settlor's life
+  - Involves a settlor, trustee and beneficiaries
+
+- id: q31
+  band: none
+  q: What is today's average 30-year mortgage rate?
+  expect: []
+  hints: []
+  reference: The knowledge base does not cover this. A good answer says so and does not invent figures or give a buy/sell recommendation.
+  key_points:
+  - Says the provided sources don't contain the answer
+  - Does not invent specific figures or advice
+
+- id: q32
+  band: none
+  q: Which stocks should I buy this week?
+  expect: []
+  hints: []
+  reference: The knowledge base does not cover this. A good answer says so and does not invent figures or give a buy/sell recommendation.
+  key_points:
+  - Says the provided sources don't contain the answer
+  - Does not invent specific figures or advice

@@ -1,0 +1,1034 @@
+# Amortization calculator
+
+<!-- https://en.wikipedia.org/wiki/Amortization_calculator | revision 1376503524 -->
+
+An amortization calculator is used to determine the periodic payment amount due on a loan (typically a mortgage), based on the amortization process.
+The amortization repayment model factors varying amounts of both interest and principal into every installment, though the total amount of each payment is the same.
+An amortization schedule calculator is often used to adjust the loan amount until the monthly payments will fit comfortably into budget, and can vary the interest rate to see the difference a better rate might make in the kind of home or car one can afford. An amortization calculator can also reveal the exact dollar amount that goes towards interest and the exact dollar amount that goes towards principal out of each individual payment. The amortization schedule is a table delineating these figures across the duration of the loan in chronological order.
+
+## The formula
+
+The calculation used to arrive at the periodic payment amount assumes that the first payment is not due on the first day of the loan, but rather one full payment period into the loan.
+While normally used to solve for A, (the payment, given the terms) it can be used to solve for any single variable in the equation provided that all other variables are known. One can rearrange the formula to solve for any one term, except for i, for which one can use a root-finding algorithm.
+The annuity formula is:
+
+  
+    
+      
+        A
+        =
+        P
+        
+          
+            
+              i
+              (
+              1
+              +
+              i
+              
+                )
+                
+                  n
+                
+              
+            
+            
+              (
+              1
+              +
+              i
+              
+                )
+                
+                  n
+                
+              
+              −
+              1
+            
+          
+        
+        =
+        P
+        i
+        ×
+        
+          
+            
+              (
+              1
+              +
+              i
+              
+                )
+                
+                  n
+                
+              
+            
+            
+              (
+              1
+              +
+              i
+              
+                )
+                
+                  n
+                
+              
+              −
+              1
+            
+          
+        
+        ×
+        
+          
+            
+              (
+              1
+              +
+              i
+              
+                )
+                
+                  −
+                  n
+                
+              
+            
+            
+              (
+              1
+              +
+              i
+              
+                )
+                
+                  −
+                  n
+                
+              
+            
+          
+        
+        =
+        
+          
+            
+              P
+              ×
+              i
+            
+            
+              1
+              −
+              (
+              1
+              +
+              i
+              
+                )
+                
+                  −
+                  n
+                
+              
+            
+          
+        
+      
+    
+    {\displaystyle A=P{\frac {i(1+i)^{n}}{(1+i)^{n}-1}}=Pi\times {\frac {(1+i)^{n}}{(1+i)^{n}-1}}\times {\frac {(1+i)^{-n}}{(1+i)^{-n}}}={\frac {P\times i}{1-(1+i)^{-n}}}}
+  
+
+Or, equivalently:
+
+  
+    
+      
+        A
+        =
+        P
+        
+          
+            
+              i
+              (
+              1
+              +
+              i
+              
+                )
+                
+                  n
+                
+              
+            
+            
+              (
+              1
+              +
+              i
+              
+                )
+                
+                  n
+                
+              
+              −
+              1
+            
+          
+        
+        =
+        P
+        i
+        ×
+        
+          
+            
+              (
+              1
+              +
+              i
+              
+                )
+                
+                  n
+                
+              
+            
+            
+              (
+              1
+              +
+              i
+              
+                )
+                
+                  n
+                
+              
+              −
+              1
+            
+          
+        
+        =
+        P
+        i
+        ×
+        
+          
+            
+              (
+              1
+              +
+              i
+              
+                )
+                
+                  n
+                
+              
+              −
+              1
+              +
+              1
+            
+            
+              (
+              1
+              +
+              i
+              
+                )
+                
+                  n
+                
+              
+              −
+              1
+            
+          
+        
+        =
+        P
+        i
+        ×
+        (
+        
+          
+            
+              (
+              1
+              +
+              i
+              
+                )
+                
+                  n
+                
+              
+              −
+              1
+            
+            
+              (
+              1
+              +
+              i
+              
+                )
+                
+                  n
+                
+              
+              −
+              1
+            
+          
+        
+        +
+        
+          
+            1
+            
+              (
+              1
+              +
+              i
+              
+                )
+                
+                  n
+                
+              
+              −
+              1
+            
+          
+        
+        )
+        =
+        P
+        
+          (
+          
+            i
+            +
+            
+              
+                i
+                
+                  (
+                  1
+                  +
+                  i
+                  
+                    )
+                    
+                      n
+                    
+                  
+                  −
+                  1
+                
+              
+            
+          
+          )
+        
+      
+    
+    {\displaystyle A=P{\frac {i(1+i)^{n}}{(1+i)^{n}-1}}=Pi\times {\frac {(1+i)^{n}}{(1+i)^{n}-1}}=Pi\times {\frac {(1+i)^{n}-1+1}{(1+i)^{n}-1}}=Pi\times ({\frac {(1+i)^{n}-1}{(1+i)^{n}-1}}+{\frac {1}{(1+i)^{n}-1}})=P\left(i+{\frac {i}{(1+i)^{n}-1}}\right)}
+  
+
+Where:
+
+A = periodic payment amount
+P = amount of principal, net of initial payments, meaning "subtract any down-payments"
+i = periodic interest rate
+n = total number of payments
+This formula is valid if i > 0. If i = 0 then simply A = P / n.
+
+For a 30-year loan with monthly payments, 
+  
+    
+      
+        n
+        =
+        30
+        
+           years
+        
+        ×
+        12
+        
+           months/year
+        
+        =
+        360
+        
+           months
+        
+      
+    
+    {\displaystyle n=30{\text{ years}}\times 12{\text{ months/year}}=360{\text{ months}}}
+  
+
+Note that the interest rate is commonly referred to as an annual percentage rate (e.g. 8% APR), but in the above formula, since the payments are monthly, the rate 
+  
+    
+      
+        i
+      
+    
+    {\displaystyle i}
+  
+ must be in terms of a monthly percent. Converting an annual interest rate (that is to say, annual percentage yield or APY) to the monthly rate is not as simple as dividing by 12; see APR. However, if the rate is stated in terms of "APR" and not "annual interest rate", then dividing by 12 is an appropriate means of determining the monthly interest rate.
+
+## Derivation of the formula
+
+The formula for the periodic payment amount 
+  
+    
+      
+        A
+      
+    
+    {\displaystyle A}
+  
+ is derived as follows.  For an amortization schedule, we can define a function 
+  
+    
+      
+        
+          p
+          
+            t
+          
+        
+      
+    
+    {\displaystyle p_{t}}
+  
+ that represents the principal amount remaining immediately after the 
+  
+    
+      
+        t
+      
+    
+    {\displaystyle t}
+  
+-th payment is made.  The total number of payments of the entire amortized loan is 
+  
+    
+      
+        n
+      
+    
+    {\displaystyle n}
+  
+.  We can then derive a formula for this function to solve for the unknown payment amount 
+  
+    
+      
+        A
+      
+    
+    {\displaystyle A}
+  
+, with the definition 
+  
+    
+      
+        r
+        =
+        1
+        +
+        i
+      
+    
+    {\displaystyle r=1+i}
+  
+.
+This general rule for the 
+  
+    
+      
+        t
+      
+    
+    {\displaystyle t}
+  
+-th payment is
+
+  
+    
+      
+        
+        
+          p
+          
+            t
+          
+        
+        =
+        
+          p
+          
+            t
+            −
+            1
+          
+        
+        r
+        −
+        A
+      
+    
+    {\displaystyle \;p_{t}=p_{t-1}r-A}
+  
+
+And the initial condition is
+
+  
+    
+      
+        
+        
+          p
+          
+            0
+          
+        
+        =
+        P
+      
+    
+    {\displaystyle \;p_{0}=P}
+  
+
+The principal immediately after the first payment is
+
+  
+    
+      
+        
+        
+          p
+          
+            1
+          
+        
+        =
+        
+          p
+          
+            0
+          
+        
+        r
+        −
+        A
+        =
+        P
+        r
+        −
+        A
+      
+    
+    {\displaystyle \;p_{1}=p_{0}r-A=Pr-A}
+  
+
+Note that in order to reduce the principal amount, 
+  
+    
+      
+        
+          p
+          
+            1
+          
+        
+        <
+        
+          p
+          
+            0
+          
+        
+      
+    
+    {\displaystyle p_{1}<p_{0}}
+  
+ or 
+  
+    
+      
+        P
+        (
+        r
+        −
+        1
+        )
+        =
+        P
+        i
+        <
+        A
+      
+    
+    {\displaystyle P(r-1)=Pi<A}
+  
+.  This defines a minimum payment necessary to exceed the interest added to the loan and make progress to pay it off.
+The principal immediately after the second payment is
+
+  
+    
+      
+        
+        
+          p
+          
+            2
+          
+        
+        =
+        
+          p
+          
+            1
+          
+        
+        r
+        −
+        A
+        =
+        P
+        
+          r
+          
+            2
+          
+        
+        −
+        A
+        r
+        −
+        A
+      
+    
+    {\displaystyle \;p_{2}=p_{1}r-A=Pr^{2}-Ar-A}
+  
+
+The principal immediately after the third payment is
+
+  
+    
+      
+        
+        
+          p
+          
+            3
+          
+        
+        =
+        
+          p
+          
+            2
+          
+        
+        r
+        −
+        A
+        =
+        P
+        
+          r
+          
+            3
+          
+        
+        −
+        A
+        
+          r
+          
+            2
+          
+        
+        −
+        A
+        r
+        −
+        A
+      
+    
+    {\displaystyle \;p_{3}=p_{2}r-A=Pr^{3}-Ar^{2}-Ar-A}
+  
+
+This may be generalized to
+
+  
+    
+      
+        
+        
+          p
+          
+            t
+          
+        
+        =
+        P
+        
+          r
+          
+            t
+          
+        
+        −
+        A
+        
+          ∑
+          
+            k
+            =
+            0
+          
+          
+            t
+            −
+            1
+          
+        
+        
+          r
+          
+            k
+          
+        
+      
+    
+    {\displaystyle \;p_{t}=Pr^{t}-A\sum _{k=0}^{t-1}r^{k}}
+  
+
+Applying the substitution (see geometric progressions)
+
+  
+    
+      
+        
+        
+          ∑
+          
+            k
+            =
+            0
+          
+          
+            t
+            −
+            1
+          
+        
+        
+          r
+          
+            k
+          
+        
+        =
+        1
+        +
+        r
+        +
+        
+          r
+          
+            2
+          
+        
+        +
+        .
+        .
+        .
+        +
+        
+          r
+          
+            t
+            −
+            1
+          
+        
+        =
+        
+          
+            
+              
+                r
+                
+                  t
+                
+              
+              −
+              1
+            
+            
+              r
+              −
+              1
+            
+          
+        
+      
+    
+    {\displaystyle \;\sum _{k=0}^{t-1}r^{k}=1+r+r^{2}+...+r^{t-1}={\frac {r^{t}-1}{r-1}}}
+  
+
+This results in
+
+  
+    
+      
+        
+        
+          p
+          
+            t
+          
+        
+        =
+        P
+        
+          r
+          
+            t
+          
+        
+        −
+        A
+        
+          
+            
+              
+                r
+                
+                  t
+                
+              
+              −
+              1
+            
+            
+              r
+              −
+              1
+            
+          
+        
+      
+    
+    {\displaystyle \;p_{t}=Pr^{t}-A{\frac {r^{t}-1}{r-1}}}
+  
+
+For 
+  
+    
+      
+        n
+      
+    
+    {\displaystyle n}
+  
+ payment periods, we expect the principal amount will be completely paid off at the last payment period, or
+
+  
+    
+      
+        
+        
+          p
+          
+            n
+          
+        
+        =
+        P
+        
+          r
+          
+            n
+          
+        
+        −
+        A
+        
+          
+            
+              
+                r
+                
+                  n
+                
+              
+              −
+              1
+            
+            
+              r
+              −
+              1
+            
+          
+        
+        =
+        0
+      
+    
+    {\displaystyle \;p_{n}=Pr^{n}-A{\frac {r^{n}-1}{r-1}}=0}
+  
+
+Solving for 
+  
+    
+      
+        A
+      
+    
+    {\displaystyle A}
+  
+, we get
+
+  
+    
+      
+        
+        A
+        =
+        P
+        
+          
+            
+              
+                r
+                
+                  n
+                
+              
+              (
+              r
+              −
+              1
+              )
+            
+            
+              
+                r
+                
+                  n
+                
+              
+              −
+              1
+            
+          
+        
+        =
+        P
+        
+          
+            
+              (
+              i
+              +
+              1
+              
+                )
+                
+                  n
+                
+              
+              (
+              (
+              i
+              +
+              
+                
+                  1
+                
+              
+              )
+              −
+              
+                
+                  1
+                
+              
+              )
+            
+            
+              (
+              i
+              +
+              1
+              
+                )
+                
+                  n
+                
+              
+              −
+              1
+            
+          
+        
+        =
+        P
+        
+          
+            
+              i
+              (
+              1
+              +
+              i
+              
+                )
+                
+                  n
+                
+              
+            
+            
+              (
+              1
+              +
+              i
+              
+                )
+                
+                  n
+                
+              
+              −
+              1
+            
+          
+        
+      
+    
+    {\displaystyle \;A=P{\frac {r^{n}(r-1)}{r^{n}-1}}=P{\frac {(i+1)^{n}((i+{\cancel {1}})-{\cancel {1}})}{(i+1)^{n}-1}}=P{\frac {i(1+i)^{n}}{(1+i)^{n}-1}}}
+
+## Other uses
+
+While often used for mortgage-related purposes, an amortization calculator can also be used to analyze other debt, including short-term loans, student loans and credit cards.

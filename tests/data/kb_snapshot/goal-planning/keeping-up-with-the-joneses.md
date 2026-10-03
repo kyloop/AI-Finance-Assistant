@@ -1,0 +1,24 @@
+# Keeping up with the Joneses
+
+<!-- https://en.wikipedia.org/wiki/Keeping_up_with_the_Joneses | revision 1377833598 -->
+
+"Keeping up with the Joneses" is an idiom in many parts of the English-speaking world referring to the comparison of oneself to one's neighbor, where the neighbor serves as a benchmark for social class or the accumulation of material goods. Failure to "keep up with the Joneses" is perceived as a demonstration of socio-economic or cultural inferiority. The phrase was popularized by a 1910s comic strip of the same name but was a commonplace elsewhere.
+
+## Origins
+
+The phrase gained currency with the comic strip Keeping Up with the Joneses, created by Arthur R. "Pop" Momand in 1913. The strip ran until 1940 in The New York World and various other newspapers. The strip depicts the social climbing McGinis family, who struggle to "keep up" with their neighbors, the Joneses of the title. The Joneses were unseen characters throughout the strip's run, often spoken of but never shown. The idiom keeping up with the Joneses has remained popular long after the strip's end.
+The family name Jones is common in the English speaking world, and has long been used in reference to metaphorical or hypothetical neighbors or friends in discussions of social comparison or status. In 1879, English writer E. J. Simmons wrote in Memoirs of a Station Master of the railroad station as a place for social exchange: "The Joneses, who don't associate with the Robinsons, meet there." American humorist Mark Twain made an allusion to Smith and Jones families with regard to social custom in the essay "Corn Pone Opinions", written in 1901 but first published in 1923: "The outside influences are always pouring in upon us, and we are always obeying their orders and accepting their verdicts. The Smiths like the new play; the Joneses go to see it, and they copy the Smith verdict." Starting in 1908, D. W. Griffith directed a series of comedy shorts starring the Biograph Girl, Florence Lawrence, featuring the people next door, The Joneses.
+An alternative theory is that the Joneses of the saying refer to the wealthy family of Edith Wharton's father, the Joneses. The Joneses were a prominent New York family with substantial interests in Chemical Bank as a result of marrying the daughters of the bank's founder, John Mason. The Joneses and other rich New Yorkers began to build country villas in the Hudson Valley around Rhinecliff and Rhinebeck, which had belonged to the Livingstons, another prominent New York family to whom the Joneses were related. The houses became grander and grander. In 1853, Elizabeth Schermerhorn Jones built a 24-room gothic villa called Wyndcliffe described by Henry Winthrop Sargent in 1859 as being very fine in the style of a Scottish castle, but described by Edith Wharton, Elizabeth's niece, as a gloomy monstrosity.
+
+## Social effects
+
+The philosophy of "keeping up with the Joneses" has widespread effects on some societies. According to this philosophy, conspicuous consumption occurs when people care about their standard of living and its appearance in relation to their peers.
+According to Roger Mason, a professor of business management, "the demand for status goods, fueled by conspicuous consumption, has diverted many resources away from investment in the manufacture of more material goods and services in order to satisfy consumer preoccupations with their relative social standing and prestige".
+Social status once depended to a large extent on one's family name; however, social mobility in the United States and the rise of consumerism there both gave rise to changes. With the increasing availability of consumer goods, people became more inclined to define themselves by what they possessed and the quest for higher status accelerated. Conspicuous consumption and materialism have since become widely prevalent.
+Inability to "keep up with the Joneses" might result in dissatisfaction, even for people whose status is high. This could possibly tie in with the concept of the "hedonic treadmill" which proposes people have a baseline level of happiness or satisfaction which cannot be permanently modified by increased income, status or material products.
+
+## In popular culture
+
+In the 1936 book The Next 100 Years, Clifford C. Furnas writes that the phenomenon of "'Keeping up with the Joneses' ... is descended from the spreading of the peacock's tail."
+In the United Kingdom, when Princess Margaret married photographer Anthony Armstrong-Jones in 1960, Wallis Simpson allegedly said: "At least we're keeping up with the Armstrong-Joneses".
+The Temptations recorded the song "Don't Let The Joneses Get You Down" on their 1969 album Puzzle People. Nine Days' 2002 album So Happily Unsatisfied includes the song "The Joneses", with lyrics that reference the idiom.

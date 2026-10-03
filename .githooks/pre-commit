@@ -1,0 +1,17 @@
+#!/bin/sh
+# Block a commit whose staged changes contain a secret (API key, token, private key, password), checked
+# locally and offline by gitleaks. Enable once per clone:  git config core.hooksPath .githooks
+# Skipping it (git commit --no-verify) is for false positives only; never for a real secret.
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "pre-commit: gitleaks is not installed, so the staged changes can't be checked for secrets." >&2
+  echo "  Install it (brew install gitleaks, or a release binary from https://github.com/gitleaks/gitleaks/releases)," >&2
+  echo "  or disable the hook: git config --unset core.hooksPath" >&2
+  exit 1
+fi
+if ! gitleaks git --staged --redact --no-banner --verbose . ; then
+  echo "" >&2
+  echo "pre-commit: gitleaks found what looks like a secret in the staged changes (values redacted above)." >&2
+  echo "  Remove it and unstage the file; keep keys in .env (gitignored). If it is a false positive, add the" >&2
+  echo "  fingerprint above to .gitleaksignore." >&2
+  exit 1
+fi

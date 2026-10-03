@@ -1,0 +1,14 @@
+# Cost of equity
+
+<!-- https://en.wikipedia.org/wiki/Cost_of_equity | revision 1375644998 -->
+
+In finance, the cost of equity is the return (often expressed as a rate of return) a firm theoretically pays to its equity investors, i.e., shareholders, to compensate for the risk they undertake by investing their capital. Firms need to acquire capital from others to operate and grow. Individuals and organizations who are willing to provide their funds to others naturally desire to be rewarded. Just as landlords seek rents on their property, capital providers seek returns on their funds, which must be commensurate with the risk undertaken.
+Firms obtain capital from two kinds of sources: lenders and equity investors. From the perspective of capital providers, lenders seek to be rewarded with interest and equity investors seek dividends and/or appreciation in the value of their investment (capital gain).  From a firm's perspective, they must pay for the capital it obtains from others, which is called its cost of capital. Such costs are separated into a firm's cost of debt and cost of equity and attributed to these two kinds of capital sources.
+A firm's overall cost of capital, which consists of the two types of capital costs, is then determined as the weighted average cost of capital. Knowing a firm's cost of capital is needed in order to make better decisions. Managers make capital budgeting decisions while capital providers make decisions about lending and investment. Such decisions can be made after quantitative analysis that typically uses a firm's cost of capital as a model input.
+While a firm's present cost of debt is relatively easy to determine from observation of interest rates in the capital markets, its current cost of equity is unobservable and must be estimated. At the least, though, as a firm's risk increases/decreases, its cost of capital increases/decreases: capital providers expect reward for offering their funds to others. Such providers are usually rational and prudent preferring safety over risk. They naturally require an extra reward as an incentive to place their capital in a riskier investment instead of a safer one. If an investment's risk increases, capital providers therefore  demand higher returns or they will place their capital elsewhere.
+Finance theory (and practice) offers various models for estimating a particular firm's cost of equity:
+
+The capital asset pricing model, or CAPM, is prototypical.
+The Gordon Model, is a discounted cash flow model based on dividend returns and eventual capital return from the sale of the investment.
+The Bond Yield Plus Risk Premium (BYPRP), adds a subjective risk premium to the firm's long-term debt interest rate.
+The cost of equity can be calculated using the discounted residual income model to estimate the market implied cost-of-capital, and the cost of equity can then be backed-out.

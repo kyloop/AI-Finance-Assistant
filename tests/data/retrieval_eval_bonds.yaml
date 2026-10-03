@@ -1,0 +1,372 @@
+# Retrieval ground truth for the `bonds` category (python -m scripts.eval_retrieval --category bonds).
+# Same format as retrieval_eval_basics.yaml: expect = "<doc_id> :: <section path>" (any one counts), hints = answer
+# phrases (any one counts), band = size of the expected section in tokens: S < 150, M 150-249, L 250-512, XL > 512.
+# reference / key_points: the true answer, from the source section; used by the generation test
+# (scripts/eval_generation.py) for correctness and completeness.
+# 2026-09-30: category grew from 15 to 50 pages; q21-q30 added for the new pages, and q08, q14 and q16 gained
+# correct sections from them.
+
+- id: q01
+  band: S
+  q: Should I buy a bond fund instead of individual bonds?
+  expect: ["bond-fund :: Advantages over individual bonds"]
+  hints: ["even a relatively small investment is diversified"]
+  reference: 'Bond funds offer professional management (no need to research each issuer), diversification even with a small investment, automatic reinvestment of income, and liquidity: shares can be sold at any time regardless of bond maturities.'
+  key_points:
+    - Professional management saves researching individual bonds
+    - Diversification across many bonds, even for a small investment
+    - Automatic reinvestment of income
+    - 'Liquidity: sell any time regardless of maturity'
+
+- id: q02
+  band: S
+  q: What is the difference between investment-grade and junk corporate bonds?
+  expect: ["corporate-bond :: High grade versus high yield", "high-yield-debt :: (lead)"]
+  hints: ["BB and below are high yield"]
+  reference: They're split by credit rating. Investment-grade (high-grade) bonds are rated AAA, AA, A or BBB. Bonds rated BB and below are high-yield, also called junk or speculative grade. Many pension funds and insurers may hold only a token amount of high-yield bonds.
+  key_points:
+    - The split is by credit rating
+    - 'Investment grade: AAA, AA, A, BBB'
+    - 'High-yield/junk: BB and below'
+    - Many pension funds and insurers are restricted from holding much junk
+
+- id: q03
+  band: S
+  q: When does a bond sell at a premium or at a discount?
+  expect: ["yield-to-maturity :: Coupon rate vs. YTM and parity"]
+  hints: ["selling at a premium"]
+  reference: Compare the coupon rate with the yield to maturity. If the coupon rate is below the YTM, the bond sells at a discount; above the YTM, at a premium; equal to the YTM, at par.
+  key_points:
+    - 'Coupon rate < YTM: discount'
+    - 'Coupon rate > YTM: premium'
+    - 'Coupon rate = YTM: par'
+
+- id: q04
+  band: S
+  q: What are the downsides of inflation-protected bonds?
+  expect: ["inflation-indexed-bond :: Risks and limitations"]
+  hints: ["Basis risk"]
+  reference: Results depend on the reference index, indexation lag and whether there's a deflation floor. Basis risk arises when your own inflation differs from the index. Liquidity premia can move prices away from fair value. In the U.S., taxable investors pay tax yearly on the inflation-adjusted principal increase even though they don't receive it in cash.
+  key_points:
+    - Outcomes depend on the index, indexation lag and deflation floor
+    - 'Basis risk: your personal inflation may differ from the index'
+    - Liquidity premia can distort prices
+    - U.S. taxable investors owe tax on the principal increase before receiving it
+
+- id: q05
+  band: S
+  q: What is a bond coupon and how is it paid?
+  expect: ["coupon-finance :: (lead)"]
+  hints: ["coupon is the interest payment"]
+  reference: A coupon is the regular interest payment a bond issuer promises to pay the bondholder from issue until maturity. The coupon rate is the yearly coupons divided by the face value; e.g. a $1,000 bond at 5% pays $50 a year, typically as two semi-annual payments of $25.
+  key_points:
+    - A coupon is the bond's regular interest payment
+    - Paid from issuance until maturity
+    - Coupon rate = annual coupons / face value
+    - Typically paid semi-annually (e.g. $50/yr as two $25 payments)
+
+- id: q06
+  band: S
+  q: Are US savings bonds a safe investment?
+  expect: ["united-states-savings-bonds :: (lead)", "united-states-treasury-security :: Nonmarketable securities > U.S. savings bonds"]
+  hints: ["safest investments"]
+  reference: 'Yes: they''re considered among the safest investments because they''re backed by the full faith and credit of the U.S. government. They''re issued by the Treasury, can''t be traded or transferred, and can be redeemed only by the original buyer, a gift recipient or a beneficiary.'
+  key_points:
+    - Considered one of the safest investments
+    - Backed by the full faith and credit of the U.S. government
+    - 'Nonmarketable: can''t be traded or transferred'
+
+- id: q07
+  band: M
+  q: Do I pay federal tax on municipal bond interest?
+  expect: ["municipal-bond :: Characteristics of municipal bonds > Taxability"]
+  hints: ["excludable from gross income"]
+  reference: Usually not. Interest from most municipal bonds is excluded from gross income for federal income tax, and may also be exempt from state tax depending on the state. Not all munis are tax-exempt, and some are subject to the alternative minimum tax.
+  key_points:
+    - Interest on most municipal bonds is exempt from federal income tax
+    - May also be exempt from state tax, depending on the state
+    - Not all munis are tax-exempt; some are subject to AMT
+
+- id: q08
+  band: M
+  q: What is the difference between a bond's clean price and dirty price?
+  expect: ["bond-finance :: Features > Market price", "dirty-price :: (lead)", "clean-price :: (lead)", "bond-valuation :: Clean and dirty price"]
+  hints: ["does not include accrued interest", "excludes accrued interest"]
+  reference: The dirty price includes accrued interest (the present value of all future cash flows including interest accrued so far); the clean price excludes accrued interest. Dirty prices are common in Europe, clean prices in the U.S.
+  key_points:
+    - Dirty price includes accrued interest
+    - Clean price excludes accrued interest
+    - Dirty is common in Europe, clean in the U.S.
+
+- id: q09
+  band: M
+  q: How often do junk bonds default?
+  expect: ["high-yield-debt :: Default risk"]
+  hints: ["default rate in the high-yield sector"]
+  reference: High-yield (junk) bonds in the U.S. have defaulted at about 5% a year on average over the long term. The rate reached 5.6–7% in the 1989–90 liquidity crisis and just under 9% during the COVID-19 pandemic; recessions raise default risk.
+  key_points:
+    - Long-term average default rate about 5%
+    - 5.6–7% during the 1989–90 crisis
+    - Just under 9% during COVID-19
+    - Recessions increase default risk
+
+- id: q10
+  band: M
+  q: What does a normal yield curve look like?
+  expect: ["yield-curve :: Significance of slope and shape > Types of yield curve > Normal yield curve"]
+  hints: ["yields rise as maturity lengthens"]
+  reference: 'A normal yield curve slopes upward: yields rise as maturity lengthens. This reflects expectations of higher future short-term rates and term premia for the uncertainty of longer maturities. It has been the usual shape since the Great Depression.'
+  key_points:
+    - 'Upward-sloping: longer maturities have higher yields'
+    - Reflects expected higher future rates and term premia
+    - It has been the usual shape since the post-Depression era
+
+- id: q11
+  band: L
+  q: Does an inverted yield curve predict a recession?
+  expect: ["yield-curve :: Significance of slope and shape > Types of yield curve > Inverted yield curve",
+           "yield-curve :: Significance of slope and shape", "yield-curve :: Relationship to the business cycle"]
+  hints: ["inverted yield curve accurately forecasts", "Strongly inverted yield curves have historically preceded"]
+  reference: 'Historically it has been a strong signal: research by Campbell Harvey (1986) showed an inverted yield curve accurately forecasts U.S. recessions, and it has signalled a worsening economy eight times since 1970. It can also reflect expectations of low inflation, and technical factors can cause inversions too, so it''s not a guarantee.'
+  key_points:
+    - Inverted curves have historically preceded U.S. recessions
+    - Campbell Harvey's 1986 research; eight signals since 1970
+    - Also implies the market expects low inflation
+    - Technical factors can cause inversions, so it isn't certain
+
+- id: q12
+  band: L
+  q: Why do I owe tax on a zero-coupon bond that pays no interest?
+  expect: ["zero-coupon-bond :: Taxes"]
+  hints: ["phantom income"]
+  reference: 'A zero-coupon bond is issued at a discount (original issue discount), and U.S. tax rules treat part of that discount as interest received each year: ''phantom income'', taxed even though no cash is paid. That''s why such bonds are often held in tax-deferred accounts; zeros from state or local governments are usually tax-free.'
+  key_points:
+    - Original issue discount is treated as yearly interest for tax
+    - This 'phantom income' is taxed although no cash is received
+    - Often held in tax-deferred retirement accounts to avoid this
+    - Municipal zero-coupon bonds are generally tax-free
+
+- id: q13
+  band: L
+  q: How long until a Treasury bond matures and how often does it pay interest?
+  expect: ["united-states-treasury-security :: Marketable securities > Treasury bond"]
+  hints: ["twenty or thirty years"]
+  reference: Treasury bonds have the longest maturities, 20 or 30 years, and pay a coupon every six months.
+  key_points:
+    - Maturity of 20 or 30 years
+    - Coupon paid every six months
+
+- id: q14
+  band: L
+  q: Why do bond prices fall when interest rates rise?
+  expect: ["interest-rate-risk :: Market risk", "bond-finance :: Investing in bonds", "bond-finance :: Features > Market price",
+           "duration-finance :: Risk – duration as interest rate sensitivity", "yield-curve :: Effect on bond prices",
+           "government-bond :: Risks > Interest rate risk", "bond-market :: Volatility"]
+  hints: ["price is to interest rate changes", "market prices will decrease in value when", "bond prices fall when interest rates rise", "value of existing bonds falls"]
+  reference: A fixed-rate bond's payments don't change, so when market rates rise, new bonds pay more and existing bonds must fall in price until their yield is competitive. How much the price moves depends on the bond's time to maturity and its coupon rate.
+  key_points:
+    - Fixed payments become less attractive when new bonds pay higher rates
+    - So the existing bond's price falls (its yield rises)
+    - Sensitivity depends on time to maturity and coupon rate
+
+- id: q15
+  band: XL
+  q: How is the interest rate on Series I savings bonds set?
+  # Treasury page's savings-bond section repeats the same answer; added after the first run showed it (label fix)
+  expect: ["united-states-savings-bonds :: Currently issued bonds > Series I",
+           "united-states-treasury-security :: Nonmarketable securities > U.S. savings bonds"]
+  hints: ["fixed rate which will remain constant"]
+  reference: 'The I-bond rate has two parts: a fixed rate set by the Treasury that stays the same for the bond''s life, and a variable inflation rate adjusted every six months, based on the CPI-U (consumer price index for urban areas).'
+  key_points:
+    - 'Two components: fixed rate plus inflation rate'
+    - The fixed rate stays constant for the life of the bond
+    - The variable rate adjusts every six months
+    - The inflation part is based on CPI-U
+
+- id: q16
+  band: XL
+  q: How do Treasury bills pay interest if they have no coupon?
+  expect: ["united-states-treasury-security :: Marketable securities > Treasury bill", "zero-coupon-bond :: (lead)"]
+  hints: ["bought at a discount of the par value", "Examples of zero-coupon bonds include US Treasury bills"]
+  reference: 'T-bills are zero-coupon: you buy them at a discount to their par value and receive the full par value at maturity; the difference is your return. They mature in one year or less.'
+  key_points:
+    - Bought at a discount to par value
+    - Redeemed at full par value at maturity
+    - The difference is the interest/return
+    - Maturity of one year or less
+
+- id: q17
+  band: XL
+  q: How much more likely are lower-rated bonds to default?
+  expect: ["credit-rating :: Corporate credit ratings"]
+  hints: ["cumulative default rate"]
+  reference: Much more likely. A Moody's study of five-year cumulative default rates found 0.18% for Aaa, 0.28% for Aa2, 2.11% for Baa2, 8.82% for Ba2 and 31.24% for B2. Lower ratings mean a higher probability of default.
+  key_points:
+    - Lower ratings mean higher default probability
+    - 'Five-year default: Aaa 0.18%, Baa2 2.11%'
+    - Ba2 8.82% and B2 31.24%
+
+- id: q18
+  band: XL
+  q: Are bonds safer than stocks?
+  expect: ["bond-finance :: Investing in bonds"]
+  hints: ["generally viewed as safer investments than equities"]
+  reference: Generally yes, but only partly. Bonds are less volatile than stocks and bondholders get some legal protection in bankruptcy, but bonds still carry interest rate risk, credit risk, inflation and other risks.
+  key_points:
+    - Bonds are generally viewed as safer and less volatile than stocks
+    - Bondholders have more legal protection in bankruptcy
+    - 'But they still have risks: interest rate, credit, inflation and others'
+
+- id: q19
+  band: none
+  q: What are this year's Roth IRA contribution limits?
+  expect: []
+  hints: []
+  reference: The knowledge base does not cover this. A good answer says so and does not invent figures or give a buy/sell recommendation.
+  key_points:
+    - Says the provided sources don't contain the answer
+    - Does not invent specific figures or advice
+
+- id: q20
+  band: none
+  q: Should I buy Tesla stock now?
+  expect: []
+  hints: []
+  reference: The knowledge base does not cover this. A good answer says so and does not invent figures or give a buy/sell recommendation.
+  key_points:
+    - Says the provided sources don't contain the answer
+    - Does not invent specific figures or advice
+
+- id: q21
+  band: XL
+  q: What is a callable bond?
+  expect:
+  - 'callable-bond :: (lead)'
+  hints:
+  - redeeming the bond at some point before
+  reference: A callable bond lets the issuer redeem (buy back) the bond before maturity at a set call price, usually above par. Issuers tend to call when interest rates fall; to compensate investors for this risk, callable bonds pay a higher coupon.
+  key_points:
+  - The issuer can redeem the bond before maturity
+  - At a call price usually above par
+  - Investors get a higher coupon in return
+
+- id: q22
+  band: S
+  q: How do I calculate a bond's current yield?
+  expect:
+  - 'current-yield :: (lead)'
+  - 'current-yield :: Example'
+  hints:
+  - ratio of the annual interest
+  reference: Current yield = the bond's annual interest (coupon) payment divided by its current market price.
+  key_points:
+  - Current yield = annual interest payment / current price
+  - Uses the market price, not face value
+
+- id: q23
+  band: L
+  q: What is a convertible bond?
+  expect:
+  - 'convertible-bond :: (lead)'
+  hints:
+  - convert into a specified number of shares
+  reference: A convertible bond is a bond the holder can convert into a set number of the issuer's shares (or their cash value). It's a hybrid with debt and equity features, and because of the conversion option it usually pays a lower interest rate than a regular bond.
+  key_points:
+  - Can be converted into a set number of the issuer's shares
+  - Hybrid of debt and equity
+  - Usually pays a lower rate in exchange for the conversion option
+
+- id: q24
+  band: S
+  q: What is a floating rate note?
+  expect:
+  - 'floating-rate-note :: (lead)'
+  hints:
+  - variable coupon
+  reference: A floating rate note (FRN) is a bond with a variable coupon equal to a money-market reference rate (such as SOFR) plus a fixed spread. Most pay quarterly, and the coupon resets at the start of each period.
+  key_points:
+  - Coupon varies with a reference rate (e.g. SOFR)
+  - Plus a fixed spread
+  - Usually pays quarterly and resets each period
+
+- id: q25
+  band: XL
+  q: What is a mortgage-backed security?
+  expect:
+  - 'mortgage-backed-security :: (lead)'
+  hints:
+  - secured by a mortgage or collection of mortgages
+  reference: 'A mortgage-backed security (MBS) is an asset-backed security secured by a pool of mortgages: the loans are bundled (securitized) into a security investors can buy, and borrowers'' interest and principal payments pass through to the investors.'
+  key_points:
+  - Secured by a pool of mortgages
+  - Mortgages are bundled (securitized) into a tradable security
+  - Borrowers' payments pass through to investors
+
+- id: q26
+  band: L
+  q: What is a green bond?
+  expect:
+  - 'green-bond :: (lead)'
+  hints:
+  - positive environmental benefits
+  reference: A green bond is a bond whose proceeds fund projects with environmental benefits, such as renewable energy, energy efficiency or clean transport. Green bonds follow the ICMA Green Bond Principles.
+  key_points:
+  - Funds projects with environmental benefits
+  - 'Examples: renewable energy, energy efficiency, clean transport'
+  - Follows the Green Bond Principles
+
+- id: q27
+  band: S
+  q: What is a bond ladder?
+  expect:
+  - 'laddering :: (lead)'
+  - 'laddering :: Types of laddering > Bond laddering'
+  hints:
+  - different maturity dates
+  reference: Laddering means buying several bonds (or other products) that mature at different dates, the 'rungs'. This spreads out maturities, giving diversification and more stable yields.
+  key_points:
+  - Buy several bonds with different maturity dates
+  - Each maturity is a 'rung'
+  - Provides diversification and more stable yield
+
+- id: q28
+  band: M
+  q: What is a general obligation bond?
+  expect:
+  - 'general-obligation-bond :: (lead)'
+  hints:
+  - pledge to use legally-available resources
+  reference: A general obligation bond is a U.S. municipal bond backed by the government's pledge to use its available resources, including tax revenue (often property taxes), to repay bondholders. Rating agencies usually see this pledge as very strong credit quality.
+  key_points:
+  - A municipal bond backed by the issuer's general resources
+  - Including taxes (often a property tax pledge)
+  - Usually considered very strong credit quality
+
+- id: q29
+  band: S
+  q: What is reinvestment risk?
+  expect:
+  - 'reinvestment-risk :: (lead)'
+  - 'reinvestment-risk :: Coupon reinvestment'
+  - 'reinvestment-risk :: Early redemption'
+  hints:
+  - early redemption risk and coupon reinvestment risk
+  reference: Reinvestment risk is the risk that money you get back from a fixed-income investment, through early redemption or coupon payments, has to be reinvested at lower rates.
+  key_points:
+  - Mainly affects bonds and other fixed income
+  - Comes from early redemption and from reinvesting coupons
+  - Money may have to be reinvested at lower rates
+
+- id: q30
+  band: L
+  q: What is commercial paper?
+  expect:
+  - 'commercial-paper :: (lead)'
+  hints:
+  - unsecured promissory note
+  reference: Commercial paper is an unsecured, short-term promissory note (usually under 270 days) that large companies issue to fund short-term needs like payroll. Because it isn't backed by collateral, only firms with excellent credit ratings can issue it at a reasonable cost.
+  key_points:
+  - Unsecured promissory note
+  - Short maturity, usually under 270 days
+  - Issued by large companies for short-term needs
+  - Only highly rated firms can issue it cheaply

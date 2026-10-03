@@ -1,0 +1,64 @@
+# Morningstar, Inc.
+
+<!-- https://en.wikipedia.org/wiki/Morningstar,_Inc. | revision 1369068130 -->
+
+Morningstar, Inc. is an American financial services firm headquartered in Chicago, Illinois, founded by Joe Mansueto in 1984. It provides an array of investment research and investment management services.
+With operations in 29 countries, Morningstar's research and recommendations are considered by financial journalists as influential in the asset management industry, and a positive or negative recommendation from Morningstar analysts can drive money into or away from any given fund. Through its asset management division, the firm currently manages over US$295 billion as of March 31, 2023.
+The firm also provides software and data platforms for investment professionals, including "Morningstar Research Portal", "Morningstar Direct" and "Morningstar Advisor Workstation".
+
+## History
+
+Founder Joe Mansueto initially had the idea for Morningstar in 1982 while reviewing mutual fund annual reports he had requested from several prominent fund managers. However, it was only after a year working as a stock analyst for Harris Associates, seeing the fund industry and potential competitors up close, that he was convinced that the opportunity was there. Morningstar was subsequently founded in 1984 from his one-bedroom Chicago apartment with an initial investment of US$80,000. The name Morningstar is taken from the last sentence in Walden, a book by Henry David Thoreau; "the sun is but a morning star".
+In July 1999, Morningstar accepted an investment of US$91 million from SoftBank in return for a 20 percent stake in the company.  The two companies had formed a joint venture in Japan the previous year.
+Morningstar's initial public offering occurred on May 3, 2005, with 7,612,500 shares at $18.50 each. Morningstar went public by following in Google's footsteps and using the OpenIPO method, rather than the traditional method. This allowed individual investors to bid on the price of the stock via equal access.
+In 2006, Morningstar acquired Ibbotson Associates, Inc., an investment research firm. In 2007, Morningstar acquired the mutual fund data business of S&P Global.
+In 2010, Morningstar acquired credit rating agency Realpoint for $52 million and began offering structured credit ratings and research to institutional investors. In the same year, Morningstar acquired Old Broad Street Research Ltd. (OBSR), a UK-based provider of fund research, ratings and investment advisory services, for $18.3 million. After the acquisition, the company was renamed as Morningstar OBSR.
+In 2014, Morningstar acquired ByAllAccounts, Inc., a provider of data aggregation technology for financial applications.
+In 2016, Morningstar acquired remaining ownership of PitchBook Data for approximately $225 million. In September 2016, Morningstar announced that it had appointed Kunal Kapoor as chief executive officer, effective January 2017, with Mansueto becoming executive chairman at the same time.
+In 2019, Morningstar acquired the world's fourth largest credit rating agency DBRS for $669 million. After the acquisition, DBRS merged with Morningstar’s credit rating business to form the Morningstar DBRS.
+In 2020, Morningstar entered into an agreement to acquire Sustainalytics, a research and ratings firm specializing in environmental, social, and governance (ESG) insights. That same year, Morningstar agreed to acquire PlanPlus Global, a Canada-based financial planning and risk assessment software company.
+
+In 2021, Morningstar announced it would acquire the UK and international (including Jersey, Hong Kong and Dubai) operations of the Australian wealth management platform Praemium (ASX: PPS) for £35 million. Later that year, Morningstar announced the acquisition of Moorgate Benchmarks, in an effort to grow its index services under Morningstar Indexes.
+In 2022, Morningstar announced that it will acquire the S&P Global-owned Leveraged Commentary & Data (LCD), a company specializing in leveraged loan market data, for about $650 million.
+
+## Products and services
+
+Morningstar offers a wide array of products and services to both retail and institutional investors.
+
+### Morningstar Investment Management
+
+Through its investment management subsidiary, Morningstar currently has over US$265 billion in assets under advisement and management.
+
+### Morningstar Direct
+
+Morningstar Direct is a software platform that provides data and analytics to help professional investment managers craft new products and portfolios.
+
+### Morningstar Office Cloud
+
+Morningstar offers a single end-to-end cloud-based platform for investment advisors, known as Morningstar Office Cloud. The software allows financial advisors to manage their practice, gain access to data and research, analyze investments, and connect with investors.
+
+### Morningstar Investor
+
+The firm offers retail and individual investors access to news, research, and stock, bond, and mutual fund analysis through its 'Morningstar Investor' subscription product. This product was previously known as Morningstar Premium.
+
+### Credit Ratings (NRSRO)
+
+In 2010, Morningstar acquired Realpoint, LLC, a former division of private-equity giant Capmark Finance and a one-time nationally recognized statistical rating organization (NRSRO). The firm was rebranded as Morningstar Credit Ratings and competed with NRSROs such as S&P, Moody's Investors Service, and Fitch Ratings.
+In 2019, Morningstar acquired NRSRO DBRS for $669 million.
+
+### Morningstar Research Portal
+
+In 2022, Morningstar launched its newest research platform aimed at helping financial advisors utilize Morningstar's investment research and other tools to identify and select investments, monitor investment performance, and inform how they communicate with clients.
+
+## Influence and criticisms
+
+Morningstar is considered powerful in the investment management industry, and the firm's ratings and recommendations often influence a fund's assets under management. The firm's "star" ratings are often used by fund managers in marketing materials, and positive star ratings bring a credibility to a fund's strategy. Morningstar's analysts and data are frequently quoted in outlets such as the New York Times, Wall Street Journal, and Financial Times.
+In October 2017, the Wall Street Journal published a front-page feature story criticizing Morningstar's influence and questioned the predictive power of the firm's rating system. In response, Morningstar provided a quantitative analysis showing that higher-rated funds outperform lower-rated funds, but cautioned against using the ratings as a definitive marker of future performance.
+
+## Corporate identity
+
+Morningstar's current logo was designed by graphic designer Paul Rand. The design features the "o" in Morningstar appearing as a rising sun, which is a nod to a Henry David Thoreau quote that inspired the company's name. Mansueto considers the logo "one of our most valuable assets".
+
+## Major offices
+
+The firm is headquartered in Chicago, Illinois, with major regional offices in New York City, London, Paris, Sydney, Hong Kong, Toronto, Mumbai and other cities around the world. Morningstar maintained a technology operations center in Shenzhen for nearly two decades before closing in 2023 at a cost of $30 million, citing changes in the country's regulatory landscape.

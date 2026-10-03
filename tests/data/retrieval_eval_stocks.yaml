@@ -1,0 +1,438 @@
+# Retrieval ground truth for the `stocks` category (python -m scripts.eval_retrieval --category stocks).
+# Same format as retrieval_eval_basics.yaml: expect = "<doc_id> :: <section path>" (any one counts), hints = answer
+# phrases (any one counts), band = size of the expected section in tokens: S < 150, M 150-249, L 250-512, XL > 512.
+# reference / key_points: the true answer, from the source section; used by the generation test.
+# 2026-10-01: 150 pages; q01-q30 written from the pages, q31-q32 are out of scope.
+# After the first retrieval run, q11, q17, q20, q23 and q26 gained correct sections that other pages/sections also answer.
+
+- id: q01
+  band: L
+  q: What is a stock?
+  expect:
+  - 'stock :: (lead)'
+  hints:
+  - ownership of a corporation
+  reference: 'A stock is ownership in a company: the company''s ownership is divided into shares, and each share is a fractional ownership stake. It usually entitles the holder to a proportional share of the company''s earnings, of what''s left if the company is liquidated, and often voting power.'
+  key_points:
+  - Stock represents ownership of a company, divided into shares
+  - Each share is a fraction of the company
+  - Shareholders get a share of earnings, liquidation proceeds and often votes
+
+- id: q02
+  band: L
+  q: What is a dividend?
+  expect:
+  - 'dividend :: (lead)'
+  hints:
+  - distribution of profits by a corporation to its shareholders
+  reference: A dividend is a distribution of a company's profits to its shareholders. Profit that isn't paid out is reinvested in the business as retained earnings, and companies generally can't pay dividends out of their capital.
+  key_points:
+  - A dividend is a distribution of profits to shareholders
+  - Profit not paid out is kept as retained earnings
+  - Dividends come from profits, not from capital
+
+- id: q03
+  band: L
+  q: What does a P/E ratio tell me?
+  expect:
+  - 'price-earnings-ratio :: (lead)'
+  - 'price-earnings-ratio :: Interpretation'
+  hints:
+  - ratio of a company's share price to the company's earnings per share
+  reference: The price–earnings (P/E) ratio is the share price divided by earnings per share. It's used to value companies and judge whether they look overvalued or undervalued; e.g. a $24 share with $3 of earnings per share has a P/E of 8.
+  key_points:
+  - P/E = share price ÷ earnings per share
+  - Used to judge whether a stock looks over- or undervalued
+  - 'Example: $24 price and $3 EPS gives a P/E of 8'
+
+- id: q04
+  band: S
+  q: What is market capitalization?
+  expect:
+  - 'market-capitalization :: (lead)'
+  - 'market-capitalization :: Calculation'
+  hints:
+  - multiplied by the number of common shares outstanding
+  reference: 'Market capitalization is the total market value of a company''s outstanding shares: the share price multiplied by the number of shares outstanding.'
+  key_points:
+  - Total value of a company's outstanding shares
+  - Market cap = share price × shares outstanding
+
+- id: q05
+  band: L
+  q: What happens when a company goes public in an IPO?
+  expect:
+  - 'initial-public-offering :: (lead)'
+  hints:
+  - privately held company is transformed into a public company
+  reference: In an initial public offering, a private company sells shares to institutional and usually retail investors for the first time. Investment banks typically underwrite the offering and arrange a stock-exchange listing, turning the company into a public company and raising new equity capital.
+  key_points:
+  - The company sells shares to the public for the first time
+  - Investment banks usually underwrite it and arrange the listing
+  - The private company becomes a public company
+  - It raises new equity capital
+
+- id: q06
+  band: S
+  q: What happens to my shares in a stock split?
+  expect:
+  - 'stock-split :: (lead)'
+  - 'stock-split :: Effects'
+  hints:
+  - each investor will own double the number of shares
+  reference: 'A stock split increases the number of shares: in a 2-for-1 split you own twice as many shares, each worth half as much. The share price falls but the company''s total market value doesn''t change, so your holding is worth the same.'
+  key_points:
+  - You get more shares (e.g. double in a 2-for-1 split)
+  - Each share is worth proportionally less
+  - Total value and market cap are unchanged
+
+- id: q07
+  band: M
+  q: How is preferred stock different from common stock?
+  expect:
+  - 'preferred-stock :: (lead)'
+  hints:
+  - senior (i.e., higher ranking) to common stock
+  reference: Preferred stock is a hybrid with features of both equity and debt. It ranks above common stock (but below bonds) in claims on the company's assets and has priority over common stock for dividends; it usually has no or limited voting rights.
+  key_points:
+  - Hybrid of equity and debt
+  - Ranks above common stock but below bonds
+  - Priority over common stock for dividends
+
+- id: q08
+  band: S
+  q: What does earnings per share mean?
+  expect:
+  - 'earnings-per-share :: (lead)'
+  - 'earnings-per-share :: Calculation'
+  hints:
+  - earnings per outstanding share of common stock
+  reference: Earnings per share (EPS) is a company's earnings for a period divided by its outstanding common shares. It's a key measure of profitability for shareholders and is commonly used to value stocks.
+  key_points:
+  - EPS = earnings per outstanding common share
+  - A key profitability measure for shareholders
+  - Commonly used to price stocks
+
+- id: q09
+  band: M
+  q: How is dividend yield calculated?
+  expect:
+  - 'dividend-yield :: (lead)'
+  - 'dividend-yield :: Definition and basic calculation'
+  hints:
+  - dividing the annual dividend per share by the current share price
+  reference: Dividend yield is the annual dividend per share divided by the current share price, usually shown as a percentage.
+  key_points:
+  - Dividend yield = annual dividend per share ÷ share price
+  - Expressed as a percentage
+
+- id: q10
+  band: L
+  q: What is value investing?
+  expect:
+  - 'value-investing :: (lead)'
+  hints:
+  - appear underpriced
+  reference: Value investing means buying securities that look underpriced according to fundamental analysis. It comes from Benjamin Graham and David Dodd's teaching at Columbia from 1928 and their book Security Analysis.
+  key_points:
+  - Buying securities that appear underpriced
+  - Based on fundamental analysis
+  - Originated with Benjamin Graham and David Dodd
+
+- id: q11
+  band: L
+  q: Why do companies buy back their own shares?
+  expect:
+  - 'share-repurchase :: (lead)'
+  - 'share-repurchase :: Purpose'
+  - 'treasury-stock :: Buying back shares > Incentives'
+  hints:
+  - alternative way of returning money to shareholders
+  reference: 'A share buyback is a company repurchasing its own shares. It''s an alternative to dividends for returning money to shareholders: with fewer shares outstanding each remaining share represents more of the company, and shareholders may pay lower capital-gains tax rather than tax on dividends.'
+  key_points:
+  - A company repurchasing its own shares
+  - An alternative to dividends for returning money
+  - Fewer shares outstanding raises each share's stake
+  - Can be more tax-efficient for shareholders
+
+- id: q12
+  band: L
+  q: What is the price-to-book ratio?
+  expect:
+  - 'p-b-ratio :: (lead)'
+  hints:
+  - current market value to its book value
+  reference: 'The price-to-book (P/B) ratio compares a company''s market value to its book value (assets minus liabilities): market capitalization ÷ book value, or share price ÷ book value per share.'
+  key_points:
+  - Compares market value with book value
+  - Book value = assets minus liabilities
+  - P/B = market cap ÷ book value (or price ÷ book value per share)
+
+- id: q13
+  band: S
+  q: What does return on equity measure?
+  expect:
+  - 'return-on-equity :: (lead)'
+  hints:
+  - profitability of a business in relation to its equity
+  reference: 'Return on equity (ROE) measures profitability relative to shareholders'' equity: net income divided by average shareholders'' equity, expressed as a percentage.'
+  key_points:
+  - Profitability relative to shareholders' equity
+  - ROE = net income ÷ shareholders' equity
+  - Expressed as a percentage
+
+- id: q14
+  band: M
+  q: What is free cash flow?
+  expect:
+  - 'free-cash-flow :: (lead)'
+  hints:
+  - operating cash flow exceeds
+  reference: Free cash flow is the cash a business generates from operations after covering working-capital needs and capital expenditures. It's the cash that could be paid to creditors and shareholders without harming operations, and indicates financial flexibility.
+  key_points:
+  - Operating cash flow minus capital expenditures and working-capital needs
+  - Cash available to creditors and shareholders
+  - Indicates financial flexibility
+
+- id: q15
+  band: XL
+  q: What is the ex-dividend date?
+  expect:
+  - 'ex-dividend-date :: (lead)'
+  hints:
+  - traded without a previously declared dividend
+  reference: 'The ex-dividend date is the date from which a stock trades without its declared dividend: buyers on or after that date don''t receive it. The share price typically drops by about the dividend amount at the open on that date.'
+  key_points:
+  - From this date the stock trades without the declared dividend
+  - Buyers on or after it don't get the dividend
+  - The price typically falls by about the dividend
+
+- id: q16
+  band: XL
+  q: What is day trading?
+  expect:
+  - 'day-trading :: (lead)'
+  hints:
+  - within the same trading day
+  reference: Day trading is speculating by buying and selling securities within the same trading day, closing all positions before the market closes. It contrasts with long-term buy-and-hold and value investing, and day traders are classed as speculators.
+  key_points:
+  - Buying and selling within the same day
+  - All positions closed before the close
+  - A form of speculation, unlike buy-and-hold investing
+
+- id: q17
+  band: XL
+  q: How does short selling work?
+  expect:
+  - 'short-finance :: (lead)'
+  - 'short-finance :: Concept > Physical shorting with borrowed securities'
+  - 'stock :: Trading > Selling > Short selling'
+  - 'margin-finance :: Short selling'
+  hints:
+  - profit if the market value of the asset falls
+  - bets that the price of the shares will drop
+  reference: 'Short selling is betting that a price will fall: the short seller borrows shares, sells them, and later buys them back to return to the lender. If the price has fallen they keep the difference; if it has risen they lose money.'
+  key_points:
+  - Profits if the price falls
+  - Borrow shares, sell them, buy back later to return them
+  - Loses money if the price rises
+
+- id: q18
+  band: S
+  q: What is a short squeeze?
+  expect:
+  - 'short-squeeze :: (lead)'
+  hints:
+  - short sellers have to buy stock to cover
+  reference: 'A short squeeze is a rapid rise in a stock''s price driven by heavy short selling rather than fundamentals: as the price rises, short sellers have to buy shares to cover their positions, which pushes the price up further.'
+  key_points:
+  - A rapid price rise driven by short selling, not fundamentals
+  - Short sellers must buy shares to cover
+  - Their buying pushes the price higher
+
+- id: q19
+  band: M
+  q: What does buying on margin mean?
+  expect:
+  - 'margin-finance :: (lead)'
+  - 'margin-finance :: Margin buying'
+  hints:
+  - Borrowed cash from the counterparty to buy financial instruments
+  reference: Buying on margin means borrowing money from your broker to buy securities, with the cash or securities in your account as collateral (the margin). It covers the broker's credit risk.
+  key_points:
+  - Borrowing from a broker to buy securities
+  - Your account's cash/securities are the collateral (margin)
+  - The margin covers the broker's credit risk
+
+- id: q20
+  band: M
+  q: What does a market maker do?
+  expect:
+  - 'market-maker :: (lead)'
+  - 'market-maker :: Income of market makers'
+  hints:
+  - quotes both a buy and a sell price
+  reference: A market maker quotes both a buy and a sell price for an asset and stands ready to trade, profiting from the bid–ask spread. This provides liquidity and reduces price volatility.
+  key_points:
+  - Quotes both buy and sell prices
+  - Profits from the bid–ask spread
+  - Provides liquidity and steadier prices
+
+- id: q21
+  band: M
+  q: What is a penny stock?
+  expect:
+  - 'penny-stock :: (lead)'
+  - 'penny-stock :: Risk and investment'
+  hints:
+  - trade for less than $5 per share
+  reference: In the U.S., penny stocks are shares of small public companies that trade for less than $5 per share, as defined by the SEC.
+  key_points:
+  - Shares of small public companies
+  - Trade below $5 per share (SEC definition)
+
+- id: q22
+  band: M
+  q: What is the difference between fundamental and technical analysis?
+  expect:
+  - 'fundamental-analysis :: (lead)'
+  - 'technical-analysis :: (lead)'
+  - 'technical-analysis :: General description > Comparison with fundamental analysis'
+  hints:
+  - financial statements
+  - past market data
+  reference: Fundamental analysis studies a business's financial statements, health, competitors and the economy to judge its value. Technical analysis forecasts price direction from past market data, mainly price and volume, and its usefulness is disputed.
+  key_points:
+  - Fundamental analysis uses financial statements and economic factors
+  - Technical analysis uses past prices and volume
+  - Technical analysis's effectiveness is disputed
+
+- id: q23
+  band: M
+  q: How do I read a candlestick chart?
+  expect:
+  - 'candlestick-chart :: (lead)'
+  - 'candlestick-chart :: Description'
+  - 'candlestick-chart :: Usage'
+  hints:
+  - open and close in the thick body
+  - opening and closing prices, highs and lows
+  reference: 'Each candle shows one period''s open, close, high and low: the thick body spans the open and close, and the thin wicks show the high and low.'
+  key_points:
+  - Each candle covers one period
+  - The body shows open and close
+  - The wicks show the high and low
+
+- id: q24
+  band: L
+  q: What does the RSI indicator show?
+  expect:
+  - 'relative-strength-index :: (lead)'
+  - 'relative-strength-index :: Interpretation > Overbought and oversold conditions'
+  hints:
+  - momentum oscillator
+  reference: The relative strength index (RSI) is a momentum oscillator in technical analysis that measures the speed and size of recent price moves from closing prices, to chart a stock's current strength or weakness. It's often used to spot overbought or oversold conditions.
+  key_points:
+  - A technical momentum oscillator
+  - Based on recent closing prices
+  - Shows strength/weakness; used for overbought/oversold signals
+
+- id: q25
+  band: XL
+  q: Is insider trading illegal?
+  expect:
+  - 'insider-trading :: (lead)'
+  hints:
+  - material, nonpublic information
+  reference: Insider trading is trading a company's securities based on material, nonpublic information about it. In many countries it's illegal, mainly because it's unfair to investors who don't have that information.
+  key_points:
+  - Trading on material, nonpublic information
+  - Illegal in many countries
+  - Seen as unfair to other investors
+
+- id: q26
+  band: L
+  q: What is a pump and dump scheme?
+  expect:
+  - 'pump-and-dump :: (lead)'
+  - 'pump-and-dump :: Scenarios'
+  hints:
+  - artificially inflating the price
+  reference: 'A pump and dump is securities fraud: scammers buy cheap shares, spread false or misleading positive claims to inflate the price, then sell at the higher price, leaving other investors with losses.'
+  key_points:
+  - A form of securities fraud
+  - Buy cheap shares, then hype them with false claims
+  - Sell at the inflated price, leaving others with losses
+
+- id: q27
+  band: M
+  q: What is an American depositary receipt?
+  expect:
+  - 'american-depositary-receipt :: (lead)'
+  hints:
+  - represents securities of a foreign company
+  reference: An American depositary receipt (ADR) is a security that represents shares of a foreign company and lets them trade in U.S. markets, priced and paying dividends in U.S. dollars like regular shares.
+  key_points:
+  - Represents shares of a foreign company
+  - Trades in U.S. markets like a regular share
+  - Priced and pays dividends in U.S. dollars
+
+- id: q28
+  band: L
+  q: How do employee stock options work?
+  expect:
+  - 'employee-stock-option :: (lead)'
+  - 'employee-stock-option :: Features > Overview'
+  hints:
+  - part of the employee's remuneration package
+  reference: Employee stock options are compensation contracts that give employees the possibility to buy company shares, typically at a set price, as part of their pay package; they work like financial options but are non-standard contracts granted by the employer.
+  key_points:
+  - Granted by the employer as part of pay
+  - Give the right to buy company shares (like an option)
+  - Non-standard compensation contracts
+
+- id: q29
+  band: M
+  q: What is a dividend reinvestment plan?
+  expect:
+  - 'dividend-reinvestment-plan :: (lead)'
+  hints:
+  - dividends are directly reinvested
+  reference: A dividend reinvestment plan (DRIP) automatically reinvests your dividends in more shares of the company instead of paying cash. You still owe tax on the dividends each year.
+  key_points:
+  - Dividends are reinvested in more shares instead of paid in cash
+  - Offered directly by the company
+  - Dividends are still taxable each year
+
+- id: q30
+  band: S
+  q: What is a meme stock?
+  expect:
+  - 'meme-stock :: (lead)'
+  hints:
+  - gains popularity among retail investors through social media
+  reference: A meme stock is a stock that becomes popular with retail investors through social media, such as Reddit's r/wallstreetbets. Meme stocks often trade above their fundamental value and are highly speculative and volatile.
+  key_points:
+  - Popular with retail investors via social media
+  - Often trades above fundamental value
+  - Highly speculative and volatile
+
+- id: q31
+  band: none
+  q: What are this year's Roth IRA contribution limits?
+  expect: []
+  hints: []
+  reference: The knowledge base does not cover this. A good answer says so and does not invent figures or give a buy/sell recommendation.
+  key_points:
+  - Says the provided sources don't contain the answer
+  - Does not invent specific figures or advice
+
+- id: q32
+  band: none
+  q: Which credit card has the best travel rewards?
+  expect: []
+  hints: []
+  reference: The knowledge base does not cover this. A good answer says so and does not invent figures or give a buy/sell recommendation.
+  key_points:
+  - Says the provided sources don't contain the answer
+  - Does not invent specific figures or advice

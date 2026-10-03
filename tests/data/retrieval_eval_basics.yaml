@@ -1,0 +1,472 @@
+# Retrieval ground truth for the `basics` category (python -m scripts.eval_retrieval --category basics).
+# Each question names the section(s) that answer it, as "<doc_id> :: <section path>", and hints: phrases, at least one
+# of which must appear in a retrieved chunk for the answer text itself to count as found.
+# `band` is the expected section's size in tokens: S < 150, M 150-249, L 250-512, XL > 512.
+# reference / key_points: the true answer, from the source section; used by the generation test
+# (scripts/eval_generation.py) for correctness and completeness.
+# Questions with `expect: []` have no answer in the index; the right result is a low top score.
+# 2026-09-30: category grew from 6 to 15 pages. q02, q11 and q13 gained extra correct sections from the new pages,
+# and q21-q27 were added to cover the new pages. Category grew to 50 pages: q28-q37 added for the new pages, and q03,
+# q08, q15, q22 and q33 gained correct sections from them.
+
+- id: q01
+  band: S
+  q: How often can interest be added to my savings, monthly or daily?
+  expect: ["compound-interest :: Compounding frequency"]
+  hints: ["compounding frequency"]
+  reference: 'Interest can be compounded (added to the balance) at different frequencies: yearly, half-yearly, quarterly, monthly, weekly, daily, continuously, or not until maturity. Monthly compounding of an annual rate means a compounding frequency of 12.'
+  key_points:
+    - Interest can be compounded at different frequencies
+    - Frequencies include yearly, quarterly, monthly, daily and continuously
+    - Monthly compounding of an annual rate means 12 periods per year
+
+- id: q02
+  band: S
+  q: Why does my bank show an annual percentage yield that is higher than the interest rate?
+  expect: ["compound-interest :: Annual equivalent rate", "annual-percentage-yield :: (lead)", "annual-percentage-yield :: Equation"]
+  hints: ["annual percentage yield"]
+  reference: 'The annual percentage yield is an effective annual rate: it includes the effect of compounding during the year, so it is higher than the nominal rate when interest is compounded more than once a year. It is the total interest earned over one year divided by the principal, and lets savers compare products on the same basis.'
+  key_points:
+    - APY is an effective (annual equivalent) rate
+    - It includes compounding within the year, so it exceeds the stated rate
+    - It equals one year's total interest divided by the principal
+    - It exists so products can be compared fairly
+
+- id: q03
+  band: S
+  q: What formula tells me what my money today will be worth in the future?
+  expect: ['time-value-of-money :: Formula > Future value of a present sum', 'time-value-of-money :: Overview', 'future-value :: (lead)']
+  hints: [future value (FV), the future value) is, future value is]
+  reference: Future value = present value × (1 + i)^n, where i is the interest rate per period and n is the number of periods.
+  key_points:
+    - FV = PV × (1 + i)^n
+    - i is the interest rate per period
+    - n is the number of periods
+
+- id: q04
+  band: S
+  q: Is buying a rental property riskier than lending to big companies?
+  expect: ["risk-return-spectrum :: The progression > Rental property"]
+  hints: ["rents out"]
+  reference: 'Generally yes. On the risk–return spectrum, loans to blue-chip corporations are low-risk, while a commercial rental property is comparable in risk and return to low investment-grade debt; industrial and then residential property carry more risk.'
+  key_points:
+    - Rental property is riskier than lending to blue-chip companies
+    - Commercial rental property is comparable to low investment-grade debt
+    - Industrial property has higher risk and return
+    - Residential property follows industrial on the spectrum
+
+- id: q05
+  band: S
+  q: How risky are cryptocurrencies like Bitcoin as an investment?
+  expect: ["risk-return-spectrum :: The progression > Cryptocurrencies"]
+  hints: ["very high-risk"]
+  reference: Cryptocurrencies are generally considered very high-risk. They have no earnings and pay no coupons, rents or dividends. They range from Bitcoin and Ethereum to dubious projects close to Ponzi schemes, and larger ones have been about as volatile as small-cap stocks.
+  key_points:
+    - Generally considered very high-risk investments
+    - No earnings, coupons, rents or dividends
+    - Range from Bitcoin/Ethereum to dubious or fraudulent projects
+    - Larger ones have had volatility similar to small-cap stocks
+
+- id: q06
+  band: S
+  q: How many Americans have enough emergency savings to cover three months of expenses?
+  expect: ["emergency-fund :: Household prevalence"]
+  hints: ["three months of expenses"]
+  reference: In the Federal Reserve's October 2025 survey, 55% of U.S. adults said they had emergency savings covering three months of expenses. 63% could cover a $400 emergency with cash, and 12% could not cover it at all.
+  key_points:
+    - 55% of U.S. adults have three months of emergency savings
+    - 'Source: Federal Reserve survey (October 2025)'
+    - 63% could pay a $400 emergency in cash; 12% could not cover it
+
+- id: q07
+  band: M
+  q: Why is the yearly return on a bond that pays interest twice a year higher than its stated rate?
+  expect: ["compound-interest :: Examples"]
+  hints: ["twice yearly"]
+  reference: 'Because the bond pays interest twice a year (half the stated rate every six months), the interest compounds: the first payment can earn interest in the second half of the year. So the yearly compounded rate is higher than the disclosed rate.'
+  key_points:
+    - Interest is paid every six months at half the stated rate
+    - Semi-annual payments compound within the year
+    - So the effective yearly rate exceeds the stated rate
+
+- id: q08
+  band: M
+  q: How do I work out what money I will receive in the future is worth today?
+  expect: ['time-value-of-money :: Formula > Present value of a future sum', 'time-value-of-money :: Overview', 'present-value :: (lead)', 'present-value :: Background', 'present-value :: Calculation']
+  hints: [present value (PV) formula, Discounting reverses, present value of a future amount]
+  reference: 'Use the present value formula: PV = FV / (1 + i)^n, discounting the future amount by the interest rate i over n periods. For several future cash flows, sum the present value of each.'
+  key_points:
+    - PV = FV / (1 + i)^n
+    - This discounts a future amount back to today
+    - 'Several cash flows: add up each one''s present value'
+
+- id: q09
+  band: M
+  q: What is a cost-of-living adjustment on my salary or pension?
+  expect: ["inflation :: Effects of inflation > Cost-of-living allowance"]
+  hints: ["cost-of-living adjustment (COLA)"]
+  reference: A cost-of-living adjustment (COLA) raises salaries or benefits in line with a cost-of-living index, usually the consumer price index, to offset inflation for people on fixed incomes. It is typically applied annually; it does not control inflation.
+  key_points:
+    - Adjusts pay or benefits based on a cost-of-living index (usually CPI)
+    - Protects fixed incomes (salaries, pensions, Social Security) from inflation
+    - Usually adjusted annually
+    - It mitigates inflation's effects but does not control inflation
+
+- id: q10
+  band: M
+  q: Why do riskier investments have to pay higher returns?
+  expect: ["risk-return-spectrum :: Cause of progression"]
+  hints: ["risk premium"]
+  reference: 'Investors need to be compensated for taking risk: risky investments cost more effort to research and monitor, and losses hurt more than equal gains help, so they demand a risk premium. Market forces push returns to the level that matches the risk.'
+  key_points:
+    - Risk must be compensated with higher expected return (a risk premium)
+    - Riskier investments cost more effort to research and monitor
+    - A loss matters more than an equal gain
+    - Market buying/selling moves returns to match risk
+
+- id: q11
+  band: L
+  q: Where does the Rule of 72 come from?
+  expect: ["compound-interest :: History", "rule-of-72 :: History"]
+  hints: ["Rule of 72", "Summa de arithmetica"]
+  reference: 'The Rule of 72 appears in Luca Pacioli''s Summa de arithmetica (1494): to find how many years an investment takes to double at compound interest, divide 72 by the interest rate.'
+  key_points:
+    - It appears in Luca Pacioli's Summa de arithmetica (1494)
+    - Divide 72 by the interest rate
+    - The result is the years needed to double the money
+
+- id: q12
+  band: L
+  q: How often should I review my financial plan?
+  expect: ["personal-finance :: Personal financial planning process"]
+  hints: ["Monitoring and reassessment"]
+  reference: Monitor the plan at regular intervals to check you're on track for your goals, and adjust it as time passes and your circumstances change. Financial planning is an ongoing process of monitoring and re-evaluation.
+  key_points:
+    - Review the plan at regular intervals
+    - Check progress toward your goals
+    - Adjust as circumstances change
+
+- id: q13
+  band: L
+  q: What is inflation and how does it change what my money can buy?
+  expect: ["inflation :: (lead)", "purchasing-power :: (lead)"]
+  hints: ["purchasing power"]
+  reference: Inflation is a rise in the average price of goods and services, usually measured with a consumer price index. As prices rise, each unit of money buys less, so inflation reduces the purchasing power of money. Its opposite is deflation.
+  key_points:
+    - Inflation is a general rise in prices
+    - It is usually measured with a price index such as the CPI
+    - 'It reduces purchasing power: money buys less'
+    - The opposite is deflation
+
+- id: q14
+  band: L
+  q: What are the steps to create a personal financial plan?
+  expect: ["personal-finance :: Personal financial planning process"]
+  hints: ["five steps"]
+  reference: 'Financial planning generally has five steps: assessment of your current financial situation, goal setting, plan creation, execution, and monitoring and reassessment.'
+  key_points:
+    - Assessment of your financial situation (assets, liabilities, income, expenses)
+    - Goal setting (short- and long-term)
+    - Creating and executing the plan
+    - Monitoring and reassessing over time
+
+- id: q15
+  band: XL
+  q: How is inflation measured, for example with the CPI?
+  expect: ['inflation :: Measures', 'inflation :: (lead)', 'consumer-price-index :: (lead)', 'consumer-price-index :: Overview']
+  hints: [consumer price index (CPI)]
+  reference: Inflation is usually measured as the change in a broad price index. Examples are the consumer price index (CPI), the personal consumption expenditures (PCE) price index and the GDP deflator. The inflation rate is the annualized percentage change in such an index.
+  key_points:
+    - Measured with a broad price index
+    - 'Examples: CPI, PCE price index, GDP deflator'
+    - The inflation rate is the annual percentage change in the index
+
+- id: q16
+  band: XL
+  q: How can inflation raise my taxes without any tax increase?
+  expect: ["inflation :: Effects of inflation > Negative"]
+  hints: ["hidden tax"]
+  reference: 'Through ''bracket creep'': as inflation raises your nominal earnings, you can be pushed into higher income tax brackets even though your real income hasn''t risen, unless the brackets are indexed to inflation. This acts as a hidden tax increase.'
+  key_points:
+    - Inflation can impose hidden tax increases
+    - Higher nominal earnings push taxpayers into higher brackets
+    - This happens unless tax brackets are indexed to inflation
+
+- id: q17
+  band: XL
+  q: How do I plan how much money I need for retirement?
+  expect: ["personal-finance :: Areas of focus"]
+  hints: ["Retirement planning"]
+  reference: Retirement planning means working out how much it will cost to live in retirement and making a plan to cover any income shortfall. Tax-advantaged structures such as IRAs and employer-sponsored retirement plans are common tools.
+  key_points:
+    - Estimate the cost of living in retirement
+    - Plan how to cover any income shortfall
+    - Use tax-advantaged accounts such as IRAs and employer plans
+
+- id: q18
+  band: XL
+  q: How do I calculate my total if I add money every month with compound interest?
+  expect: ["compound-interest :: Calculation > Monthly deposits"]
+  hints: ["monthly deposit"]
+  reference: 'Treat each monthly deposit as earning compound interest for the months remaining and add them up. In closed form: total = M × ((1 + r)^t − 1) / r + P × (1 + r)^t, where M is the monthly deposit, r the monthly rate, t the number of months and P the starting principal.'
+  key_points:
+    - Each deposit earns compound interest for its remaining months
+    - Total = M((1+r)^t − 1)/r + P(1+r)^t
+    - M = monthly deposit, r = monthly rate, t = months, P = starting principal
+
+- id: q19
+  band: none
+  q: What are this year's Roth IRA contribution limits?
+  expect: []
+  hints: []
+  reference: The knowledge base does not cover this. A good answer says so and does not invent figures or give a buy/sell recommendation.
+  key_points:
+    - Says the provided sources don't contain the answer
+    - Does not invent specific figures or advice
+
+- id: q20
+  band: none
+  q: Should I buy Nvidia stock today?
+  expect: []
+  hints: []
+  reference: The knowledge base does not cover this. A good answer says so and does not invent figures or give a buy/sell recommendation.
+  key_points:
+    - Says the provided sources don't contain the answer
+    - Does not invent specific figures or advice
+
+- id: q21
+  band: S
+  q: How do I calculate my net worth?
+  expect:
+  - 'net-worth :: By entity > Calculation'
+  - 'net-worth :: By entity > Individuals'
+  hints:
+  - excess of assets over liabilities
+  - assets minus liabilities
+  reference: Net worth is your assets minus your liabilities. Assets include your home, vehicles, bank and money market accounts, stocks, bonds and retirement accounts; liabilities include loans, mortgages and other debts.
+  key_points:
+  - Net worth = assets minus liabilities
+  - Assets include home, vehicles, bank accounts, investments
+  - Liabilities include loans, mortgages and other debts
+
+- id: q22
+  band: M
+  q: What is a real interest rate and how is it different from the nominal rate?
+  expect:
+  - 'real-interest-rate :: (lead)'
+  - 'nominal-interest-rate :: Nominal versus real interest rate'
+  - 'real-and-nominal-value :: Real interest rates'
+  hints:
+  - Fisher equation
+  - nominal interest rate minus inflation
+  reference: 'The real interest rate is the nominal interest rate adjusted for inflation: approximately the nominal rate minus the inflation rate (the Fisher equation). Looking back, it''s the nominal rate minus actual inflation; looking ahead, the nominal rate minus expected inflation.'
+  key_points:
+  - Real rate ≈ nominal rate minus inflation
+  - This approximation is the Fisher equation
+  - Ex post uses actual inflation; expected real rate uses expected inflation
+
+- id: q23
+  band: M
+  q: Is deflation good or bad for savers?
+  expect:
+  - 'deflation :: Effects > On savings and investments'
+  hints:
+  - rewarded by saving and holding money
+  reference: Savers holding money are rewarded under deflation, because money gains value as prices fall. But deflation discourages investment and spending, which can cause a collapse in demand, and most economists see this hoarding as undesirable.
+  key_points:
+  - Holding money is rewarded because its value rises
+  - Deflation discourages investment and spending
+  - Hoarding can deepen a deflationary spiral and is seen as undesirable
+
+- id: q24
+  band: L
+  q: Does a loan's APR include all the fees I will pay?
+  expect:
+  - 'annual-percentage-rate :: Failings in the United States > Certain fees are not considered'
+  hints:
+  - not included in the calculation of APR
+  reference: No. Some fees are deliberately left out of the APR, such as one-time fees paid to third parties (e.g. a real estate attorney) and penalties like late fees, so the APR may not show the total cost of borrowing.
+  key_points:
+  - Some fees are excluded from APR
+  - 'Examples: third-party one-time fees, late fees and other penalties'
+  - So APR may understate the total cost of borrowing
+
+- id: q25
+  band: L
+  q: How long will it take my money to double at 9% interest?
+  expect:
+  - 'rule-of-72 :: Using the rule to estimate compounding periods'
+  - 'rule-of-72 :: (lead)'
+  hints:
+  - 72/9 = 8 years
+  - divided by the interest percentage
+  reference: 'About 8 years, by the rule of 72: divide 72 by the interest rate (72 / 9 = 8). The exact figure with compound interest is about 8.04 years.'
+  key_points:
+  - 'Use the rule of 72: divide 72 by the rate'
+  - 72 / 9 = about 8 years
+  - Exact calculation gives about 8.04 years
+
+- id: q26
+  band: XL
+  q: How do central banks fight deflation?
+  expect:
+  - 'deflation :: Counteracting deflation'
+  hints:
+  - quantitative easing
+  reference: Lowering interest rates may not be enough, since even a zero rate can leave real rates too high, and negative rates are limited. So central banks set a target for the quantity of money (quantitative easing), for example by buying financial assets such as mortgage-backed securities.
+  key_points:
+  - Cutting interest rates may be ineffective in severe deflation
+  - Negative rates can only go so far
+  - Central banks use quantitative easing to increase the money supply
+  - E.g. buying assets such as mortgage-backed securities
+
+- id: q27
+  band: M
+  q: What is opportunity cost?
+  expect:
+  - 'opportunity-cost :: (lead)'
+  hints:
+  - value of the best alternative forgone
+  reference: Opportunity cost is the value of the best alternative you give up when you make a choice. It includes explicit and implicit costs and isn't limited to money; lost time or pleasure counts too.
+  key_points:
+  - The value of the best alternative given up
+  - Arises because choices are mutually exclusive with limited resources
+  - 'Not limited to money: time and other benefits count'
+
+- id: q28
+  band: L
+  q: What is net present value?
+  expect:
+  - 'net-present-value :: (lead)'
+  hints:
+  - positive NPV
+  reference: Net present value (NPV) compares the present value of an investment's expected future cash flows with its cost today, converting future money into today's value because money now is worth more than later. A positive NPV means the expected benefits exceed the cost, so it is likely to create value.
+  key_points:
+  - Converts future cash flows to present value
+  - Compares that with the cost of the investment today
+  - Positive NPV means benefits exceed the cost
+
+- id: q29
+  band: M
+  q: What is a capital gain?
+  expect:
+  - 'capital-gain :: (lead)'
+  hints:
+  - profit earned on the sale of an asset
+  reference: A capital gain is the profit from selling an asset (such as shares or property) for more than you paid for it. If you sell for less, it's a capital loss. Capital gains are often taxed, with rates that differ by country.
+  key_points:
+  - Profit when an asset sells for more than its purchase price
+  - Selling for less is a capital loss
+  - Capital gains are often taxed
+
+- id: q30
+  band: L
+  q: How does borrowing to invest (leverage) increase risk?
+  expect:
+  - 'leverage-finance :: (lead)'
+  - 'leverage-finance :: Risk'
+  hints:
+  - risk of not being able to pay back
+  reference: 'Leverage means investing with borrowed money, which magnifies the outcome: if the investment does well profits can be large, but if it does badly you may be unable to repay the borrowed money. Lenders limit how much leverage they allow and often require the asset as collateral.'
+  key_points:
+  - Leverage is borrowing to invest
+  - It magnifies gains
+  - It risks being unable to repay the loan
+  - Lenders limit leverage and often require collateral
+
+- id: q31
+  band: L
+  q: What is hyperinflation?
+  expect:
+  - 'hyperinflation :: (lead)'
+  - 'hyperinflation :: Definition'
+  hints:
+  - very high and typically accelerating inflation
+  reference: Hyperinflation is very high and usually accelerating inflation that quickly erodes the value of a currency as all prices rise, so people switch to more stable foreign currencies. Capital controls and adopting a foreign currency are the usual ways to end it, at significant cost.
+  key_points:
+  - Very high, accelerating inflation
+  - Quickly erodes the currency's real value
+  - People switch to more stable foreign currencies
+
+- id: q32
+  band: L
+  q: What is stagflation?
+  expect:
+  - 'stagflation :: (lead)'
+  hints:
+  - high inflation, stagnant economic growth
+  reference: Stagflation is the combination of high inflation, stagnant economic growth and high unemployment. It became widely known after 1970s shocks such as the 1973 oil crisis, and it is a policy dilemma because fighting inflation can worsen unemployment.
+  key_points:
+  - High inflation with stagnant growth and high unemployment
+  - Became prominent in the 1970s (e.g. 1973 oil crisis)
+  - Creates a policy dilemma
+
+- id: q33
+  band: L
+  q: Why does fiat money have value?
+  expect:
+  - 'money :: Types > Fiat'
+  - 'fiat-money :: (lead)'
+  hints:
+  - 'not derived from any intrinsic value'
+  - agree on its value
+  reference: Fiat money is government-issued currency that isn't backed by gold or any commodity. It has value because people agree on its value and trust that it will be accepted as payment. All major currencies have been fiat money since the end of the Bretton Woods system.
+  key_points:
+  - Not backed by gold, silver or another commodity
+  - Valuable because people agree on its value and trust it will be accepted
+  - All major currencies are fiat since Bretton Woods ended
+
+- id: q34
+  band: L
+  q: Why are loans with collateral cheaper?
+  expect:
+  - 'collateral-finance :: (lead)'
+  hints:
+  - lower interest rate on loans that have collateral
+  reference: Collateral is property a borrower pledges to secure a loan; the lender can take it if the borrower defaults. Because that protects the lender, secured loans usually carry lower interest rates, sometimes several percentage points lower than unsecured loans.
+  key_points:
+  - Collateral is property pledged to secure a loan
+  - The lender can claim it if the borrower defaults
+  - This protection allows lower interest rates
+
+- id: q35
+  band: M
+  q: What does a central bank do?
+  expect:
+  - 'central-bank :: (lead)'
+  - 'central-bank :: Definition'
+  hints:
+  - manages the monetary policy
+  reference: A central bank manages a country's monetary policy and has a monopoly on increasing the monetary base. Many also supervise commercial banks to keep them stable and prevent bank runs, and enforce rules against fraud and money laundering.
+  key_points:
+  - Manages monetary policy
+  - Has a monopoly on increasing the monetary base
+  - Often supervises commercial banks for stability
+
+- id: q36
+  band: L
+  q: What is disposable income?
+  expect:
+  - 'disposable-income :: (lead)'
+  - 'disposable-income :: Meanings of disposable income'
+  hints:
+  - personal income minus current taxes
+  reference: 'Disposable income is your total personal income minus current income taxes. It''s what''s left to spend or save: consumption spending plus saving equals disposable income.'
+  key_points:
+  - Personal income minus income taxes
+  - Available for spending and saving
+  - Consumption plus savings equals disposable income
+
+- id: q37
+  band: S
+  q: How is return on investment calculated?
+  expect:
+  - 'return-on-investment :: (lead)'
+  - 'return-on-investment :: Calculation'
+  hints:
+  - ratio between net income or profit to investment
+  reference: Return on investment (ROI) is the net profit from an investment divided by its cost. A high ROI means the gains compare favorably to the cost, and it's used to compare the efficiency of different investments.
+  key_points:
+  - ROI = net profit divided by the investment's cost
+  - A higher ROI means better gains relative to cost
+  - Used to compare investments
