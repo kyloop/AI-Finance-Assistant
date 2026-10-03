@@ -1,0 +1,572 @@
+# Retrieval ground truth for the `etfs-and-mutual-funds` category (python -m scripts.eval_retrieval --category etfs-and-mutual-funds).
+# Same format as retrieval_eval_stocks.yaml: expect = "<doc_id> :: <section path>" (any one counts), hints = answer
+# phrases (any one counts), band = size of the first expected section in tokens: S < 150, M 150-249, L 250-512, XL > 512.
+# reference / key_points: the true answer, from the source section; used by the generation test.
+# 2026-10-01: after the first retrieval run, q17 gained mutual-fund :: Share classes and q33 gained Morningstar's Products and services
+# sections, which answer those questions directly. 50 pages; q01-q33 written from the pages, q34-q37 are out of scope.
+
+- id: q01
+  band: L
+  q: What is an ETF and what does it hold?
+  expect:
+  - 'exchange-traded-fund :: (lead)'
+  hints:
+  - bought and sold on stock exchanges
+  reference: An exchange-traded fund (ETF) is an investment fund that is bought and sold on stock exchanges. It owns assets such as
+    stocks, bonds, currencies and commodities such as gold, and gives more diversification than a single stock and more liquidity than
+    an individual bond. Most equity and bond ETFs are index funds that use passive management to copy an index such as the S&P 500;
+    some are actively managed.
+  key_points:
+  - A fund that is bought and sold on stock exchanges
+  - Owns assets such as stocks, bonds and commodities
+  - More diversification than one stock
+  - Most are index funds that copy an index (passive management)
+
+- id: q02
+  band: L
+  q: How does an ETF's price stay close to the value of what it holds?
+  expect:
+  - 'exchange-traded-fund :: Arbitrage mechanism'
+  - 'closed-end-fund :: Comparison to exchange-traded funds (ETFs)'
+  hints:
+  - authorized participants
+  - typically within 1% of its nav
+  reference: Large broker-dealers called authorized participants create and redeem ETF shares in large blocks (creation units) in exchange
+    for the underlying securities. If the ETF trades above the value of its assets they create and sell new shares; if it trades below,
+    they buy shares and redeem them for the securities. This arbitrage keeps the market price close to the net asset value, typically
+    within about 1%.
+  key_points:
+  - Authorized participants create and redeem shares in large blocks (creation units)
+  - They profit by arbitrage when price and underlying value differ
+  - This keeps the market price close to net asset value
+
+- id: q03
+  band: M
+  q: What are the main benefits of investing in a mutual fund?
+  expect:
+  - 'mutual-fund :: Features > Advantages'
+  hints:
+  - a fund diversifies by holding many securities
+  reference: Mutual funds diversify by holding many securities, which lowers risk; they offer daily liquidity (shares can be redeemed
+    at net asset value), professional management, access to investments that are hard for small investors to reach, convenience services,
+    government oversight and standardised reporting that makes funds easy to compare.
+  key_points:
+  - Diversification across many securities lowers risk
+  - 'Daily liquidity: redeem at net asset value'
+  - Professional investment management
+  - Regulated and required to report the same information, so easy to compare
+
+- id: q04
+  band: M
+  q: What are the downsides of mutual funds compared with ETFs?
+  expect:
+  - 'mutual-fund :: Features > Disadvantages'
+  hints:
+  - purchase and sale only once per day
+  reference: Mutual funds charge fees, give less control over when gains are recognised, can be bought and sold only once a day at uncertain
+    prices (no intraday trading, limit orders or shorting), hold more cash to meet redemptions, can mean higher taxes, and new investors
+    can inherit old tax liabilities; other investors joining or leaving can impose costs on everyone in the fund.
+  key_points:
+  - Fees
+  - Bought and sold only once per day at uncertain prices; no intraday trading
+  - Potentially higher taxes, including inherited tax liabilities
+  - Cash drag from holding cash for redemptions
+
+- id: q05
+  band: L
+  q: What are front-end and back-end loads on mutual funds?
+  expect:
+  - 'mutual-fund :: Expenses > Distribution charges'
+  - 'share-class :: Investments > Mutual funds'
+  hints:
+  - front-end load or sales charge
+  - class a share funds charge a
+  reference: A front-end load (sales charge) is a commission paid when shares are bought, deducted from the amount invested, and often
+    falls as the amount grows. A back-end load is paid when shares are sold; if it declines the longer shares are held it is a contingent
+    deferred sales charge. Some funds also charge an annual distribution and services (12b-1) fee that is paid by the fund.
+  key_points:
+  - 'Front-end load: commission paid when buying, taken from the amount invested'
+  - 'Back-end load: paid when selling shares'
+  - A back-end load that shrinks with holding time is a contingent deferred sales charge
+  - Annual 12b-1 distribution fee is paid by the fund
+
+- id: q06
+  band: S
+  q: Why are index funds cheaper than actively managed funds?
+  expect:
+  - 'index-fund :: Advantages > Low costs'
+  - 'index-fund :: Advantages > Low turnover'
+  - 'active-management :: Disadvantages of active management'
+  hints:
+  - it costs less to run an index fund
+  - generally more expensive than passive management
+  reference: The holdings of an index are known in advance, so an index fund costs less to run than an actively managed fund, which
+    needs resources to research and decide what to buy and sell. Index funds also trade less (low turnover), which means lower trading
+    costs and fewer capital gains passed on to investors.
+  key_points:
+  - The index composition is known, so running the fund costs less
+  - Active management needs research resources, so it costs more
+  - Low turnover means fewer trading costs and capital gains
+
+- id: q07
+  band: S
+  q: What is a glide path in a target-date fund?
+  expect:
+  - 'target-date-fund :: The Glidepath'
+  - 'target-date-fund :: Design'
+  hints:
+  - increasingly conservative
+  - known in the industry as the "glide-path"
+  reference: 'The glide path is how a target-date fund changes its asset mix over time: it starts with more return-seeking assets such
+    as equities and becomes increasingly conservative, moving towards bonds and capital-preservation assets, as the target (retirement)
+    date approaches.'
+  key_points:
+  - It is the fund's asset allocation over time
+  - The allocation becomes increasingly conservative towards the target date
+  - Moves from equities towards bonds or capital preservation
+
+- id: q08
+  band: S
+  q: What are the disadvantages of actively managed funds?
+  expect:
+  - 'active-management :: Disadvantages of active management'
+  hints:
+  - more expensive than passive management
+  reference: Returns may be lower rather than higher, active management is generally more expensive because of the resources needed
+    to evaluate investments, and it is often less tax-efficient because buying and selling more often generates capital gains.
+  key_points:
+  - Returns may be lower rather than higher
+  - More expensive than passive management
+  - Often less tax-efficient because of more frequent trading
+
+- id: q09
+  band: L
+  q: What is net asset value and how is a fund share price worked out?
+  expect:
+  - 'net-asset-value :: Open-ended funds'
+  - 'net-asset-value :: Overview'
+  hints:
+  - a fund has a nav of $200 million and 1 million shares in issue
+  reference: 'Net asset value (NAV) is the value of a fund''s assets minus its liabilities. For an open-end fund, shares are issued
+    and redeemed at a price based on NAV per share: with a NAV of $200 million and 1 million shares, NAV per share is $200. U.S. open-end
+    funds are usually valued each day the exchange is open, using closing prices.'
+  key_points:
+  - NAV is the fund's total asset value less liabilities
+  - NAV per share is the price at which shares are issued and redeemed
+  - 'Example: $200 million NAV and 1 million shares gives $200 per share'
+  - U.S. open-end funds are valued daily using closing prices
+
+- id: q10
+  band: M
+  q: How is a closed-end fund different from an ETF?
+  expect:
+  - 'closed-end-fund :: Comparison to exchange-traded funds (ETFs)'
+  hints:
+  - 10% to 20% higher or lower than their nav
+  reference: Both trade on exchanges, but a closed-end fund's price is set purely by investor demand and often differs from its net
+    asset value, commonly by 10% to 20%. An ETF can be redeemed for a basket of its assets, so its price stays within about 1% of NAV.
+  key_points:
+  - Both are traded on exchanges
+  - Closed-end fund price is set by demand and can be 10-20% above or below NAV
+  - ETF price stays within about 1% of NAV because shares can be redeemed for the underlying assets
+
+- id: q11
+  band: L
+  q: Why do closed-end funds often trade at a discount?
+  expect:
+  - 'closed-end-fund :: Discounts and premiums'
+  hints:
+  - long history of trading at a discount
+  reference: 'Closed-end fund shares often trade below the market value of their holdings. Suggested reasons: investors think fees are
+    too high or future performance will disappoint; brokers prefer to sell products that pay higher commissions; the NAV may overstate
+    illiquid holdings or ignore taxes on gains; expenses are deducted before dividends are paid; and the funds may attract less sophisticated
+    individual investors.'
+  key_points:
+  - They have a long history of trading at a discount to NAV
+  - Perceived high fees or poor future performance
+  - Brokers recommend them less because of lower commissions
+  - NAV may overstate illiquid assets or ignore taxes on gains
+
+- id: q12
+  band: XL
+  q: What does it mean when a money market fund breaks the buck?
+  expect:
+  - 'money-market-fund :: Breaking the buck'
+  hints:
+  - broke the buck
+  reference: 'Money market funds aim for a stable net asset value of $1.00 per share. If the NAV falls below $1.00 the fund has "broken
+    the buck", and regulators may force it into liquidation. This has rarely happened: before the 2008 financial crisis only three money
+    funds had done so in 37 years.'
+  key_points:
+  - Money market funds aim for a stable $1.00 NAV per share
+  - Breaking the buck means the NAV falls below $1.00
+  - It has rarely happened
+  - Regulators may force the fund into liquidation
+
+- id: q13
+  band: S
+  q: What extra risk do exchange-traded notes have compared with ETFs?
+  expect:
+  - 'exchange-traded-note :: Disadvantages > Credit risk and lack of risk metrics'
+  - 'exchange-traded-note :: (lead)'
+  hints:
+  - risk of default by the issuing bank
+  - credit rating of the issuer is compromised
+  reference: 'An ETN is an unsecured debt security backed by the credit of its issuer, so besides market risk it carries credit risk:
+    if the issuing bank defaults or its credit rating is damaged, the investment can lose value. ETFs are subject only to market risk.'
+  key_points:
+  - An ETN is a debt security backed by the issuer's credit
+  - ETNs carry the issuer's default (credit) risk in addition to market risk
+  - ETFs face only market risk
+
+- id: q14
+  band: M
+  q: Why do inverse and leveraged ETFs lose value over time?
+  expect:
+  - 'inverse-exchange-traded-fund :: Fees and other issues > Volatility loss'
+  - 'inverse-exchange-traded-fund :: Fees and other issues > Volatility loss > Hypothetical examples'
+  hints:
+  - volatility loss proportional to the market variance
+  reference: To keep a fixed leverage ratio they must buy when the market rises and sell when it falls. This causes a volatility loss
+    that grows with market variance (also called a compounding error), so an inverse ETF usually returns less than a short position
+    with the same starting exposure.
+  key_points:
+  - They rebalance to keep a fixed leverage ratio, buying when prices rise and selling when they fall
+  - This causes a volatility loss that grows with market variance
+  - Also called a compounding error
+
+- id: q15
+  band: M
+  q: What is a fund of funds and how do its fees work?
+  expect:
+  - 'fund-of-funds :: (lead)'
+  - 'fund-of-funds :: Considerations'
+  hints:
+  - management fees for fofs are typically higher
+  - holding a portfolio of other investment funds
+  reference: A fund of funds holds a portfolio of other investment funds rather than investing directly in securities. Its management
+    fees are typically higher than traditional funds because they include the fees of the underlying funds, so returns are generally
+    lower than single-manager funds, unless the fund of funds waives its own fee.
+  key_points:
+  - Holds other investment funds instead of securities directly
+  - Fees are typically higher because they include the underlying funds' fees
+  - Returns are generally lower than single-manager funds, unless the second fee is waived
+
+- id: q16
+  band: S
+  q: What is a unit investment trust?
+  expect:
+  - 'unit-investment-trust :: (lead)'
+  hints:
+  - fixed (unmanaged) portfolio of securities
+  reference: A unit investment trust (UIT) is a U.S. investment product with a fixed, unmanaged portfolio of securities and a definite
+    life. Unlike open-end and closed-end funds it has no board of directors. It is registered with the SEC under the Investment Company
+    Act of 1940 and sold by a sponsor through brokerage firms.
+  key_points:
+  - A fixed, unmanaged portfolio of securities with a definite life
+  - No board of directors
+  - Registered with the SEC under the Investment Company Act of 1940
+
+- id: q17
+  band: M
+  q: What is the difference between Class A and Class B mutual fund shares?
+  expect:
+  - 'share-class :: Investments > Mutual funds'
+  - 'share-class :: Classifications > Class A'
+  - 'mutual-fund :: Share classes'
+  hints:
+  - class a share funds charge a
+  reference: Class A shares charge a front-end load when you buy. Class B shares charge a back-end load (contingent deferred sales charge)
+    when you sell, which shrinks the longer you hold and eventually disappears, and they can convert to Class A after a holding period.
+    Class A has the lower yearly expense ratio.
+  key_points:
+  - Class A charges a front-end load at purchase
+  - Class B charges a back-end load (CDSC) when selling, declining with holding time
+  - Class B can convert to Class A, which has a lower yearly expense ratio
+
+- id: q18
+  band: XL
+  q: How is a hedge fund different from a mutual fund?
+  expect:
+  - 'hedge-fund :: (lead)'
+  hints:
+  - alternative investments
+  - ability to use leverage and more complex investment techniques
+  reference: A hedge fund is a pooled fund that uses complex trading and risk-management techniques, including short selling, leverage
+    and derivatives. It is marketed only to institutional investors and high-net-worth individuals, is considered an alternative investment,
+    and is not subject to the many restrictions on mutual funds and ETFs.
+  key_points:
+  - Uses short selling, leverage and derivatives
+  - Marketed only to institutional and high-net-worth investors
+  - Considered an alternative investment
+  - Less restricted than regulated funds such as mutual funds and ETFs
+
+- id: q19
+  band: M
+  q: What is tracking error?
+  expect:
+  - 'tracking-error :: (lead)'
+  - 'index-fund :: Disadvantages > Tracking error'
+  hints:
+  - how closely a portfolio follows the index
+  - both under- and over-performance compared to the market is considered a tracking error
+  reference: Tracking error (active risk) measures how closely a portfolio follows the index it is benchmarked to, usually as the standard
+    deviation of the difference between portfolio and index returns. An index fund should have near-zero tracking error, while an actively
+    managed portfolio normally has a higher one.
+  key_points:
+  - Measures how closely a portfolio follows its benchmark index
+  - Usually the standard deviation of the return difference
+  - Index funds have near-zero tracking error; active funds have more
+
+- id: q20
+  band: S
+  q: What does an expense ratio of 1% mean?
+  expect:
+  - 'expense-ratio :: In investment management'
+  - 'mutual-fund :: Expenses > Expense ratio'
+  hints:
+  - an expense ratio of 1% per annum means that each year 1% of the fund's total assets
+  reference: The expense ratio is the share of a fund's assets used each year for administrative, management, advertising (12b-1) and
+    other expenses. An expense ratio of 1% a year means 1% of the fund's total assets goes to expenses annually, which over time can
+    significantly reduce returns. It does not include commissions or performance fees.
+  key_points:
+  - Annual percentage of assets used for fund expenses
+  - 1% means 1% of total assets each year pays expenses
+  - A high ratio reduces returns over time
+  - Does not include commissions or performance fees
+
+- id: q21
+  band: L
+  q: What is dollar-cost averaging?
+  expect:
+  - 'dollar-cost-averaging :: (lead)'
+  hints:
+  - invests in common stocks the same number of dollars each month
+  reference: Dollar-cost averaging is investing the same dollar amount at regular intervals, such as each month or quarter. Because
+    a fixed amount buys more shares when the price is low and fewer when it is high, it can lower the average cost per share over time.
+  key_points:
+  - Invest the same dollar amount at regular intervals
+  - Buys more shares when prices are low and fewer when high
+  - Can lower the average cost per share
+
+- id: q22
+  band: M
+  q: What does the Investment Company Act of 1940 regulate?
+  expect:
+  - 'investment-company-act-of-1940 :: (lead)'
+  hints:
+  - primary source of regulation for mutual funds and closed-end funds
+  reference: The Investment Company Act of 1940 is a U.S. law that regulates investment funds. It is the primary source of regulation
+    for mutual funds and closed-end funds, and it also affects hedge funds, private equity funds and holding companies.
+  key_points:
+  - A U.S. law regulating investment funds
+  - Primary regulation for mutual funds and closed-end funds
+  - Also affects hedge funds and private equity funds
+
+- id: q23
+  band: L
+  q: What is a stable value fund?
+  expect:
+  - 'stable-value-fund :: Explanation'
+  hints:
+  - capital preservation and predictable, steady returns
+  reference: A stable value fund aims to preserve capital and give steady returns. It holds high-credit-quality bonds and wraps them
+    with contracts from banks or insurers that smooth gains and losses. Its risk and stability are similar to a money market fund but
+    with higher returns, and it is offered in about half of 401(k) plans.
+  key_points:
+  - Objective is capital preservation and steady returns
+  - Holds high-rated bonds wrapped with bank or insurer contracts that smooth returns
+  - Similar stability to money market funds with higher returns
+  - Offered in about half of 401(k) plans
+
+- id: q24
+  band: XL
+  q: What did John Bogle believe about index funds?
+  expect:
+  - 'john-c-bogle :: Investment philosophy'
+  hints:
+  - created an s&p 500 fund in 1975
+  reference: Bogle argued that an index fund would match the index's performance over the long run, achieving higher returns than actively
+    managed funds because of lower costs. He helped popularise passive investing, created an S&P 500 index fund in 1975, and saw index
+    investing as the line between investment (long-term returns, lower risk of capital loss) and speculation.
+  key_points:
+  - Index funds match the market over the long run
+  - Lower costs lead to higher returns than active funds
+  - He created an S&P 500 fund in 1975
+  - Index investing separates investment from speculation
+
+- id: q25
+  band: L
+  q: What are the criticisms of passive investing?
+  expect:
+  - 'passive-management :: Concerns about passive investing'
+  hints:
+  - asset bubbles can be considered a byproduct of the increasing popularity of passive investing
+  reference: Critics say the growth of passive investing can contribute to asset bubbles. Bogle warned that over half of U.S. stock
+    ownership and proxy voting power could end up concentrated in three large firms (Vanguard, State Street, BlackRock). Shiller called
+    passive index funds a "chaotic system", and Federal Reserve researchers found some passive strategies amplify volatility and industry
+    concentration while reducing some liquidity risks.
+  key_points:
+  - Passive growth may contribute to asset bubbles
+  - Concentration of ownership and voting power in a few large firms
+  - Some passive strategies amplify market volatility
+  - May contribute to shareholder apathy in corporate governance
+
+- id: q26
+  band: L
+  q: What is a REIT?
+  expect:
+  - 'real-estate-investment-trust :: (lead)'
+  hints:
+  - income-producing real estate
+  reference: A real estate investment trust (REIT) is a company that owns, and usually operates, income-producing real estate such as
+    offices, apartments, warehouses and hotels. The two main types are equity REITs and mortgage REITs. In most countries REITs pay
+    less corporation tax and capital gains tax.
+  key_points:
+  - A company that owns and usually operates income-producing real estate
+  - 'Two main types: equity REITs and mortgage REITs'
+  - Usually pay less corporation and capital gains tax
+
+- id: q27
+  band: XL
+  q: What is the difference between a market-cap weighted and an equal-weighted index?
+  expect:
+  - 'stock-market-index :: Types of indices by weighting method'
+  hints:
+  - places equal weight on each constituent
+  reference: A market-cap weighted index such as the S&P 500 weights each stock by its market capitalisation (share price times shares
+    outstanding), so larger companies count more. An equal-weighted index, such as the S&P 500 Equal Weight, gives every stock the same
+    weight even though it covers the same companies.
+  key_points:
+  - Market-cap weighting uses share price times shares outstanding
+  - Larger companies have more influence
+  - Equal weighting gives each stock the same weight
+
+- id: q28
+  band: S
+  q: What was the first ETF listed in the United States?
+  expect:
+  - 'spdr-s-p-500-etf-trust :: (lead)'
+  hints:
+  - was the first etf listed in the united states
+  reference: The SPDR S&P 500 ETF Trust (ticker SPY), launched on January 22, 1993, was the first ETF listed in the United States. It
+    tracks the S&P 500.
+  key_points:
+  - SPDR S&P 500 ETF Trust (SPY)
+  - Launched January 22, 1993
+  - Tracks the S&P 500
+
+- id: q29
+  band: M
+  q: What is a wrap account and what are the benefits?
+  expect:
+  - 'wrap-account :: Structure'
+  - 'wrap-account :: (lead)'
+  hints:
+  - they only have one counterparty to deal with
+  reference: 'A wrap account (wrap service) lets an investor, usually with an adviser, choose from many funds and assets and place them
+    in the right tax wrappers. Benefits: one counterparty to deal with, the whole portfolio viewable in one place, and a single consolidated
+    tax statement and regular statements.'
+  key_points:
+  - Choose from a wide range of funds and assets in one account
+  - Only one counterparty to deal with
+  - Whole portfolio viewable in one place
+  - Single consolidated tax statement
+
+- id: q30
+  band: S
+  q: What is UCITS?
+  expect:
+  - 'undertakings-for-collective-investment-in-transferable-securities-directive-2009 :: (lead)'
+  hints:
+  - operate freely throughout the eu
+  reference: UCITS (Directive 2009/65/EC) is a European Union directive that lets collective investment schemes operate freely across
+    the EU on the basis of a single authorisation from one member state. Member states may add extra requirements to protect investors.
+  key_points:
+  - An EU directive for collective investment schemes
+  - One authorisation from a member state lets the fund operate across the EU
+  - Member states may add extra investor protections
+
+- id: q31
+  band: S
+  q: What is a sector fund?
+  expect:
+  - 'stock-fund :: Fund types > Sector fund'
+  hints:
+  - a fund that invests in one area of industry is called a sector fund
+  reference: A sector fund invests in one area of industry, with most keeping at least 25% of assets in its specialty. Examples are
+    gold, technology and utility funds. They offer high appreciation potential but also higher risk.
+  key_points:
+  - Invests in one area of industry
+  - 'Examples: gold, technology, utility funds'
+  - Higher potential appreciation but higher risk
+
+- id: q32
+  band: L
+  q: How does Lipper rate mutual funds?
+  expect:
+  - 'lipper :: Fund ratings and indices'
+  hints:
+  - the highest 20% of funds in each peer group are named lipper leaders
+  reference: The Lipper Leaders Rating System rates funds from 5 (highest) to 1 against peers using criteria such as total return, consistent
+    return, capital preservation, tax efficiency and expense. The top 20% of a peer group get a 5 (Lipper Leaders), the next 20% a 4,
+    and so on. The ratings are not predictive of future performance.
+  key_points:
+  - Funds are rated 5 to 1 against a peer group
+  - Criteria include total return, consistency, preservation, tax efficiency and expense
+  - Top 20% of peers are Lipper Leaders
+  - Not predictive of future performance
+
+- id: q33
+  band: S
+  q: What does Morningstar do?
+  expect:
+  - 'morningstar-inc :: (lead)'
+  - 'morningstar-inc :: Products and services'
+  - 'morningstar-inc :: Products and services > Morningstar Direct'
+  - 'morningstar-inc :: Products and services > Morningstar Office Cloud'
+  - 'morningstar-inc :: Products and services > Morningstar Investor'
+  - 'morningstar-inc :: Products and services > Morningstar Research Portal'
+  hints:
+  - investment research and investment management services
+  reference: Morningstar is an American financial services firm, founded by Joe Mansueto in 1984, that provides investment research
+    and investment management services. Its recommendations are influential in asset management and it also offers software and data
+    platforms for investment professionals.
+  key_points:
+  - American financial services firm
+  - Provides investment research and investment management
+  - Its recommendations can move money into or out of funds
+
+- id: q34
+  band: none
+  q: Should I buy SPY or VOO?
+  expect: []
+  hints: []
+  reference: The knowledge base does not cover this. A good answer says so and does not invent figures or give a buy/sell recommendation.
+  key_points: &id001
+  - Says the provided sources don't contain the answer
+  - Does not invent specific figures or advice
+
+- id: q35
+  band: none
+  q: What is the current expense ratio of the Vanguard Total Stock Market ETF?
+  expect: []
+  hints: []
+  reference: The knowledge base does not cover this. A good answer says so and does not invent figures or give a buy/sell recommendation.
+  key_points: *id001
+
+- id: q36
+  band: none
+  q: Which mutual funds will perform best in 2026?
+  expect: []
+  hints: []
+  reference: The knowledge base does not cover this. A good answer says so and does not invent figures or give a buy/sell recommendation.
+  key_points: *id001
+
+- id: q37
+  band: none
+  q: How do I open a brokerage account to buy ETFs?
+  expect: []
+  hints: []
+  reference: The knowledge base does not cover this. A good answer says so and does not invent figures or give a buy/sell recommendation.
+  key_points: *id001

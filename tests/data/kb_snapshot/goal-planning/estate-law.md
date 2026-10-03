@@ -1,0 +1,22 @@
+# Estate (law)
+
+<!-- https://en.wikipedia.org/wiki/Estate_(law) | revision 1348467192 -->
+
+In common law, an estate is a living or deceased person's net worth. It is the sum of a person's assets; their legal rights, interests, and entitlements to property of any kind, minus all of their liabilities at a given time. The issue is of special legal significance on a question of bankruptcy and death of the person. (See inheritance.)
+Depending on the particular context, the term is also used in reference to an estate in land or of a particular kind of property (such as real estate or personal estate). The term is also used to refer to the sum of a person's assets only.
+The equivalent in civil law legal systems is patrimony.
+
+## Bankruptcy
+
+Under United States bankruptcy law, a person's estate consists of all assets or property of any kind available for distribution to creditors. However, some assets are recognized as exempt to allow a person significant resources to restart their financial life. In the United States, asset exemptions depend on various factors, including state and federal law. The estate (or assets) of a bankrupt person is administered by a trustee in bankruptcy.  The legal position in all common law countries is similar in this respect.
+
+## Legal estate in land
+
+In land law, the term "estate" is a remnant of the English feudal system, which created a complex hierarchy of estates and interests in land. The allodial or fee simple interest is the most complete ownership that one can have of property in the common law system. An estate can be an estate for years, an estate at will, a life estate (extinguishing at the death of the holder), an estate pur autre vie (a life interest for the life of another person) or a fee tail estate (to the heirs of one's body) or some more limited kind of heir (e.g. to heirs male of one's body).
+Fee simple estates may be either fee simple absolute or defeasible (i.e. subject to future conditions) like fee simple determinable and fee simple subject to condition subsequent; this is the complex system of future interests (q.v.) which allows concepts of trusts and estates to elide into actuarial science through the use of life contingencies.
+Estate in land can also be divided into estates of inheritance and other estates that are not of inheritance.  The fee simple estate and the fee tail estate are estates of inheritance; they pass to the owner's heirs by operation of law, either without restrictions (in the case of fee simple), or with restrictions (in the case of fee tail).  The estate for years and the life estate are estates not of inheritance; the owner owns nothing after the term of years has passed, and cannot pass on anything to his or her heirs.
+Legal estates and interests are called rights "in rem", and said to be "good against the world".
+
+## Equitable estates
+
+Superimposed on the legal estate and interests in land, English courts created "equitable interests" over the same legal interests. These obligations are called trusts which will be enforceable in a court. A trustee is the person who holds the legal title to property, while the beneficiary is said to have an equitable interest in the property.

@@ -1,0 +1,21 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+*.db
+.pytest_cache/
+.coverage
+node_modules/
+frontend/dist/
+src/data/index/
+src/data/qdrant/
+src/data/qdrant_eval/
+
+# Downloaded / generated data (rebuild with src.rag.build_index, src.rag.build_tickers, scripts.kb_token_stats etc.)
+src/data/raw/*
+!src/data/raw/tickers.csv
+mds/data/
+
+# Local working notes, not versioned
+CLAUDE.md
+spec.md

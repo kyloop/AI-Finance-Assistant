@@ -1,0 +1,78 @@
+# Disposable income
+
+<!-- https://en.wikipedia.org/wiki/Disposable_income | revision 1376244192 -->
+
+Disposable income is total personal income minus current taxes on income. In national accounting, personal income minus the taxes on that income equals disposable income. Subtracting personal outlays for food, housing, transportation, and other forms of personal consumption expenditure yields personal savings.
+The U.S. Bureau of Economic Analysis defines disposable personal income as personal income less personal current taxes. In July 2026, it estimated disposable personal income rose 0.5 percent from the preceding month, while personal saving was $712.0 billion and the personal saving rate, measured as personal saving as a percentage of disposable personal income, was 3.0 percent.
+Restated, consumption expenditure plus savings equals disposable income after accounting for transfers such as payments to children in school or elderly parents' living and care arrangements.
+The marginal propensity to consume (MPC) is the fraction of a change in disposable income that is consumed. For example, if disposable income rises by $100, and $65 of that $100 is consumed, the MPC is 65%. Restated, the marginal propensity to save is 35%.
+For the purposes of calculating the amount of income subject to garnishments, United States' federal law defines disposable income as an individual's compensation (including salary, overtime, bonuses, commission, and paid leave) after the deduction of health insurance premiums and any amounts required to be deducted by law. Amounts required to be deducted by law include federal, state, and local taxes, state unemployment and disability taxes, social security taxes, and other garnishments or levies, but does not include such deductions as voluntary retirement contributions and transportation deductions. Those deductions would be made only after calculating the amount of the garnishment or levy. The definition of disposable income varies for the purpose of state and local garnishments and levies.
+The consumer leverage ratio is the expression of the ratio of total household debt to disposable income.
+
+## Meanings of disposable income
+
+Disposable income can be understood as:
+
+National disposable income of a country: The national income minus current transfers (current taxes on income, wealth etc., social contributions, social benefits and other current transfers), plus current transfers receivable by resident units from the rest of the world.
+Disposable personal (or family/household) income: The income that individuals or households have for their spending.
+
+## Discretionary income
+
+Discretionary income is disposable income (after-tax income), minus all payments that are necessary to meet current bills. It is total personal income after subtracting taxes and minimal survival expenses (such as food, medicine, rent or mortgage, utilities, insurance, transportation, property maintenance, child support, etc.) to maintain a certain standard of living. Expenses that persist with zero income are termed autonomous consumption. Discretionary income is the amount of an individual's income available for spending after the essentials have been taken care of:
+
+  
+    
+      
+        
+          Discretionary income
+        
+      
+    
+    {\displaystyle {\text{Discretionary income}}}
+  
+
+  
+    
+      
+        =
+        (
+        
+          Gross income
+        
+        −
+        
+          taxes
+        
+        )
+        −
+        
+          all compelled payments
+        
+      
+    
+    {\displaystyle =({\text{Gross income}}-{\text{taxes}})-{\text{all compelled payments}}}
+  
+
+  
+    
+      
+        =
+        (
+        
+          Disposable income
+        
+        )
+        −
+        
+          autonomous spending
+        
+      
+    
+    {\displaystyle =({\text{Disposable income}})-{\text{autonomous spending}}}
+  
+
+The term disposable income is often incorrectly used to denote discretionary income. For example, people commonly refer to disposable income as the amount of "play money" left to spend or save.
+
+## In the national accounts
+
+The system of national accounts defined the concept of disposable income for all institutional sectors of the economy. For corporations it is equal to profit retained, and for the government it is equal to taxes + income received from public corporation. The sum of disposable income across all institutional sectors is called the national disposable income.

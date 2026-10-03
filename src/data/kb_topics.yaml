@@ -1,0 +1,553 @@
+# category -> Wikipedia article titles to ingest (python -m src.kb.ingest / python -m src.rag.build_index). Edit freely.
+# 15 per category (basics, bonds and etfs-and-mutual-funds: 50, stocks and goal-planning: 150). Titles after an "# added <date>" comment were checked: page exists, not a disambiguation page, and does not
+# redirect to a page already listed. Exact resolved titles are used so redirects can't change what gets fetched.
+basics:
+  - Compound interest
+  - Inflation
+  - Time value of money
+  - Risk–return spectrum
+  - Emergency fund
+  - Personal finance
+  # added 2026-09-30
+  - Annual percentage yield
+  - Annual percentage rate
+  - Net worth
+  - Opportunity cost
+  - Rule of 72
+  - Real and nominal value
+  - Purchasing power
+  - Deflation
+  - Asset
+  # added 2026-09-30 (to 50 pages)
+  - Nominal interest rate
+  - Effective interest rate
+  - Real interest rate
+  - Present value
+  - Future value
+  - Net present value
+  - Discounted cash flow
+  - Rate of return
+  - Return on investment
+  - Compound annual growth rate
+  - Capital gain
+  - Yield (finance)
+  - Investment
+  - Speculation
+  - Leverage (finance)
+  - Liability (financial accounting)
+  - Equity (finance)
+  - Income
+  - Disposable income
+  - Wealth
+  - Money
+  - Fiat money
+  - Currency
+  - Hyperinflation
+  - Stagflation
+  - Consumer price index
+  - Accounting liquidity
+  - Financial risk
+  - Loan
+  - Collateral (finance)
+  - Credit
+  - Bank
+  - Central bank
+  - Federal Reserve
+  - Money supply
+stocks:
+  - Stock
+  - Dividend
+  - Price–earnings ratio
+  - Market capitalization
+  - Initial public offering
+  - Common stock
+  - Stock split
+  # added 2026-09-30
+  - Preferred stock
+  - Earnings per share
+  - Dividend yield
+  - Growth stock
+  - Value investing
+  - Blue chip (stock market)
+  - Stock exchange
+  - Share repurchase
+  # added 2026-10-01 (to 150 pages)
+  - P/B ratio
+  - Price–sales ratio
+  - PEG ratio
+  - Enterprise value
+  - Dividend payout ratio
+  - Return on equity
+  - Debt-to-equity ratio
+  - Free cash flow
+  - Earnings before interest, taxes, depreciation and amortization
+  - Operating margin
+  - Profit margin
+  - Revenue
+  - Net income
+  - Intrinsic value (finance)
+  - Dividend discount model
+  - Graham number
+  - Book value
+  - Market value
+  - Shares outstanding
+  - Public float
+  - Treasury stock
+  - Stock dilution
+  - Annual report
+  - Form 10-K
+  - Earnings call
+  - Reverse stock split
+  - Mergers and acquisitions
+  - Tender offer
+  - Rights issue
+  - Follow-on offering
+  - Dividend reinvestment plan
+  - Ex-dividend date
+  - Special dividend
+  - Stock trader
+  - Day trading
+  - Swing trading
+  - Margin (finance)
+  - Short (finance)
+  - Short squeeze
+  - Market maker
+  - Stockbroker
+  - Payment for order flow
+  - Settlement (finance)
+  - Trading halt
+  - Trading curb
+  - Extended-hours trading
+  - Algorithmic trading
+  - High-frequency trading
+  - Dark pool
+  - Over-the-counter (finance)
+  - Penny stock
+  - Ticker symbol
+  - Stock certificate
+  - Volume (finance)
+  - Market depth
+  - Momentum investing
+  - Contrarian investing
+  - Buy and hold
+  - Stock valuation
+  - Sector rotation
+  - Factor investing
+  - Smart beta
+  - Quality investing
+  - Socially responsible investing
+  - Environmental, social, and governance
+  - Shareholder activism
+  - Proxy voting
+  - Board of directors
+  - Option (finance)
+  - Employee stock option
+  - Employee stock purchase plan
+  - Restricted stock
+  - Warrant (finance)
+  - American depositary receipt
+  - Global depository receipt
+  - Tracking stock
+  - Fundamental analysis
+  - Technical analysis
+  - Chart pattern
+  - Candlestick chart
+  - Support and resistance
+  - MACD
+  - Bollinger Bands
+  - Trend line (technical analysis)
+  - Momentum (technical analysis)
+  - Advance–decline line
+  - Dow theory
+  - Random walk hypothesis
+  - Behavioural finance
+  - Equity premium puzzle
+  - Alpha (finance)
+  - Treynor ratio
+  - Jensen's alpha
+  - Fama–French three-factor model
+  - Arbitrage pricing theory
+  - Abnormal return
+  - Total return
+  - Total shareholder return
+  - Cyclically adjusted price-to-earnings ratio
+  - Financial analyst
+  - Stock market bubble
+  - Market sentiment
+  - Implied volatility
+  - Underwriting
+  - Greenshoe
+  - Book building
+  - Insider trading
+  - Securities fraud
+  - Pump and dump
+  - Market manipulation
+  - Primary market
+  - Secondary market
+  - Stock market prediction
+  - Capital structure
+  - Cost of capital
+  - Weighted average cost of capital
+  - Cost of equity
+  - Retained earnings
+  - Income statement
+  - Balance sheet
+  - Cash flow statement
+  - Financial statement
+  - Earnings quality
+  - Executive compensation
+  - Takeover
+  - Leveraged buyout
+  - Risk-adjusted return on capital
+  - Sortino ratio
+  - Value at risk
+  - Portfolio manager
+  - Investment club
+  - Meme stock
+  - Institutional investor
+  - Accredited investor
+  - Relative strength index
+bonds:
+  - Bond (finance)
+  - Yield to maturity
+  - Bond duration         # redirects to "Duration (finance)"
+  - United States Treasury security
+  - Corporate bond
+  - Credit rating
+  # added 2026-09-30
+  - Coupon (finance)
+  - Municipal bond
+  - Zero-coupon bond
+  - High-yield debt
+  - Yield curve
+  - Interest rate risk
+  - Inflation-indexed bond
+  - Bond fund
+  - United States Savings Bonds
+  # added 2026-09-30 (to 50 pages)
+  - Callable bond
+  - Face value
+  - Credit risk
+  - Government bond
+  - Bond market
+  - Bond valuation
+  - Convexity (finance)
+  - Accrued interest
+  - Clean price
+  - Dirty price
+  - Current yield
+  - Yield spread
+  - Convertible bond
+  - Floating rate note
+  - Perpetual bond
+  - Sinking fund
+  - Default (finance)
+  - Sovereign default
+  - Loss given default
+  - Laddering
+  - Mortgage-backed security
+  - Asset-backed security
+  - Collateralized debt obligation
+  - Covered bond
+  - Green bond
+  - Catastrophe bond
+  - Build America Bonds
+  - General obligation bond
+  - Revenue bond
+  - Commercial paper
+  - Immunization (finance)
+  - Reinvestment risk
+  - Liquidity risk
+  - Repurchase agreement
+  - Primary dealer
+etfs-and-mutual-funds:
+  - Exchange-traded fund
+  - Mutual fund
+  - Index fund
+  - Expense ratio
+  - Target date fund
+  - Passive management
+  # added 2026-09-30
+  - Active management
+  - Net asset value
+  - Closed-end fund
+  - Money market fund
+  - Fund of funds
+  - Stock market index
+  - Tracking error
+  - Real estate investment trust
+  - Investment fund
+  # added 2026-10-01 (to 50 pages)
+  - The Vanguard Group
+  - BlackRock
+  - IShares
+  - Fidelity Investments
+  - SPDR S&P 500 ETF Trust
+  - Fidelity Magellan Fund
+  - John C. Bogle
+  - Morningstar, Inc.
+  - Hedge fund
+  - Exchange-traded note
+  - Inverse exchange-traded fund
+  - Gold exchange-traded product
+  - Commodity pool
+  - Open-end fund
+  - Unit investment trust
+  - Investment trust
+  - Stock fund
+  - Stable value fund
+  - Money market
+  - Share class
+  - Management fee
+  - Total expense ratio
+  - Dollar-cost averaging
+  - Lipper
+  - Investment company
+  - Investment Company Act of 1940
+  - Undertakings for Collective Investment in Transferable Securities Directive 2009
+  - Separately managed account
+  - Wrap account
+  - Investment management
+  - Asset management
+  - Fund accounting
+  - Fixed income
+  - Emerging market
+  - Small cap company
+diversification-and-risk:
+  - Diversification (finance)
+  - Asset allocation
+  - Modern portfolio theory
+  - Rebalancing investments
+  - Volatility (finance)
+  - Beta (finance)
+  - Sharpe ratio
+  # added 2026-09-30
+  - Systematic risk
+  - Efficient frontier
+  - Capital asset pricing model
+  - Drawdown (economics)
+  - Risk premium
+  - Concentration risk
+  - Market risk
+  - Risk aversion
+retirement:
+  - 401(k)
+  - Individual retirement account
+  - Roth IRA
+  - Traditional IRA
+  - Social Security (United States)
+  - Pension
+  # added 2026-09-30
+  - Annuity
+  - Defined contribution plan
+  - Defined benefit pension plan
+  - Required minimum distribution
+  - Trinity study
+  - 403(b)
+  - 457 plan
+  - Retirement spend-down
+  - Vesting
+taxes-and-accounts:
+  - Capital gains tax in the United States
+  - Tax loss harvesting
+  - Health savings account
+  - Tax advantage
+  - Cost basis
+  # added 2026-09-30
+  - Wash sale
+  - 529 plan
+  - Income tax in the United States
+  - Tax bracket
+  - Qualified dividend
+  - Tax deduction
+  - Standard deduction
+  - Flexible spending account
+  - Coverdell education savings account
+  - Progressive tax
+budgeting-and-saving:
+  - Budget
+  - Savings account
+  - Certificate of deposit
+  - Credit score in the United States
+  - Debt
+  # added 2026-09-30
+  - Personal budget
+  - Money market account
+  - Credit card
+  - Credit card interest
+  - Debt consolidation
+  - Debt snowball method
+  - Saving
+  - Mortgage
+  - Credit history
+  - Student loans in the United States
+market-concepts:
+  - Stock market
+  - Market trend          # covers bull and bear markets (both redirect here)
+  - S&P 500
+  - Nasdaq Composite
+  - Dow Jones Industrial Average
+  - Moving average
+  - Market liquidity
+  # added 2026-09-30
+  - Recession
+  - Stock market crash
+  - Bid–ask spread
+  - Order (exchange)
+  - VIX
+  - Interest rate
+  - Efficient-market hypothesis
+  - Market timing
+goal-planning:
+  - Financial planning
+  - Financial independence
+  - Retirement planning
+  - Dollar cost averaging
+  # added 2026-09-30
+  - FIRE movement
+  - SMART criteria
+  - Down payment
+  - Financial literacy
+  - Estate planning
+  - Life insurance
+  - Financial adviser
+  - Robo-advisor
+  - Wealth management
+  - Will and testament
+  - Owner-occupancy       # home ownership ("Home ownership" redirects here)
+  # added 2026-10-02 (to 150 pages)
+  - Financial planner
+  - Certified Financial Planner
+  - Fiduciary
+  - Registered investment adviser
+  - Family office
+  - Private banking
+  - Investment strategy
+  - Investment policy statement
+  - Asset location
+  - Goal setting
+  - Cash flow forecasting
+  - Economic security
+  - Financial social work
+  - Life-cycle hypothesis
+  - Permanent income hypothesis
+  - Consumption smoothing
+  - Precautionary savings
+  - Time preference
+  - Delayed gratification
+  - Hyperbolic discounting
+  - Mental accounting
+  - Loss aversion
+  - Present bias
+  - Nudge theory
+  - Default effect
+  - Choice architecture
+  - Frugality
+  - Simple living
+  - Downshifting (lifestyle)
+  - Passive income
+  - Hedonic treadmill
+  - Keeping up with the Joneses
+  - Sudden wealth syndrome
+  - Windfall gain
+  - Value averaging
+  - Core & Satellite
+  - Human capital
+  - High-net-worth individual
+  - Reverse mortgage
+  - Long-term care
+  - Long-term care insurance
+  - Elder law in the United States
+  - Elder financial abuse
+  - Trust (law)
+  - Testamentary trust
+  - Charitable trust
+  - Donor-advised fund
+  - Devise and bequeath
+  - Inheritance
+  - Inheritance tax
+  - Estate tax in the United States
+  - Gift tax in the United States
+  - Generation-skipping transfer tax
+  - Probate
+  - Intestacy
+  - Executor
+  - Trustee
+  - Legal guardian
+  - Conservatorship
+  - Power of attorney
+  - Advance healthcare directive
+  - Estate (law)
+  - Spendthrift trust
+  - Special needs trust
+  - Community property
+  - Prenuptial agreement
+  - Alimony
+  - Child support
+  - Cost of raising a child
+  - Sabbatical
+  - Severance package
+  - Employee benefits
+  - College tuition in the United States
+  - Student financial aid in the United States
+  - FAFSA
+  - Scholarship
+  - Pell Grant
+  - Student debt
+  - Student loan
+  - Private student loan (United States)
+  - Uniform Gifts to Minors Act
+  - Custodial account
+  - ABLE account
+  - Insurance
+  - Insurance policy
+  - Term life insurance
+  - Whole life insurance
+  - Universal life insurance
+  - Variable universal life insurance
+  - Endowment policy
+  - Disability insurance
+  - Income protection insurance
+  - Critical illness insurance
+  - Health insurance
+  - Home insurance
+  - Renters' insurance
+  - Vehicle insurance
+  - Umbrella insurance
+  - Title insurance
+  - Mortgage insurance
+  - Deductible
+  - Homeownership in the United States
+  - First-time buyer
+  - First-time home buyer grant
+  - Real estate
+  - Real estate investing
+  - Fixed-rate mortgage
+  - Adjustable-rate mortgage
+  - Mortgage calculator
+  - Amortization schedule
+  - Amortization calculator
+  - Loan-to-value ratio
+  - Debt-to-income ratio
+  - Closing costs
+  - Escrow
+  - Home inspection
+  - Refinancing
+  - Foreclosure
+  - FHA insured loan
+  - VA loan
+  - Pre-approval
+  - Renting
+  - Rent-to-own
+  - Starter home
+  - Mortgage broker
+  - Real estate agent
+  - Negative equity
+  - Home equity
+  - Home equity loan
+  - Home equity line of credit
+  - Car finance
+  - Vehicle leasing
+  - Business plan
+  - Self-employment
+  - Side job

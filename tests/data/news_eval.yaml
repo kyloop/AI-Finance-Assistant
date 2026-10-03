@@ -1,0 +1,61 @@
+# Retrieval ground truth for the news index (python -m scripts.eval_news), written against tests/data/news_snapshot.json,
+# a frozen copy of 190 real Yahoo stories (MARKET, AAPL, NVDA, AM, AMD, SPY, SPCX feeds, captured 2026-10-01).
+# `expect`: 8-character prefixes of the story ids that answer the question (the script checks they exist).
+# `hints`: phrases, at least one of which must appear in a retrieved story's title + summary for the answer text itself to count as
+#   found (hint@5). The script checks each question's hints appear in at least one expected story.
+# kind answerable: a story answers it. kind out_of_scope: nothing finance-related to find. kind near_miss: a finance question on a topic
+#   the snapshot does not cover; the right result is nothing found, but a dense embedding tends to return related stories.
+
+- {id: n01, q: "Which two chip stocks jumped over 30% in September?", expect: [f0733dca], hints: ["Intel jumped 34.32%"]}
+- {id: n02, q: "Why is Unity Software stock rising?", expect: [b2c858bf, f5f975f4], hints: ["VR headset", "virtual-reality headset"]}
+- {id: n03, q: "What is Elon Musk doing for the Pentagon?", expect: [22e7b7bd], hints: ["120-day Pentagon study"]}
+- {id: n04, q: "Why did Citi downgrade Moderna?", expect: [4bdd5ba7, 1b5c5e4e], hints: ["to Sell"]}
+- {id: n05, q: "How much upside does Barclays see in Nvidia's hyperscaler revenue?", expect: [ceb7b593], hints: ["$30 billion of potential upside"]}
+- {id: n06, q: "Which five chip stocks does Bank of America say to own?", expect: [f12bdd20, bc97f3cb], hints: ["5 Chip Stocks", "5 AI Chip Stocks"]}
+- {id: n07, q: "Why could Nvidia financing its customers' chip purchases be risky?", expect: [3317eba3, 660c9a07], hints: ["financing"]}
+- {id: n08, q: "How big is Nvidia's new share buyback?", expect: [70b82295], hints: ["$100 billion in buyback"]}
+- {id: n09, q: "Why isn't Micron's blowout earnings report lifting the stock?", expect: [65b5e790, a3eaba56], hints: ["barely moving the stock", "much of a boost"]}
+- {id: n10, q: "Are steel stocks recovering after the Cleveland-Cliffs tariff hit?", expect: [55e994c2], hints: ["Steel stocks found their footing"]}
+- {id: n11, q: "What does Citadel Securities expect for stocks in October?", expect: [81d0098b], hints: ["reload"]}
+- {id: n12, q: "What is JPMorgan worried about for stocks in the fourth quarter?", expect: [d61cd425], hints: ["equity positioning and leverage"]}
+- {id: n13, q: "Why did Paramount Skydance fall after winning antitrust clearance?", expect: [439f2edf], hints: ["Antitrust Clearance", "cleared the final legal hurdle"]}
+- {id: n14, q: "Why did Accenture shares soar 23%?", expect: [7f9b2753], hints: ["Record Bookings"]}
+- {id: n15, q: "What did Nu Holdings say about a Monzo deal?", expect: [7edd7ea9], hints: ["Monzo"]}
+- {id: n16, q: "Did SpaceX Starship reach orbit?", expect: [d0fe63da, d5650468], hints: ["Starship into orbit", "Starship orbital launch"]}
+- {id: n17, q: "What launch deal did Rocket Lab sign with Synspective?", expect: [c745d85c, eab3c662], hints: ["Synspective", "Electron Deal"]}
+- {id: n18, q: "Who is Apple's new CEO after Tim Cook?", expect: [8f4828bf, 81b93c63, fb5ee3d0], hints: ["John Ternus", "Tim Cook Exit"]}
+- {id: n19, q: "How many foldable iPhones is Apple expected to sell?", expect: [28b9cb57, 6b651354], hints: ["6 million"]}
+- {id: n20, q: "What is Apple planning in the smart-home market?", expect: [ef0dfb02, f0c0a255], hints: ["smart-home hub", "home hub"]}
+- {id: n21, q: "Has Apple Pay launched in India?", expect: [3e492f8d], hints: ["Axis Bank"]}
+- {id: n22, q: "Why did Cathie Wood sell AMD?", expect: [442abb2c, 52b52fcf, 2040095c], hints: ["Sells AMD", "$110 Million of AMD"]}
+- {id: n23, q: "What was the $1.2 billion Vultr order for HPE?", expect: [2d37f779, 588dfb83, fcbed08c, 0d5a643d], hints: ["Vultr", "Helios"]}
+- {id: n24, q: "Is AMD buying World Labs?", expect: [9f66eccd], hints: ["$8.2 Billion World Labs"]}
+- {id: n25, q: "Is Anthropic going public?", expect: [16fc88c2, fba6ed2a], hints: ["filed confidentially for an IPO", "Anthropic goes public"]}
+- {id: n26, q: "Is the FTC investigating OpenAI and Anthropic?", expect: [d6ca315b], hints: ["FTC Reportedly Probes OpenAI and Anthropic"]}
+- {id: n27, q: "What happened at the White House AI lunch?", expect: [a6ca0bcb, 0aa7bb9e, 3c6ab0de], hints: ["White House"]}
+- {id: n28, q: "Why did Oura postpone its IPO?", expect: [780b4f67, bcb200dd], hints: ["postponed its $2.1 billion IPO", "pull the plug on its stock offering"]}
+- {id: n29, q: "What did the August inflation report show?", expect: [1eb8bd7b, b9b21b56, abad5bc8], hints: ["softer-than-expected annual inflation", "smaller-than-forecast price increase", "moderate inflation rise"]}
+- {id: n30, q: "Why did bond funds lose money in the third quarter?", expect: [0303fe7c], hints: ["Rising interest rates pummeled bonds"]}
+- {id: n31, q: "Does Barclays think high real rates are holding back stock valuations?", expect: [c4865a49], hints: ["High Real Rates"]}
+- {id: n32, q: "Which automaker stock did best in September: Tesla, Ford or GM?", expect: [afd2c986], hints: ["Tesla, Ford, or General Motors"]}
+- {id: n33, q: "Which buy now pay later stock held up best in September?", expect: [e8eeadf0], hints: ["Klarna, Affirm, or Sezzle"]}
+- {id: n34, q: "Are the new drug tariffs hurting biotech stocks?", expect: [34d726f6], hints: ["100% tariff"]}
+- {id: n35, q: "What is the ETF that goes to zero if the S&P 500 misses 10,000?", expect: [f2cac262], hints: ["10,000"]}
+- {id: n36, q: "Why is Elon Musk feuding with Delta Air Lines?", expect: [b99079cc, dcea1be8], hints: ["Starlink"]}
+- {id: n37, q: "How much of Berkshire Hathaway's portfolio is in AI stocks?", expect: [eadbbae2], hints: ["41.7%"]}
+- {id: n38, q: "How much new credit did Tesla secure?", expect: [e1dd2b48], hints: ["$30 Billion in New Credit"]}
+- {id: n39, q: "Why did GameStop shares pop?", expect: [5be62cda], hints: ["Ryan Cohen"]}
+- {id: n40, q: "What do analysts think of Intel stock?", expect: [2d481821], hints: ["32 Analysts"]}
+
+- {id: o01, kind: out_of_scope, q: "What is the weather forecast for Tokyo next week?", expect: [], hints: []}
+- {id: o02, kind: out_of_scope, q: "Who won the Formula 1 championship?", expect: [], hints: []}
+- {id: o03, kind: out_of_scope, q: "What is the best pizza recipe?", expect: [], hints: []}
+- {id: o04, kind: out_of_scope, q: "How do I train for a marathon?", expect: [], hints: []}
+- {id: o05, kind: out_of_scope, q: "What is the capital of Australia?", expect: [], hints: []}
+- {id: o06, kind: out_of_scope, q: "Tell me about the lunar mining colony", expect: [], hints: []}
+
+- {id: m01, kind: near_miss, q: "What has been said about chip export restrictions to China?", expect: [], hints: []}
+- {id: m02, kind: near_miss, q: "What did Amazon announce about its warehouse robots?", expect: [], hints: []}
+- {id: m03, kind: near_miss, q: "Is the European Central Bank cutting interest rates?", expect: [], hints: []}
+- {id: m04, kind: near_miss, q: "What did Walmart report in its latest earnings?", expect: [], hints: []}
+- {id: m05, kind: near_miss, q: "How is the Japanese yen doing against the dollar?", expect: [], hints: []}

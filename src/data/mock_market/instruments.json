@@ -1,0 +1,23 @@
+{
+  "AAPL": {"name": "Apple Inc.", "price": 228.5, "asset_type": "stock", "sector": "Technology", "expense_ratio": 0},
+  "MSFT": {"name": "Microsoft Corp.", "price": 425.2, "asset_type": "stock", "sector": "Technology", "expense_ratio": 0},
+  "NVDA": {"name": "NVIDIA Corp.", "price": 138.4, "asset_type": "stock", "sector": "Technology", "expense_ratio": 0},
+  "JPM":  {"name": "JPMorgan Chase & Co.", "price": 245.1, "asset_type": "stock", "sector": "Financials", "expense_ratio": 0},
+  "JNJ":  {"name": "Johnson & Johnson", "price": 158.9, "asset_type": "stock", "sector": "Healthcare", "expense_ratio": 0},
+  "VTI":  {"name": "Vanguard Total Stock Market ETF", "price": 288.0, "asset_type": "stock_etf", "expense_ratio": 0.0003,
+           "sector_breakdown": {"Technology": 0.31, "Financials": 0.13, "Healthcare": 0.12, "Consumer": 0.20, "Industrials": 0.10, "Other": 0.14}},
+  "VOO":  {"name": "Vanguard S&P 500 ETF", "price": 530.0, "asset_type": "stock_etf", "expense_ratio": 0.0003,
+           "sector_breakdown": {"Technology": 0.33, "Financials": 0.13, "Healthcare": 0.11, "Consumer": 0.19, "Industrials": 0.09, "Other": 0.15}},
+  "QQQ":  {"name": "Invesco QQQ Trust", "price": 490.0, "asset_type": "thematic_etf", "expense_ratio": 0.0020,
+           "sector_breakdown": {"Technology": 0.60, "Consumer": 0.18, "Healthcare": 0.06, "Other": 0.16}},
+  "VXUS": {"name": "Vanguard Total International Stock ETF", "price": 64.0, "asset_type": "intl_etf", "expense_ratio": 0.0008,
+           "sector_breakdown": {"Financials": 0.22, "Industrials": 0.15, "Technology": 0.13, "Consumer": 0.20, "Other": 0.30}},
+  "BND":  {"name": "Vanguard Total Bond Market ETF", "price": 73.0, "asset_type": "bond_etf", "expense_ratio": 0.0003,
+           "sector_breakdown": {"Bonds": 1.0}},
+  "VNQ":  {"name": "Vanguard Real Estate ETF", "price": 92.0, "asset_type": "real_estate", "expense_ratio": 0.0013,
+           "sector_breakdown": {"Real Estate": 1.0}},
+  "SPAXX": {"name": "Money market / cash", "price": 1.0, "asset_type": "cash", "sector": "Cash", "expense_ratio": 0},
+  "^GSPC": {"name": "S&P 500", "price": 5850.0, "asset_type": "index"},
+  "^IXIC": {"name": "Nasdaq Composite", "price": 18400.0, "asset_type": "index"},
+  "^DJI":  {"name": "Dow Jones Industrial Average", "price": 42500.0, "asset_type": "index"}
+}
