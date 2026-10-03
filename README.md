@@ -26,6 +26,20 @@ cd frontend && npm install && npm run dev   # http://localhost:5173 (proxies /ap
 pytest                                # backend tests
 ```
 
+### Secret scanning (pre-commit)
+
+API keys live only in `.env`, which is gitignored. A pre-commit hook in `.githooks/` runs
+[gitleaks](https://github.com/gitleaks/gitleaks) on the staged changes and blocks a commit that contains a key, token,
+private key or password. It runs locally and offline. Enable it once per clone:
+
+```bash
+brew install gitleaks                 # or a release binary from github.com/gitleaks/gitleaks/releases
+git config core.hooksPath .githooks
+gitleaks git . --redact               # optional: scan the whole history
+```
+
+A false positive can be listed by its fingerprint in `.gitleaksignore`.
+
 ## Layout
 | Path | Purpose |
 |---|---|
