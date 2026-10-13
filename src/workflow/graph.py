@@ -77,7 +77,7 @@ FLOW_NODES = [
     ("calc_agent", "Calculator", 2, "Computes exact figures: growth, loan payments, doubling time and more."),
     ("clarify", "Clarify", 2, "Asks you to rephrase when the message can't be understood."),
     ("verifier", "Verifier", 3, "Rechecks every agent's output: do the sources really answer the question? Adds clickable choices when more details are needed."),
-    ("research", "Research", 4, "Fallback for when an agent found nothing: looks up the underlying concept on Wikipedia, then hands back to the Verifier. Skipped when every agent had an answer."),
+    ("research", "Research", 4, "Fallback for when an agent found nothing: looks up the underlying concept on Wikipedia, and if that doesn't answer it, searches the web; each time it hands back to the Verifier. Skipped when every agent had an answer."),
     ("replan", "Replan", 5, "When an agent and Research both came up empty: picks other agents that could supply what is missing and sends the question to them (at most 3 times)."),
     ("illustrate", "Illustrate", 6, "Adds a worked example with sample numbers to conceptual answers about numeric topics."),
     ("synthesizer", "Synthesizer", 7, "Writes the reply from the agents' results only, adding no facts of its own."),

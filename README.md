@@ -308,3 +308,9 @@ never the numbers, your message or the conversation; Wolfram returns the formula
 (`src/core/equations.py`) puts your numbers in, checks the formula against the equation and computes the result. Without
 the key, or when Wolfram has no usable formula (an IRR over several years has no neat closed form) or is unreachable,
 Python solves the equation numerically. `WOLFRAM_ALPHA_APP_ID` works as the key name too. Settings: `wolfram` in `config.yaml`.
+
+**Optional: Tavily web search as Research's last resort.** Add `TAVILY_API_KEY=<your key>` to `.env` (from app.tavily.com).
+When the knowledge base and Wikipedia have nothing that answers a question, Research sends the question (only the
+question; never the conversation or your portfolio) to [Tavily](https://docs.tavily.com) and uses up to 3 page extracts,
+each cited by title and domain. The verifier checks them like Wikipedia results, and social sites are excluded
+(`tavily.exclude_domains` in `config.yaml`). Without the key, Research stops at Wikipedia as before.

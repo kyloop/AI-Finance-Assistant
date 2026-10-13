@@ -18,6 +18,13 @@ wolfram:                    # Calculator fallback for calculations the Python ca
   enabled: true             # also needs WOLFRAM_APP_ID in .env; without it the Calculator solves its equations numerically
   timeout_seconds: 10
   max_chars: 2000           # LLM API response size
+tavily:                     # web search, Research's last resort after the knowledge base and Wikipedia (src/core/tavily.py)
+  enabled: true             # also needs TAVILY_API_KEY in .env; without it Research stops at Wikipedia as before
+  search_depth: basic       # basic = 1 credit per search; advanced = 2
+  max_results: 5
+  min_score: 0.3            # Tavily relevance score below which a result is dropped
+  timeout_seconds: 15
+  exclude_domains: [reddit.com, quora.com, x.com, twitter.com, facebook.com, tiktok.com, youtube.com]   # not citable sources
 market:
   cache_ttl_seconds: 1800   # 30 min, per spec FR-M2
   news_cache_ttl_seconds: 300   # 5 min; headlines change faster than the default
