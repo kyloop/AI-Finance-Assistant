@@ -30,6 +30,14 @@ risk_profiles:              # nominal annual return assumptions (illustrative)
   conservative: 0.04
   moderate: 0.06
   aggressive: 0.08
+risk_volatility:            # yearly standard deviation of returns per risk profile, for the Goals Monte Carlo (illustrative)
+  conservative: 0.06
+  moderate: 0.10
+  aggressive: 0.15
+monte_carlo:                # Goals tab simulation
+  simulations: 2000
+  seed: 42                          # fixed so the same inputs give the same bands; null for fresh draws each time
+  confidence: 0.8                   # "monthly needed to reach the target in 80% of simulations"
 allocations:                # illustrative stock/bond/cash split per risk profile
   conservative: {stocks: 30, bonds: 55, cash: 15}
   moderate:     {stocks: 60, bonds: 35, cash: 5}

@@ -60,7 +60,15 @@ export interface GoalResult {
   projected_value: number; target: number; on_track: boolean; shortfall: number; required_monthly: number;
   annual_return_assumption: number; suggested_allocation: Record<string, number>;
   series: { year: number; projected: number; contributed: number; target: number }[];
+  monte_carlo: MonteCarlo; goal_id: number;
 }
+export interface GoalBand { year: number; p10: number; p25: number; p50: number; p75: number; p90: number }
+/** Goals tab simulation (src/core/calculators.py simulate_goal). */
+export interface MonteCarlo {
+  simulations: number; volatility_assumption: number; annual_return_assumption: number; probability_of_success: number;
+  final_percentiles: Omit<GoalBand, "year">; confidence: number; required_monthly_for_confidence: number; bands: GoalBand[];
+}
+export interface SavedGoal extends GoalInput { id: number }
 
 export interface Conversation { id: number; title: string; created_at: string; updated_at: string; message_count: number }
 

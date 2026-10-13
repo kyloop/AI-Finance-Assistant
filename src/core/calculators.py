@@ -220,6 +220,50 @@ def project_goal(target: float, years: int, current: float, monthly: float, annu
             "annual_return_assumption": annual_return, "series": series}
 
 
+MC_PERCENTILES = (10, 25, 50, 75, 90)
+
+
+def simulate_goal(target: float, years: int, current: float, monthly: float, annual_return: float, volatility: float,
+                  simulations: int = 2000, seed: int | None = 42, confidence: float = 0.8) -> dict:
+    """Monte Carlo version of `project_goal`: each month's return is drawn at random (lognormal with mean `annual_return` / 12,
+    as in `project_goal`, so the average path is the steady projection; `volatility` is the yearly standard deviation). Deposits land at the end of
+    each month, as in `project_goal`. Returns percentile bands per year, the share of paths that reach `target`, and the
+    monthly contribution that reaches it in `confidence` of the paths. A fixed seed keeps results repeatable."""
+    import numpy as np
+
+    if years <= 0:
+        raise ValueError("horizon must be at least 1 year")
+    if volatility < 0 or simulations < 1 or not 0 < confidence < 1:
+        raise ValueError("volatility must be >= 0, simulations >= 1 and confidence between 0 and 1")
+    n = years * 12
+    sigma = volatility / math.sqrt(12)
+    mu = math.log(1 + annual_return / 12) - sigma ** 2 / 2               # monthly log-return mean
+    growth = np.exp(np.random.default_rng(seed).normal(mu, sigma, size=(simulations, n)))
+    # A path's value is linear in the deposit: V = current * G + monthly * S, with G the compounded growth of the
+    # starting amount and S what $1 a month grows to. Tracking G and S gives the required deposit per path exactly.
+    g = np.ones(simulations)
+    s = np.zeros(simulations)
+    yearly_g, yearly_s = [g.copy()], [s.copy()]
+    for m in range(n):
+        g = g * growth[:, m]
+        s = s * growth[:, m] + 1
+        if (m + 1) % 12 == 0:
+            yearly_g.append(g.copy())
+            yearly_s.append(s.copy())
+    bands = []
+    for y, (gy, sy) in enumerate(zip(yearly_g, yearly_s)):
+        values = np.percentile(current * gy + monthly * sy, MC_PERCENTILES)
+        bands.append({"year": y} | {f"p{p}": round(float(v), 2) for p, v in zip(MC_PERCENTILES, values)})
+    final = current * g + monthly * s
+    required = np.maximum(0.0, (target - current * g) / s)            # per path: the deposit that just reaches target
+    return {"simulations": simulations, "volatility_assumption": volatility, "annual_return_assumption": annual_return,
+            "probability_of_success": round(float(np.mean(final >= target)), 4),
+            "final_percentiles": {k: v for k, v in bands[-1].items() if k != "year"},
+            "confidence": confidence,
+            "required_monthly_for_confidence": math.ceil(float(np.quantile(required, confidence)) * 100) / 100,
+            "bands": bands}
+
+
 # ---------------------------------------------------------------- general calculators (the Calculator agent)
 # Rates are percentages (6 means 6%). Each returns the result plus what's needed to show the working.
 def _rate(pct: float, name: str = "rate") -> float:
