@@ -82,7 +82,8 @@ def offline_sample_market(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def offline_no_llm():
+def offline_no_llm(monkeypatch):
+    monkeypatch.delenv("QDRANT_CLUSTER_ENDPOINT", raising=False)   # never the Qdrant Cloud cluster
     set_wiki_client(FakeWiki())
     set_kb_searcher(lambda query, k=None: [])      # empty knowledge base: agents use the (fake) Wikipedia path
     llm_module.set_llm(None)
