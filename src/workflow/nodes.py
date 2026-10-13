@@ -12,11 +12,13 @@ from functools import wraps
 from langchain_core.runnables import RunnableConfig
 from sqlalchemy.orm import Session as DBSession
 
+from src.core import equations as EQ
 from src.core.calculators import analyze_portfolio, project_goal
 from src.core.config import get_config
 from src.core.llm import ask_llm, current_llm
 from src.core.market_service import SymbolNotFound
 from src.core.portfolio_data import portfolio_history, portfolio_instruments
+from src.core.wolfram import WolframNoResult, WolframUnavailable, ask_wolfram, wolfram_enabled
 from src.kb.wiki import WikiUnavailable
 
 from . import calc as CALC
@@ -732,7 +734,8 @@ def goal_node(state: FinanceState, config: RunnableConfig):
 @safe("calc")
 def calc_node(state: FinanceState, config: RunnableConfig):
     """Pick a calculation and its inputs (LLM, or a keyword fallback), compute it in Python, show the working."""
-    name, args, how = None, {}, "keywords"
+    name, args, how, eq, missing = None, {}, "keywords", None, None
+    recent, known = "", ""
     if current_llm() is not None:
         recent = H.transcript(state.get("history"))
         known = CTX.describe(state.get("context_in"))          # the previous answer's figures, e.g. "SBUX: price $94.71"
@@ -741,10 +744,14 @@ def calc_node(state: FinanceState, config: RunnableConfig):
                                                 + f"Message: {state['question']}"))
         if reply is not None:
             name, args, how = reply.get("function"), reply.get("args") or {}, "LLM"
+            eq = reply if reply.get("equation") else None
+            missing = reply.get("missing")
     if name is None and how == "keywords":
         name, args = CALC.keyword_request(state["question"])
     if name not in CALC.CATALOG:
-        return _out("calc", CALC.ASK, status="need_info", choices=CALC.CHOICES, confidence="medium",
+        if eq:                                                  # not one of ours, but the numbers are there: solve the equation
+            return _equation_calc(eq, how, f"{state['question']}\n{recent}\n{known}")
+        return _out("calc", CALC.ask_text(missing), status="need_info", choices=CALC.CHOICES, confidence="medium",
                     trace=f"calc ({how}): numbers missing → ask")
     try:
         text = CALC.run(name, args)
@@ -753,6 +760,42 @@ def calc_node(state: FinanceState, config: RunnableConfig):
                     trace=f"calc ({how}): {name} rejected inputs ({e}) → ask")
     shown = ", ".join(f"{k}={v:g}" if isinstance(v, (int, float)) else f"{k}={v}" for k, v in args.items() if v not in (None, "", 0))
     return _out("calc", text, verbatim=True, trace=f"calc ({how}): {name}({shown})")
+
+
+def _equation_calc(spec: dict, how: str, known_text: str) -> dict:
+    """A calculation none of the calculators does, written by the LLM as an equation. Wolfram|Alpha (when configured) is
+    sent only the symbolic "solve <equation> for <unknown>", never the numbers, and supplies the formula; Python puts the
+    numbers in, checks the formula against the equation and computes the result, or solves the equation numerically when
+    there's no usable formula. An equation missing some values asks for exactly those (the next turn's LLM sees the
+    equation in the conversation); anything unsolvable falls back to asking for the numbers."""
+    ask = dict(status="need_info", choices=CALC.CHOICES, confidence="medium")
+    try:
+        eq = CALC.equation_request(spec, known_text)
+    except ValueError as e:
+        return _out("calc", CALC.ASK, **ask, trace=f"calc ({how}): equation rejected ({e}) → ask")
+    if eq["missing"]:                                           # the equation first, then ask for exactly what it lacks
+        return _out("calc", CALC.equation_ask(eq), **{**ask, "choices": []},
+                    trace=f"calc ({how}): equation {eq['equation']!r} needs {', '.join(eq['missing'])} → ask")
+    query = f"solve {eq['equation']} for {eq['unknown']}"
+    candidates, sources, note = [], [], "no Wolfram|Alpha"
+    if wolfram_enabled():
+        try:
+            res = ask_wolfram(query)
+            candidates = EQ.formulas(res["sections"], eq["unknown"])
+            sources = [{"id": f"wolfram:{query}", "title": "Wolfram|Alpha", "url": res["url"]}] if res.get("url") else []
+            note = f"wolfram({query!r}) → {len(candidates)} formula(s)"
+        except WolframNoResult:
+            note = f"wolfram({query!r}) → no result"
+        except WolframUnavailable as e:
+            log.warning("wolfram failed: %s", e)
+            note = f"wolfram({query!r}) → failed ({e})"
+    try:
+        sol = EQ.solve(eq["equation"], eq["unknown"], eq["values"], candidates)
+    except EQ.EquationError as e:
+        return _out("calc", CALC.ASK, **ask, trace=f"calc ({how}): {note} → not solved ({e}) → ask")
+    return _out("calc", CALC.equation_text(eq, sol), verbatim=True, sources=sources if sol["formula"] else [],
+                trace=f"calc ({how}): {note} → {'formula' if sol['formula'] else 'solved numerically'}: "
+                      f"{eq['unknown']} = {sol['value']:.6g}")
 
 
 def clarify_node(state: FinanceState, config: RunnableConfig):

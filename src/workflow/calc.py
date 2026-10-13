@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from src.core import calculators as C
+from src.core import equations as EQ
 
 # name -> (function, one-line description for the LLM, {arg: description})
 CATALOG = {
@@ -37,8 +38,21 @@ CALC_SYSTEM = (
     "giving Starbucks at $94.71 uses 94.71); do not invent any. If a required number is missing, set \"function\" to null and say what's missing.\n"
     "Functions:\n" + "\n".join(f"- {name}: {desc}. Args: " + "; ".join(f"{a} ({d})" for a, d in args.items())
                                for name, (_, desc, args) in CATALOG.items()) +
-    '\nReply with ONLY JSON: {"function": "future_value", "args": {"annual_rate": 6, "years": 10, "principal": 10000}} '
-    'or {"function": null, "missing": "the interest rate"}.')
+    "\nIf the user asks for a calculation that none of these functions does (an internal rate of return of cash flows, "
+    "solving for a rate or a number of years, a CAGR between two values, an equation), set \"function\" to null and write "
+    "it as an equation instead, even when numbers are missing: \"equation\" uses single-letter variable names (not e or i) "
+    "and no numbers except structural constants such as 1, 2 or 12; \"values\" gives each variable whose number is in the "
+    "message or the conversation (rates as decimals: 0.06 for 6%, money paid out negative) and leaves the others out; "
+    "\"variables\" says in a few words what every letter except the unknown stands for; \"solve_for\" is the unknown; "
+    "\"unit\" is how to show the answer (\"percent\" for a rate, \"money\", \"years\" or \"number\"); \"label\" names "
+    "what is computed. Never put a number in it that isn't in the message or the conversation."
+    '\nReply with ONLY JSON: {"function": "future_value", "args": {"annual_rate": 6, "years": 10, "principal": 10000}}, '
+    '{"function": null, "equation": "a + b/(1+r) + c/(1+r)^2 + d/(1+r)^3 = 0", "values": {"a": -10000, "b": 3000, '
+    '"c": 4000, "d": 5000}, "variables": {"a": "amount invested (negative)", "b": "cash flow in year 1", "c": "cash flow in '
+    'year 2", "d": "cash flow in year 3"}, "solve_for": "r", "unit": "percent", "label": "internal rate of return"}, '
+    '{"function": null, "equation": "p*(1+r)^n = f", "values": {"p": 10000}, "variables": {"p": "starting amount", '
+    '"f": "target amount", "n": "number of years"}, "solve_for": "r", "unit": "percent", "label": "yearly return needed"} '
+    'or, for one of the functions above with a number missing, {"function": null, "missing": "the interest rate"}.')
 
 EXAMPLE_SYSTEM = (
     "A personal-finance learner asked a question and got a conceptual answer. Add a worked example: pick the calculation "
@@ -56,12 +70,82 @@ EXAMPLE_SYSTEM = (
     'or {"function": null}.')
 EXAMPLE_HEADING = "**Example with sample numbers**"
 
+def ask_text(missing: str | None) -> str:
+    """The request for numbers: what the LLM said is missing when it said, else the generic ASK."""
+    missing = " ".join(str(missing or "").split())[:120]
+    return f"I can work that out, but I need {missing}." if missing else ASK
+
+
 ASK = ("I can work that out, but I need the numbers. Tell me the amount, the yearly rate and the number of years, "
        "for example “How much will $10,000 grow to at 6% a year over 10 years?”")
 CHOICES = ["How much will $10,000 grow to at 6% a year over 10 years?",
            "What is the monthly payment on a $300,000 mortgage at 6.5% for 30 years?",
            "How long does it take to double my money at 7%?"]
 NOTE = "_This assumes a steady rate every year. Real returns vary and are never guaranteed._"
+
+
+EQUATION_MAX = 200
+UNITS = ("percent", "money", "years", "number")
+_NUMBER = re.compile(r"\d+(?:\.\d+)?")
+
+
+def equation_request(spec: dict, known_text: str) -> dict:
+    """The LLM's equation reply checked: one equation, an unknown that appears in it, numeric values, and no number (in
+    the values or the equation) that isn't in the conversation, apart from small structural constants. Raises ValueError."""
+    equation, unknown = str(spec.get("equation") or "").strip(), str(spec.get("solve_for") or "").strip()
+    if equation.count("=") != 1 or len(equation) > EQUATION_MAX:
+        raise ValueError("not a single short equation")
+    raw = spec.get("values") if isinstance(spec.get("values"), dict) else {}
+    try:
+        values = {str(k): float(v) for k, v in raw.items()}
+    except (TypeError, ValueError):
+        raise ValueError("values must be numbers") from None
+    if not re.fullmatch(r"[A-Za-z]\w*", unknown) or unknown in values or not re.search(rf"\b{unknown}\b", equation):
+        raise ValueError(f"unknown {unknown!r} not in the equation")
+    known = {f"{float(n):g}" for n in _NUMBER.findall(known_text.replace(",", ""))}
+    invented = [f"{v:g}" for v in values.values() if v and not {f"{abs(v):g}", f"{abs(v) * 100:g}"} & known]
+    invented += [n for n in _NUMBER.findall(equation)
+                 if f"{float(n):g}" not in known and not (float(n).is_integer() and float(n) <= 12 or float(n) == 100)]
+    if invented:
+        raise ValueError(f"numbers not in the conversation: {', '.join(invented)}")
+    try:
+        missing = sorted(EQ.variables(equation) - set(values) - {unknown},          # in the order the equation uses them
+                         key=lambda v: re.search(rf"\b{v}\b", equation).start())
+    except EQ.EquationError as e:
+        raise ValueError(str(e)) from None
+    described = spec.get("variables") if isinstance(spec.get("variables"), dict) else {}
+    return {"equation": equation, "unknown": unknown, "values": values, "missing": missing,
+            "variables": {str(k): " ".join(str(v).split())[:60] for k, v in described.items() if v},
+            "unit": spec.get("unit") if spec.get("unit") in UNITS else "number",
+            "label": str(spec.get("label") or "solving an equation").strip()[:80]}
+
+
+def equation_ask(eq: dict) -> str:
+    """The request for the numbers an equation still needs, letter by letter, with the ones already known."""
+    lines = [f"I can work out the {eq['label']}: it's `{eq['unknown']}` in `{eq['equation']}`. I still need:", ""]
+    lines += [f"- {eq['variables'][v]} (`{v}`)" if v in eq["variables"] else f"- `{v}`" for v in eq["missing"]]
+    if eq["values"]:
+        lines += ["", "Already have: " + "; ".join(f"{eq['variables'].get(k, k)} = {v:,g}" for k, v in eq["values"].items())]
+    return "\n".join(lines)
+
+
+def equation_text(eq: dict, sol: dict) -> str:
+    """An equation solved in Python, with the formula Wolfram|Alpha supplied (or a note that it was solved numerically)."""
+    x, u = sol["value"], eq["unknown"]
+    shown = {"percent": f"{x * 100:,.2f}%", "money": money(x), "years": f"{x:,.2f} years"}.get(eq["unit"], f"{x:,.6g}")
+    lines = [f"**Calculation: {eq['label']}**", "", f"- Equation: `{eq['equation']}`",
+             "- Values: " + "; ".join(f"{k} = {v:,g}" for k, v in eq["values"].items())]
+    if sol["formula"] and len(sol["formula"]) <= 160:
+        lines.append(f"- Formula (from Wolfram|Alpha): `{u} = {sol['formula']}`")
+    elif sol["formula"]:
+        lines.append(f"- Formula: a long closed-form expression for {u} from Wolfram|Alpha")
+    else:
+        lines.append(f"- No closed-form formula was used: {u} was found numerically")
+    how = ("putting your numbers into Wolfram|Alpha's formula and checking it against the equation" if sol["formula"]
+           else "solving the equation numerically")
+    lines += ["", f"**Result: {u} ≈ {shown}**", "",
+              f"_Finnie computed this in Python by {how}. Check that the equation matches what you meant._"]
+    return "\n".join(lines)
 
 
 def money(x: float) -> str:

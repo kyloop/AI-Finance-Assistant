@@ -86,10 +86,10 @@ def test_llm_extracted_calculation_is_shown_verbatim():
                             "What would a $250,000 mortgage at 7% cost each month?", "What is the difference between APR and APY?"]
 
 
-def test_missing_numbers_ask_with_example_choices():
+def test_missing_numbers_ask_for_what_the_llm_says_is_missing_with_example_choices():
     llm_module.set_llm(RoleLLM(calc='{"function": null, "missing": "the interest rate"}'))
     s = ask("Can you calculate how much my savings will grow?")
-    assert s["final_response"].startswith(CALC.ASK) and s["choices"] == CALC.CHOICES
+    assert s["final_response"].startswith("I can work that out, but I need the interest rate.") and s["choices"] == CALC.CHOICES
     assert not any(t.startswith("follow-ups") and "suggested" in t for t in s["trace"])   # the ask's own choices are kept
 
 

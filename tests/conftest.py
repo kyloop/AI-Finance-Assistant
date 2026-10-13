@@ -33,6 +33,7 @@ def sid(client):
 # ---- keep every test offline and LLM-free unless it opts in ------------------------------------------------
 from src.core import llm as llm_module  # noqa: E402
 from src.workflow import symbols as symbols_module  # noqa: E402
+from src.core.wolfram import set_wolfram_client  # noqa: E402
 from src.workflow.tools import set_kb_searcher, set_news_indexer, set_news_searcher, set_wiki_client  # noqa: E402
 from src.core.market_service import set_symbol_resolver  # noqa: E402
 
@@ -83,6 +84,8 @@ def offline_sample_market(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def offline_no_llm(monkeypatch):
+    monkeypatch.delenv("WOLFRAM_APP_ID", raising=False)   # Wolfram off unless a test injects a fake client (never the real API)
+    monkeypatch.delenv("WOLFRAM_ALPHA_APP_ID", raising=False)
     monkeypatch.delenv("QDRANT_CLUSTER_ENDPOINT", raising=False)   # never the Qdrant Cloud cluster
     set_wiki_client(FakeWiki())
     set_kb_searcher(lambda query, k=None: [])      # empty knowledge base: agents use the (fake) Wikipedia path
@@ -98,3 +101,4 @@ def offline_no_llm(monkeypatch):
     llm_module.clear_llm_override()
     set_wiki_client(None)
     set_kb_searcher(None)
+    set_wolfram_client(None)

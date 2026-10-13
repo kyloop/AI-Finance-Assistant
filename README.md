@@ -298,3 +298,13 @@ The router can pick several agents for one question; they run in parallel. If no
 | `GOOGLE_API_KEY` | `pip install langchain-google-genai` |
 
 `llm.provider: auto` in `config.yaml` uses the first provider whose key is set. Knowledge-base ingest from Wikipedia: `python -m src.kb.ingest --dry-run`.
+
+**Optional: Wolfram|Alpha for calculations the built-in calculators don't cover** (IRR of cash flows, solving for a rate
+or a number of years, CAGR between two values). Add `WOLFRAM_APP_ID=<your AppID>` to `.env` (an AppID from
+developer.wolframalpha.com; the LLM API). The Calculator still tries its own Python functions first; only when none fits
+and you gave every number does its LLM write the calculation as an equation with letters (`p*(1+r)^n = f`) plus your
+numbers. Only `solve <equation> for <unknown>` is sent to the [Wolfram|Alpha LLM API](https://products.wolframalpha.com/llm-api/documentation),
+never the numbers, your message or the conversation; Wolfram returns the formula (`r = (f/p)^(1/n) - 1`) and Python
+(`src/core/equations.py`) puts your numbers in, checks the formula against the equation and computes the result. Without
+the key, or when Wolfram has no usable formula (an IRR over several years has no neat closed form) or is unreachable,
+Python solves the equation numerically. `WOLFRAM_ALPHA_APP_ID` works as the key name too. Settings: `wolfram` in `config.yaml`.
