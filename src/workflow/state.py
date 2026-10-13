@@ -17,7 +17,7 @@ class AgentOutput(TypedDict, total=False):
     confidence: str              # high | medium | low
     error: str | None
     status: str                  # answered | not_found | need_info (verifier routes on this)
-    origin: str                  # kb | wikipedia, for answered knowledge lookups
+    origin: str                  # kb | wikipedia | web, for answered knowledge lookups
     query: str                   # not_found: what research should look up
     prefix: str                  # text kept in front of a researched answer (e.g. the tax caveat)
     choices: list[str]           # need_info: follow-up questions the user can pick
@@ -25,6 +25,7 @@ class AgentOutput(TypedDict, total=False):
     verbatim: bool               # shown word for word, never rewritten by the LLM (calculator results)
     verified: bool               # the verifier has checked this output; later passes skip it
     researched: bool             # the research node has already looked this up
+    web_searched: bool           # research's second pass has already searched the web for it
     missing: str                 # not_found: what the verifier says the sources lack (for replan)
     handed_off: bool             # replan has already looked for other agents to cover this output
     fallback: dict               # a researched answer the verifier rejected; used only if nothing better turns up

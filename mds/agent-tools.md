@@ -83,13 +83,13 @@ flowchart LR
 
 | Agent | Tools | Notes |
 |---|---|---|
-| `qa_agent` | `kb_search` | Best chunk below `rag.min_score` (or the index is missing) → `not_found`, so **research** looks the topic up on Wikipedia |
+| `qa_agent` | `kb_search` | Best chunk below `rag.min_score` (or the index is missing) → `not_found`, so **research** looks the topic up on Wikipedia, then the web |
 | `tax_agent` | `kb_search` | Same as Q&A, with "tax" added to the query and a tax caveat in front of the answer |
 | `market_agent` | `get_quote`, `get_performance`, `get_company_profile`, `get_fund_profile` (`src/workflow/market_tools.py`) | Tickers come from the router (see below), the previous answer's context, or the UI's watchlist / selected stock. With an LLM the model picks the tools and arguments (tool calling, at most `workflow.market_tool_calls` = 4 per question); then, and without an LLM, every company gets a quote and the asked or carried period its performance. Every tool reads through the market cache with the sample-data fallback, and Python computes all figures. Results go to `state["market_data"]` (read by the synthesizer) and key figures to the saved context. A concept with no ticker → `not_found` → research |
 | `news_agent` | `news_latest`, `news_search`, `news_index_now`, `industry_peers` | Fetches live headlines, indexes them, then searches the news index for the topic and time window; "same sector" questions use `industry_peers` to get peers first |
 | `portfolio_agent` | `portfolio_instruments`, `analyze_portfolio`, `portfolio_history` | Holdings come from the session; prices, asset type, sectors and fees from the market service (quote, fund and stock endpoints; bundled instruments as fallback); performance against the `portfolio.benchmark` index (S&P 500) from daily closes, counting each holding from its purchase date (`portfolio.default_purchase_date`, 2026-01-01, when it has none) or from its own first close when that is later, so a recent listing does not hold the others back. No LLM: the answer is a fixed template filled with the computed figures. The Portfolio tab's report (`GET /portfolio/analysis`) runs the same functions plus `portfolio_dividends`. See [agent-portfolio-agent.md](agent-portfolio-agent.md) |
 | `goal_agent` | `project_goal` | Return assumption from `config.yaml` `risk_profiles`; uses the plan saved on the Goals tab for "am I on track?" |
-| `calc_agent` | calculators (`src/core/calculators.py`) | The LLM only picks the function and extracts the numbers (keyword fallback without one); Python computes the result |
+| `calc_agent` | calculators (`src/core/calculators.py`); fallback equation solver (`src/core/equations.py`) with formulas from `ask_wolfram` (`src/core/wolfram.py`) | The LLM only picks the function and extracts the numbers (keyword fallback without one); Python computes the result. When no function fits but every number is given, the LLM writes a symbolic equation, the values (which must come from the conversation) and the unknown instead. Wolfram\|Alpha is sent only `solve <equation> for <unknown>` and returns the formula; Python substitutes the values, keeps the formula only if it satisfies the equation, and computes the result, with a link to Wolfram. Without `WOLFRAM_APP_ID`, or when Wolfram has no usable formula or is down, Python solves the equation numerically; the LLM writes the equation even when numbers are missing, and the agent then asks for exactly the values it lacks (by what each letter stands for) before anything is sent to Wolfram; an equation it can't solve falls back to asking for the numbers |
 
 ## Pipeline steps
 
@@ -110,6 +110,8 @@ flowchart LR
     research[research] --> wiki[wiki_topic / wiki_search]
     research -.-> ask_llm
     wiki --> wikipedia{{Wikipedia API}}
+    research -->|second pass| websearch[web_search]
+    websearch --> tavily{{Tavily API}}
     illustrate[illustrate] -.-> ask_llm
     illustrate -.-> calculators[calculators]
     synthesizer[synthesizer] -.-> ask_llm
@@ -124,6 +126,9 @@ flowchart LR
 - **replan**: when an output is still `not_found` after research, the LLM picks agents not yet tried that could supply
   what is missing (at most 3 rounds). Like the router, it resolves company names when it picks Market or News.
 - **research**: only runs when an agent returned `not_found`; the LLM names Wikipedia articles (`wiki_topic`), otherwise the
-  router's keywords go to `wiki_search`.
+  router's keywords go to `wiki_search`. If that finds nothing, or the verifier rejects it, a second pass sends the question
+  (only the question) to Tavily web search (`src/core/tavily.py`, needs `TAVILY_API_KEY`): up to 3 page extracts above
+  `tavily.min_score`, social sites excluded, cited by title and domain. The verifier checks them like Wikipedia; a rejected
+  web result is never used as the fallback answer.
 - **illustrate**: with an LLM, picks a calculation and sample numbers for numeric concepts; the calculators compute it.
 - **compliance**: pure Python, no LLM.

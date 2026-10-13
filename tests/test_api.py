@@ -71,6 +71,21 @@ def test_goal_projection_saved(client, sid):
     assert r["suggested_allocation"]["stocks"] == 60
     assert len(client.get(f"/api/sessions/{sid}/goals").json()) == 1
     assert client.post(f"/api/sessions/{sid}/goals/project", json=body | {"horizon_years": 0}).status_code == 422
+    mc = r["monte_carlo"]
+    assert len(mc["bands"]) == 31 and 0 <= mc["probability_of_success"] <= 1 and mc["volatility_assumption"] == 0.10
+
+
+def test_goal_list_dedupes_and_deletes(client, sid):
+    base = f"/api/sessions/{sid}/goals"
+    body = {"goal_type": "house", "target_amount": 80000, "horizon_years": 5, "current_savings": 0, "monthly_contribution": 1000, "risk_tolerance": "conservative"}
+    first = client.post(f"{base}/project", json=body).json()["goal_id"]
+    client.post(f"{base}/project", json=body | {"target_amount": 90000})
+    again = client.post(f"{base}/project", json=body).json()["goal_id"]
+    goals = client.get(base).json()
+    assert len(goals) == 2 and goals[-1]["id"] == again != first          # re-projecting moves it to latest, no duplicate
+    assert client.delete(f"{base}/{again}").status_code == 204
+    assert [g["target_amount"] for g in client.get(base).json()] == [90000]
+    assert client.delete(f"{base}/{again}").status_code == 404
 
 
 def test_live_endpoints(client):

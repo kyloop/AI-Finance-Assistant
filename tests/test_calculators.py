@@ -1,6 +1,6 @@
 import pytest
 
-from src.core.calculators import analyze_portfolio, portfolio_performance, project_goal
+from src.core.calculators import analyze_portfolio, portfolio_performance, project_goal, simulate_goal
 from src.core.market_service import INSTRUMENTS
 
 
@@ -38,6 +38,24 @@ def test_goal_projection_hits_target_with_required_contribution():
 def test_goal_zero_horizon_rejected():
     with pytest.raises(ValueError):
         project_goal(1000, 0, 0, 10, 0.05)
+
+
+def test_goal_simulation_bands_and_required_contribution():
+    mc = simulate_goal(100_000, 10, 5_000, 500, 0.06, 0.10, simulations=4000, seed=1)
+    assert len(mc["bands"]) == 11 and mc["bands"][0]["p10"] == mc["bands"][0]["p90"] == 5_000
+    final = mc["bands"][-1]
+    assert final["p10"] < final["p25"] < final["p50"] < final["p75"] < final["p90"]
+    det = project_goal(100_000, 10, 5_000, 500, 0.06)["projected_value"]
+    assert final["p50"] < det < final["p75"]            # volatility drag: the median sits below the average path
+    hit = simulate_goal(100_000, 10, 5_000, mc["required_monthly_for_confidence"], 0.06, 0.10, simulations=4000, seed=1)
+    assert hit["probability_of_success"] == pytest.approx(0.8, abs=0.002)
+    assert simulate_goal(100_000, 10, 5_000, 500, 0.06, 0.10, seed=1) == simulate_goal(100_000, 10, 5_000, 500, 0.06, 0.10, seed=1)
+
+
+def test_goal_simulation_without_volatility_matches_projection():
+    mc = simulate_goal(100_000, 10, 5_000, 500, 0.06, 0.0, simulations=10)
+    assert mc["bands"][-1]["p10"] == mc["bands"][-1]["p90"]
+    assert mc["bands"][-1]["p50"] == pytest.approx(project_goal(100_000, 10, 5_000, 500, 0.06)["projected_value"], abs=0.01)
 
 
 # ------------------------------------------------------------------ portfolio report

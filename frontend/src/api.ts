@@ -1,4 +1,4 @@
-import type { ChatView, Analysis, FlowEdge, FlowEvent, FlowNode, ChatStatus, Envelope, FundProfile, GoalInput, StockProfile, GoalResult, HistoryPoint, Holding, IntradayData, IntradayPoint, Conversation, LiveQuote, Message, NewsItem, Portfolio, Profile, Quote, SymbolInfo } from "./types";
+import type { ChatView, Analysis, FlowEdge, FlowEvent, FlowNode, ChatStatus, Envelope, FundProfile, GoalInput, StockProfile, GoalResult, SavedGoal, HistoryPoint, Holding, IntradayData, IntradayPoint, Conversation, LiveQuote, Message, NewsItem, Portfolio, Profile, Quote, SymbolInfo } from "./types";
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, { headers: { "Content-Type": "application/json" }, ...init });
@@ -69,4 +69,6 @@ export const api = {
   fund: (sym: string) => req<Envelope<FundProfile>>(`/market/fund/${encodeURIComponent(sym)}`),
   stock: (sym: string) => req<Envelope<StockProfile>>(`/market/stock/${encodeURIComponent(sym)}`),
   projectGoal: (sid: string, g: GoalInput) => req<GoalResult>(`/sessions/${sid}/goals/project`, { method: "POST", body: body(g) }),
+  goals: (sid: string) => req<SavedGoal[]>(`/sessions/${sid}/goals`),
+  deleteGoal: (sid: string, id: number) => req<void>(`/sessions/${sid}/goals/${id}`, { method: "DELETE" }),
 };

@@ -12,11 +12,14 @@ from functools import wraps
 from langchain_core.runnables import RunnableConfig
 from sqlalchemy.orm import Session as DBSession
 
+from src.core import equations as EQ
 from src.core.calculators import analyze_portfolio, project_goal
 from src.core.config import get_config
 from src.core.llm import ask_llm, current_llm
 from src.core.market_service import SymbolNotFound
 from src.core.portfolio_data import portfolio_history, portfolio_instruments
+from src.core.tavily import WebSearchUnavailable, web_search, web_search_enabled
+from src.core.wolfram import WolframNoResult, WolframUnavailable, ask_wolfram, wolfram_enabled
 from src.kb.wiki import WikiUnavailable
 
 from . import calc as CALC
@@ -732,7 +735,8 @@ def goal_node(state: FinanceState, config: RunnableConfig):
 @safe("calc")
 def calc_node(state: FinanceState, config: RunnableConfig):
     """Pick a calculation and its inputs (LLM, or a keyword fallback), compute it in Python, show the working."""
-    name, args, how = None, {}, "keywords"
+    name, args, how, eq, missing = None, {}, "keywords", None, None
+    recent, known = "", ""
     if current_llm() is not None:
         recent = H.transcript(state.get("history"))
         known = CTX.describe(state.get("context_in"))          # the previous answer's figures, e.g. "SBUX: price $94.71"
@@ -741,10 +745,14 @@ def calc_node(state: FinanceState, config: RunnableConfig):
                                                 + f"Message: {state['question']}"))
         if reply is not None:
             name, args, how = reply.get("function"), reply.get("args") or {}, "LLM"
+            eq = reply if reply.get("equation") else None
+            missing = reply.get("missing")
     if name is None and how == "keywords":
         name, args = CALC.keyword_request(state["question"])
     if name not in CALC.CATALOG:
-        return _out("calc", CALC.ASK, status="need_info", choices=CALC.CHOICES, confidence="medium",
+        if eq:                                                  # not one of ours, but the numbers are there: solve the equation
+            return _equation_calc(eq, how, f"{state['question']}\n{recent}\n{known}")
+        return _out("calc", CALC.ask_text(missing), status="need_info", choices=CALC.CHOICES, confidence="medium",
                     trace=f"calc ({how}): numbers missing → ask")
     try:
         text = CALC.run(name, args)
@@ -753,6 +761,42 @@ def calc_node(state: FinanceState, config: RunnableConfig):
                     trace=f"calc ({how}): {name} rejected inputs ({e}) → ask")
     shown = ", ".join(f"{k}={v:g}" if isinstance(v, (int, float)) else f"{k}={v}" for k, v in args.items() if v not in (None, "", 0))
     return _out("calc", text, verbatim=True, trace=f"calc ({how}): {name}({shown})")
+
+
+def _equation_calc(spec: dict, how: str, known_text: str) -> dict:
+    """A calculation none of the calculators does, written by the LLM as an equation. Wolfram|Alpha (when configured) is
+    sent only the symbolic "solve <equation> for <unknown>", never the numbers, and supplies the formula; Python puts the
+    numbers in, checks the formula against the equation and computes the result, or solves the equation numerically when
+    there's no usable formula. An equation missing some values asks for exactly those (the next turn's LLM sees the
+    equation in the conversation); anything unsolvable falls back to asking for the numbers."""
+    ask = dict(status="need_info", choices=CALC.CHOICES, confidence="medium")
+    try:
+        eq = CALC.equation_request(spec, known_text)
+    except ValueError as e:
+        return _out("calc", CALC.ASK, **ask, trace=f"calc ({how}): equation rejected ({e}) → ask")
+    if eq["missing"]:                                           # the equation first, then ask for exactly what it lacks
+        return _out("calc", CALC.equation_ask(eq), **{**ask, "choices": []},
+                    trace=f"calc ({how}): equation {eq['equation']!r} needs {', '.join(eq['missing'])} → ask")
+    query = f"solve {eq['equation']} for {eq['unknown']}"
+    candidates, sources, note = [], [], "no Wolfram|Alpha"
+    if wolfram_enabled():
+        try:
+            res = ask_wolfram(query)
+            candidates = EQ.formulas(res["sections"], eq["unknown"])
+            sources = [{"id": f"wolfram:{query}", "title": "Wolfram|Alpha", "url": res["url"]}] if res.get("url") else []
+            note = f"wolfram({query!r}) → {len(candidates)} formula(s)"
+        except WolframNoResult:
+            note = f"wolfram({query!r}) → no result"
+        except WolframUnavailable as e:
+            log.warning("wolfram failed: %s", e)
+            note = f"wolfram({query!r}) → failed ({e})"
+    try:
+        sol = EQ.solve(eq["equation"], eq["unknown"], eq["values"], candidates)
+    except EQ.EquationError as e:
+        return _out("calc", CALC.ASK, **ask, trace=f"calc ({how}): {note} → not solved ({e}) → ask")
+    return _out("calc", CALC.equation_text(eq, sol), verbatim=True, sources=sources if sol["formula"] else [],
+                trace=f"calc ({how}): {note} → {'formula' if sol['formula'] else 'solved numerically'}: "
+                      f"{eq['unknown']} = {sol['value']:.6g}")
 
 
 def clarify_node(state: FinanceState, config: RunnableConfig):
@@ -799,7 +843,8 @@ def verifier_node(state: FinanceState, config: RunnableConfig):
     each output only once (`verified`):
       - a knowledge-base answer whose sources don't answer the question becomes not_found (→ research);
       - a researched (Wikipedia) answer that doesn't answer it either becomes not_found and is kept as a `fallback`
-        (→ replan looks for another agent; the fallback is used only if none answers);
+        (→ web search, then replan looks for another agent; the fallback is used only if none answers);
+      - a web answer that doesn't answer it becomes not_found too, but is never kept as the fallback;
       - follow-up questions get choices the user can click."""
     llm_on = current_llm() is not None
     updates, trace = {}, []
@@ -807,17 +852,18 @@ def verifier_node(state: FinanceState, config: RunnableConfig):
         if o.get("verified"):
             continue
         status = o.get("status", "answered")
-        if status == "answered" and o.get("origin") in ("kb", "wikipedia") and llm_on:
+        if status == "answered" and o.get("origin") in ("kb", "wikipedia", "web") and llm_on:
             verdict = _json(ask_llm(SUFFICIENCY_SYSTEM, f"QUESTION: {state['question']}\n\nSOURCES:\n{o['content'][:6000]}"))
             if verdict is not None and verdict.get("answers") is False:
                 missing = str(verdict.get("missing") or "").strip()
                 if o["origin"] == "kb":
                     updates[agent] = {**o, "status": "not_found", "content": "", "sources": [], "missing": missing}
                     trace.append(f"verifier: {agent} knowledge-base sources don't answer the question → research")
-                else:
+                else:                    # unchecked web pages never become the fallback; an earlier Wikipedia one is kept
+                    fallback = o.get("fallback") if o["origin"] == "web" else {**o, "verified": True}
                     updates[agent] = {**o, "status": "not_found", "content": "", "sources": [], "missing": missing,
-                                      "verified": True, "fallback": {**o, "verified": True}}
-                    trace.append(f"verifier: {agent} researched sources don't answer the question either"
+                                      "verified": True, "fallback": fallback}
+                    trace.append(f"verifier: {agent} {'web' if o['origin'] == 'web' else 'researched'} sources don't answer the question either"
                                  + (f" (missing: {missing})" if missing else ""))
                 continue
             updates[agent] = {**o, "verified": True}
@@ -847,18 +893,51 @@ def route_after_verifier(state: FinanceState) -> str:
     outputs = (state.get("agent_outputs") or {}).values()
     if any(o.get("status") == "not_found" and not o.get("researched") for o in outputs):
         return "research"
+    if web_search_enabled() and any(_needs_web(o) for o in outputs):              # Wikipedia had nothing: try the web
+        return "research"
     if (any(_unresolved(o) for o in outputs) and current_llm() is not None       # replan needs the LLM to judge what's missing
             and (state.get("replans") or 0) < get_config()["workflow"].get("max_replans", 3)):
         return "replan"
     return "illustrate"
 
 
+def _needs_web(o: AgentOutput) -> bool:
+    """Not found even after the Wikipedia pass, and not searched on the web yet."""
+    return o.get("status") == "not_found" and bool(o.get("researched")) and not o.get("web_searched")
+
+
+WEB_RESULTS_USED = 3
+
+
+def _web_research(state: FinanceState, o: AgentOutput, words: int) -> tuple[AgentOutput, str]:
+    """Research's second pass: the question on Tavily. Page extracts become an answer the verifier checks like Wikipedia's."""
+    o = {**o, "web_searched": True}
+    try:
+        results = web_search(state["question"])
+    except WebSearchUnavailable as e:
+        log.warning("web search failed: %s", e)
+        return o, f"web_search → failed ({e})"
+    if not results:
+        return {**o, "content": NOT_FOUND_MESSAGE}, "web_search → no relevant results"
+    used = results[:WEB_RESULTS_USED]
+    cut = lambda t: " ".join(t.split()[:words]) + ("…" if len(t.split()) > words else "")          # noqa: E731
+    content = o.get("prefix", "") + "\n\n".join(f"**{r['title']}** ({r['domain']})\n\n{cut(r['content'])}" for r in used)
+    return ({**o, "status": "answered", "origin": "web", "verified": False, "confidence": "medium", "content": content,
+             "sources": [{"id": f"web:{r['url']}", "title": f"{r['title']} ({r['domain']})", "url": r["url"]} for r in used]},
+            f"web_search → {len(results)} results, using {', '.join(r['domain'] for r in used)} (best {used[0]['score']:.2f})")
+
+
 def research_node(state: FinanceState, config: RunnableConfig):
     """Look up not_found topics on Wikipedia. With an LLM the question is first turned into article titles, so a long or
-    misspelled sentence still finds the right page; without one the router's keyword query is used."""
+    misspelled sentence still finds the right page; without one the router's keyword query is used. When that pass found
+    nothing usable (or the verifier rejected it), a second pass searches the web (Tavily), if a key is set."""
     words, updates, trace, errors = _words(state), {}, [], []
     llm_topics: list[str] | None = None                         # asked once per pass: they depend only on the question
     for agent, o in (state.get("agent_outputs") or {}).items():
+        if _needs_web(o) and web_search_enabled():
+            updates[agent], note = _web_research(state, o, words)
+            trace.append(note)
+            continue
         if o.get("status") != "not_found" or o.get("researched"):
             continue
         o = {**o, "researched": True, "verified": False}            # the verifier checks what research finds
@@ -904,7 +983,7 @@ def research_node(state: FinanceState, config: RunnableConfig):
     return {"agent_outputs": updates, "trace": trace, "errors": errors}
 
 
-REPLAN_SYSTEM = """You coordinate the specialist agents of a personal-finance EDUCATION assistant. Some agents could not answer the user's question, even after a Wikipedia lookup. Decide which OTHER agents, if any, could supply what is still missing.
+REPLAN_SYSTEM = """You coordinate the specialist agents of a personal-finance EDUCATION assistant. Some agents could not answer the user's question, even after looking it up on Wikipedia (and the web, when available). Decide which OTHER agents, if any, could supply what is still missing.
 
 AGENTS
 - qa: explains financial concepts from a finance knowledge base.

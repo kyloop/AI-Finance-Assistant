@@ -23,10 +23,10 @@ in state instead of crashing the graph, so the other agents still answer.
 | `news_agent` | `news_node` | Live headlines, the news index, industry peers (`_sector_news`, `_live_news`, `_relevant_news`) |
 | `portfolio_agent` | `portfolio_node` | `portfolio_instruments` / `portfolio_history` in `src/core/portfolio_data.py` fetch the data; `analyze_portfolio` / `portfolio_performance` in `src/core/calculators.py` do the maths. No LLM: the node fills a fixed text template with the figures. Performance counts each holding from its purchase date (`portfolio.default_purchase_date` in `config.yaml` when it has none) |
 | `goal_agent` | `goal_node` | `project_goal` in `src/core/calculators.py`; the Goals tab's saved plan via `_saved_goal_answer` |
-| `calc_agent` | `calc_node` | Picks a calculation from `CATALOG` in `calc.py` (LLM or `keyword_request`), runs it with `calc.run` |
+| `calc_agent` | `calc_node` | Picks a calculation from `CATALOG` in `calc.py` (LLM or `keyword_request`), runs it with `calc.run`; when none fits, `_equation_calc` checks the LLM's equation (`calc.equation_request`), asks for any values it lacks (`calc.equation_ask`), otherwise asks Wolfram\|Alpha (`src/core/wolfram.py`) for the formula, solves it with `src/core/equations.py` and shows `calc.equation_text` verbatim |
 | `clarify` | `clarify_node` | Fixed "please rephrase" message with starter choices |
 | `verifier` | `verifier_node` | Checks each new output once (`verified`): knowledge-base and researched answers (LLM sufficiency check, `SUFFICIENCY_SYSTEM`), choices for `need_info`. `route_after_verifier` sends unresearched `not_found` to research, still-unanswered ones to replan, the rest to illustrate |
-| `research` | `research_node` | Wikipedia lookup (`wiki_topic` / `wiki_search`) for `not_found` outputs not yet researched; always goes back to the verifier |
+| `research` | `research_node` | Wikipedia lookup (`wiki_topic` / `wiki_search`) for `not_found` outputs not yet researched; a second pass (`_web_research`, when `_needs_web` and a Tavily key is set) searches the web. Always goes back to the verifier |
 | `replan` | `replan_node` | Picks agents not yet tried for outputs still `not_found` after research (`REPLAN_SYSTEM`, `_unresolved`); `route_after_replan` runs them or moves on to illustrate. Capped by `workflow.max_replans` |
 | `illustrate` | `illustrate_node` | Worked example with sample numbers, computed by `calc.run` |
 | `synthesizer` | `synthesizer_node` | Writes the reply from `answered` outputs only |

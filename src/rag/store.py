@@ -24,10 +24,11 @@ def get_embedder(model: str = EMBEDDING_MODEL):
 
 
 def get_client(cfg: dict) -> QdrantClient:
-    """Qdrant server/Cloud when `qdrant_url` is set, otherwise the local embedded store at `qdrant_path`."""
+    """Qdrant server/Cloud when `QDRANT_CLUSTER_ENDPOINT` (or `qdrant_url`) is set, otherwise the local embedded store at `qdrant_path`."""
     from src.core.config import ROOT
-    if cfg.get("qdrant_url"):
-        return QdrantClient(url=cfg["qdrant_url"], api_key=os.getenv("QDRANT_API_KEY"))
+    url = os.getenv("QDRANT_CLUSTER_ENDPOINT") or cfg.get("qdrant_url")
+    if url:
+        return QdrantClient(url=url, api_key=os.getenv("QDRANT_CLUSTER_API_KEY") or os.getenv("QDRANT_API_KEY"))
     return QdrantClient(path=str(ROOT / cfg["qdrant_path"]))
 
 
@@ -45,12 +46,14 @@ def build_collection(client: QdrantClient, name: str, chunks: list[Chunk]) -> No
         for field in ("category", "doc_id"):
             client.create_payload_index(name, field, models.PayloadSchemaType.KEYWORD)
     vectors = get_embedder().embed([c.embed_text for c in chunks])
-    client.upsert(name, points=[
+    points = [
         models.PointStruct(id=point_id(c), vector=v.tolist(), payload={
             "category": c.category, "doc_id": c.doc_id, "doc_title": c.doc_title, "section": c.section,
             "section_tokens": c.section_tokens, "piece": c.piece, "pieces": c.pieces, "tokens": c.tokens,
             "source_url": c.source_url, "text": c.text})
-        for c, v in zip(chunks, vectors)])
+        for c, v in zip(chunks, vectors)]
+    for i in range(0, len(points), 500):              # Qdrant servers cap a request at 32 MB; one upsert of the whole KB is ~50 MB
+        client.upsert(name, points=points[i:i + 500])
 
 
 def search(client: QdrantClient, name: str, query: str, *, k: int = 5, category: str | None = None) -> list[dict]:
