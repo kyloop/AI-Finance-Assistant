@@ -1,0 +1,20 @@
+# Keep secrets and local state out of the image; secrets come from the Cloudflare Secrets Store at start.
+.env
+.dev.vars
+*.db
+.git
+.githooks
+.claude
+.venv
+.pytest_cache
+**/__pycache__
+**/*.pyc
+node_modules
+.wrangler
+worker
+frontend
+tests
+mds
+src/data/qdrant
+src/data/qdrant_eval
+src/data/index
