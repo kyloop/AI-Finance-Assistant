@@ -127,7 +127,8 @@ class _Turn:
         g = s.goals[-1] if s.goals else None
         saved_goal = {k: getattr(g, k) for k in ("goal_type", "target_amount", "horizon_years", "current_savings", "monthly_contribution", "risk_tolerance")} if g else None
         self.graph_args = dict(history=self.history, profile=profile, holdings=holdings, db=db, saved_goal=saved_goal,
-                               view=body.view.model_dump() if body.view else None, context=context)
+                               view=body.view.model_dump() if body.view else None, context=context,
+                               trace=dict(session_id=s.id, conversation_id=self.cid))   # Langfuse grouping (core/tracing.py)
 
     def _reply(self, **fields) -> Message:
         return Message(session_id=self.s.id, conversation_id=self.cid, role="assistant", **fields)

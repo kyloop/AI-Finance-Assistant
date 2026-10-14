@@ -19,3 +19,7 @@ mds/data/
 # Local working notes, not versioned
 CLAUDE.md
 spec.md
+
+# Cloudflare
+.wrangler/
+.dev.vars

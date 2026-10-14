@@ -1,3 +1,7 @@
+import os
+
+os.environ["TURSO_DATABASE_URL"] = ""   # before the app is imported: tests never connect to Turso (.env loading won't override it)
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -88,6 +92,8 @@ def offline_no_llm(monkeypatch):
     monkeypatch.delenv("WOLFRAM_APP_ID", raising=False)   # Wolfram off unless a test injects a fake client (never the real API)
     monkeypatch.delenv("WOLFRAM_ALPHA_APP_ID", raising=False)
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)   # web search off unless a test injects a fake searcher
+    monkeypatch.delenv("LANGFUSE_PUBLIC_KEY", raising=False)   # no tracing to Langfuse
+    monkeypatch.delenv("LANGFUSE_SECRET_KEY", raising=False)
     monkeypatch.delenv("QDRANT_CLUSTER_ENDPOINT", raising=False)   # never the Qdrant Cloud cluster
     set_wiki_client(FakeWiki())
     set_kb_searcher(lambda query, k=None: [])      # empty knowledge base: agents use the (fake) Wikipedia path

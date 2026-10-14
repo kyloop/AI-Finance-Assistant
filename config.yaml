@@ -18,6 +18,8 @@ wolfram:                    # Calculator fallback for calculations the Python ca
   enabled: true             # also needs WOLFRAM_APP_ID in .env; without it the Calculator solves its equations numerically
   timeout_seconds: 10
   max_chars: 2000           # LLM API response size
+langfuse:                   # traces each chat turn to Langfuse (src/core/tracing.py); personal fields masked, session id hashed
+  enabled: true             # also needs LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY (and LANGFUSE_BASE_URL) in .env
 tavily:                     # web search, Research's last resort after the knowledge base and Wikipedia (src/core/tavily.py)
   enabled: true             # also needs TAVILY_API_KEY in .env; without it Research stops at Wikipedia as before
   search_depth: basic       # basic = 1 credit per search; advanced = 2

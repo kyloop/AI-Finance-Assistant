@@ -1,0 +1,39 @@
+// Cloudflare deploy: `npm run deploy` (builds frontend/dist, then the Docker image, then deploys). See worker/index.ts.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "finnie",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-10-01",
+  "observability": { "enabled": true },
+
+  // Frontend: served directly; /api/* goes to the Worker (and on to the container) first.
+  "assets": {
+    "directory": "./frontend/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+
+  // Backend: FastAPI from ./Dockerfile. standard-1 = 1/2 vCPU, 4 GiB (LangGraph + fastembed need more than lite/basic).
+  "containers": [
+    { "class_name": "Backend", "image": "./Dockerfile", "instance_type": "standard-1", "max_instances": 1 }
+  ],
+  "durable_objects": { "bindings": [{ "name": "BACKEND", "class_name": "Backend" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Backend"] }],
+
+  // Keys from the account Secrets Store (scope: Workers). <STORE_ID> is filled in at build time from the CLOUDFLARE_STORE_ID
+  // variable by worker/set-store-id.mjs, so the ID stays out of git.
+  // `secret_name` must match the name you gave each secret in the store; bindings must match SECRETS in worker/index.ts.
+  "secrets_store_secrets": [
+    { "binding": "OPENAI_API_KEY", "store_id": "<STORE_ID>", "secret_name": "OPENAI_API_KEY" },
+    { "binding": "TURSO_DATABASE_URL", "store_id": "<STORE_ID>", "secret_name": "TURSO_DATABASE_URL" },
+    { "binding": "TURSO_API_KEY", "store_id": "<STORE_ID>", "secret_name": "TURSO_API_KEY" },
+    { "binding": "QDRANT_CLUSTER_ENDPOINT", "store_id": "<STORE_ID>", "secret_name": "QDRANT_CLUSTER_ENDPOINT" },
+    { "binding": "QDRANT_CLUSTER_API_KEY", "store_id": "<STORE_ID>", "secret_name": "QDRANT_CLUSTER_API_KEY" },
+    { "binding": "TAVILY_API_KEY", "store_id": "<STORE_ID>", "secret_name": "TAVILY_API_KEY" },
+    { "binding": "WOLFRAM_ALPHA_APP_ID", "store_id": "<STORE_ID>", "secret_name": "WOLFRAM_ALPHA_APP_ID" },
+    { "binding": "LANGFUSE_SECRET_KEY", "store_id": "<STORE_ID>", "secret_name": "LANGFUSE_SECRET_KEY" },
+    { "binding": "LANGFUSE_PUBLIC_KEY", "store_id": "<STORE_ID>", "secret_name": "LANGFUSE_PUBLIC_KEY" },
+    { "binding": "LANGFUSE_BASE_URL", "store_id": "<STORE_ID>", "secret_name": "LANGFUSE_BASE_URL" }
+  ]
+}
