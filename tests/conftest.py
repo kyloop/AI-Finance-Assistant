@@ -1,3 +1,7 @@
+import os
+
+os.environ["TURSO_DATABASE_URL"] = ""   # before the app is imported: tests never connect to Turso (.env loading won't override it)
+
 import pytest
 from fastapi.testclient import TestClient
 

@@ -33,6 +33,13 @@ def get_config() -> dict:
 
 
 def database_url() -> str:
+    """Turso when TURSO_DATABASE_URL is set (libsql://<db>-<org>.turso.io, as `turso db show` prints it; http:// for a
+    local `turso dev`), else DATABASE_URL, else the local finnie.db. The token is passed separately (db/session.py)."""
+    turso = os.getenv("TURSO_DATABASE_URL", "").strip()
+    if turso:
+        scheme, _, rest = turso.rpartition("://")
+        host = rest.split("?", 1)[0].rstrip("/")
+        return f"sqlite+turso://{host}" + ("?secure=false" if scheme in ("http", "ws") else "")
     return os.getenv("DATABASE_URL", f"sqlite:///{ROOT / 'finnie.db'}")
 
 
