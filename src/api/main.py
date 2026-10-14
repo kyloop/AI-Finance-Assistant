@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.core.config import cors_origins
-from src.core import market_service
+from src.core import market_service, tracing
 from src.core.live_stream import hub
 from src.db.session import init_db
 
@@ -35,6 +35,7 @@ async def lifespan(_: FastAPI):
     names.cancel()
     market_service.news_listeners.remove(news.queue_ingest)
     await hub.stop()
+    tracing.flush()                       # send buffered Langfuse spans
 
 
 app = FastAPI(title="Finnie API", version="0.1.0", lifespan=lifespan)

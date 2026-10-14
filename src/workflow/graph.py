@@ -27,6 +27,8 @@ from functools import lru_cache
 
 from langgraph.graph import END, START, StateGraph
 
+from src.core import tracing
+
 from . import nodes as N
 from .state import FinanceState
 
@@ -105,10 +107,16 @@ def _initial_state(question, history, profile, holdings, saved_goal, view, conte
 RUN_CONFIG = {"recursion_limit": 60}       # supersteps; the replan loop (at most 3 rounds) needs about 25
 
 
+def _run_config(db, trace: dict | None) -> dict:
+    """Per-turn graph config: the DB session, plus Langfuse callbacks and session metadata when tracing is on."""
+    return {**RUN_CONFIG, "configurable": {"db": db}, "callbacks": tracing.run_callbacks(),
+            "metadata": tracing.run_metadata(**(trace or {})), "run_name": "finnie_chat"}
+
+
 def run_chat(question: str, *, history: list[dict], profile: dict, holdings: list[dict], db, saved_goal: dict | None = None, view: dict | None = None,
-             context: dict | None = None) -> dict:
+             context: dict | None = None, trace: dict | None = None) -> dict:
     """Invoke the graph for one user turn; returns the final state. `context` is the previous answer's saved context."""
-    return get_graph().invoke(_initial_state(question, history, profile, holdings, saved_goal, view, context), config={**RUN_CONFIG, "configurable": {"db": db}})
+    return get_graph().invoke(_initial_state(question, history, profile, holdings, saved_goal, view, context), config=_run_config(db, trace))
 
 
 def _detail(node: str, result: dict) -> tuple[str, str]:
@@ -123,7 +131,7 @@ def _detail(node: str, result: dict) -> tuple[str, str]:
 
 
 def stream_chat(question: str, *, history: list[dict], profile: dict, holdings: list[dict], db, saved_goal: dict | None = None,
-                view: dict | None = None, context: dict | None = None) -> Iterator[dict]:
+                view: dict | None = None, context: dict | None = None, trace: dict | None = None) -> Iterator[dict]:
     """Run the graph and yield one event as each node starts and finishes (parallel agents overlap), then the final state:
       {"type": "node_start", "node", "t"}                          t = seconds since the turn began
       {"type": "node_end", "node", "t", "ms", "status", "detail"}   status: ok | answered | not_found | need_info | error
@@ -134,7 +142,7 @@ def stream_chat(question: str, *, history: list[dict], profile: dict, holdings: 
     running: dict[str, tuple[str, float]] = {}                # task id -> (node, start time)
     final: dict = {}
     stream = get_graph().stream(_initial_state(question, history, profile, holdings, saved_goal, view, context),
-                                config={**RUN_CONFIG, "configurable": {"db": db}}, stream_mode=["tasks", "values"])
+                                config=_run_config(db, trace), stream_mode=["tasks", "values"])
     try:
         for mode, ev in stream:
             if mode == "values":
