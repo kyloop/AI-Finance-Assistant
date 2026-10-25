@@ -43,10 +43,6 @@ export default function Sidebar({ profile, onChange, onReset, saving, collapsed,
         <input type="number" min={1} max={60} value={profile.horizon_years}
                onChange={(e) => set("horizon_years", Math.min(60, Math.max(1, Number(e.target.value) || 1)))} />
       </label>
-      <label>Goals (comma separated)
-        <input value={profile.goals.join(", ")} placeholder="retirement, house"
-               onChange={(e) => set("goals", e.target.value.split(",").map((g) => g.trim()).filter(Boolean))} />
-      </label>
       <p className="muted">{saving ? "Saving…" : "Saved"}</p>
       <button onClick={() => onCollapse(true)} disabled={saving}>Done</button>
       <button className="secondary" onClick={onReset}>Reset conversation</button>

@@ -12,32 +12,36 @@ from functools import wraps
 from langchain_core.runnables import RunnableConfig
 from sqlalchemy.orm import Session as DBSession
 
-from src.core import equations as EQ
+from src.core import calc_plan as PLAN
 from src.core.calculators import analyze_portfolio, project_goal
 from src.core.config import get_config
 from src.core.llm import ask_llm, current_llm
 from src.core.market_service import SymbolNotFound
 from src.core.portfolio_data import portfolio_history, portfolio_instruments
 from src.core.tavily import WebSearchUnavailable, web_search, web_search_enabled
-from src.core.wolfram import WolframNoResult, WolframUnavailable, ask_wolfram, wolfram_enabled
 from src.kb.wiki import WikiUnavailable
 
 from . import calc as CALC
+from . import calc_pipeline as CP
 from . import context as CTX
 from . import history as H
 from . import market_tools as MT
 from . import news as NEWS
 from . import router as R
 from . import symbols as SYM
+from .jsonreply import first_json
 from .safety import finalize
 from .state import AgentOutput, FinanceState
 from .tools import industry_peers, kb_search, news_index_now, news_latest, news_search, wiki_search, wiki_topic
 
 log = logging.getLogger(__name__)
 
-WORDS_BY_LEVEL = {"beginner": 0.6, "intermediate": 1.0, "advanced": 1.5}
+WORDS_BY_LEVEL = {"beginner": 1.0, "intermediate": 0.7, "advanced": 0.4}     # more experienced readers need less explanation
+LENGTH_BY_LEVEL = {"beginner": "explain terms in plain words, with a short example if the context has one",
+                   "intermediate": "skip the basic definitions and keep it to a short paragraph or a few bullets",
+                   "advanced": "assume the basics are known: give only the key points, in two or three sentences or bullets"}
 SYMBOL_OK = re.compile(r"^[A-Z0-9.\-=^]{1,15}$")
-ORDER = ["portfolio", "market", "news", "calc", "goal", "tax", "qa", "example", "clarify"]
+ORDER = ["portfolio", "market", "news", "calc", "goal", "tax", "qa", "example", "clarify", "read_only"]
 FALLBACK_MESSAGE = "I'm having trouble answering that right now. Please try again in a moment."
 CLARIFY_MESSAGE = ("I didn't quite catch that. You could ask things like “What is an ETF?”, “How does a Roth IRA work?”, "
                    "“What is the S&P 500 doing?” or “Is my portfolio diversified?”")
@@ -75,42 +79,56 @@ PROOFREAD_SYSTEM = (
     "abbreviations fixed, so the agents after you can read it: \"yrs\" -> \"years\", \"mo\" -> \"months\", \"tsla\" -> \"TSLA\", "
     "\"nvdia\" -> \"NVIDIA\", \"wht abt\" -> \"what about\". Keep the meaning, every number and every ticker symbol; never answer "
     "the message, add facts or drop a request. If a word may be a ticker or name you don't know, leave it unchanged.\n"
-    "You may be given the CONTEXT of the conversation so far (the previous question, its companies, period and figures). If the "
-    "message continues it (it points back with \"it\", \"them\", \"which\", \"compare to\", \"what about X\", or leaves out a "
-    "company or period it relies on), rewrite it as a complete question that names them, using ticker symbols from the CONTEXT: "
+    "You may be given the CONTEXT of the conversation so far (the previous question, its companies, period and figures) and the "
+    "RECENT CONVERSATION. If the message continues it, or an earlier question there (it points back with \"it\", \"them\", "
+    "\"which\", \"compare to\", \"what about X\", \"what if X is Y\", or leaves out a company, period or figure it relies on), "
+    "rewrite it as a complete question that names them, using ticker symbols from the CONTEXT: "
     "\"compare to starbucks\" after TSLA over the last month -> \"Compare TSLA and Starbucks over the last month.\"; "
-    "\"which did better?\" -> \"Which did better over the last month, TSLA or SBUX?\". Set follow_up to true then. If the message "
-    "starts a new topic, only correct it and set follow_up to false. Take companies, periods and numbers only from the message "
-    "or the CONTEXT.\n"
+    "\"which did better?\" -> \"Which did better over the last month, TSLA or SBUX?\"; \"what if it's $20000?\" after how much "
+    "$10,000 grows at 8% a year for 5 years -> \"How much does $20,000 grow at 8% a year for 5 years?\". A reply to the "
+    "assistant's last message (\"yes\", \"confirm\", \"the first one\", \"no, 6%\", or a value it asked for) answers it: rewrite it "
+    "as the complete question the assistant proposed or asked about, with the value given; that is the question to answer "
+    "itself (the calculation), never a question about the assumption it confirms: \"yes, confirm\" or \"yes, no extra "
+    "contributions\" after \"You want to know how much $30,000 grows at 7% a year over 10 years; is 7% the yearly rate?\" -> "
+    "\"How much does $30,000 grow at 7% a year over 10 years with no extra contributions?\", not \"Is 7% the yearly rate?\"; "
+    "\"3%\" after \"what risk-free rate should I use?\" -> the earlier question with a 3% risk-free rate. "
+    "Set follow_up to true then. If the message starts a new topic, only correct it and set follow_up to false; a message that states every "
+    "company, period and figure it needs is a new question even on the same subject (\"How much would $2,500 grow to at 7% a "
+    "year over 10 years?\" after a 7% example). Take companies, periods and numbers "
+    "only from the message, the CONTEXT or the RECENT CONVERSATION.\n"
     'Reply with ONLY JSON: {"question": "<the corrected message>", "follow_up": true}')
 _TICKER_TOKEN = re.compile(r"\b[A-Z]{2,5}\b")
-_NUMBER = re.compile(r"\d+(?:[.,]\d+)?")
+_NUMBER = re.compile(r"\d+(?:\.\d+)?")
+_THOUSANDS = re.compile(r"(?<=\d),(?=\d{3}\b)")         # "$20,000" and "$20000" are the same number
 PROOFREAD_MAX_CHARS = 500                  # longer messages go to the router as typed
 FOLLOW_UP_EXTRA_CHARS = 200                # room a completed follow-up may add (company names, the period)
 
 
-def _proofread_ok(original: str, fixed: str, ctx: dict | None = None) -> bool:
+def _proofread_ok(original: str, fixed: str, ctx: dict | None = None, recent: str = "") -> bool:
     """A correction, not a different message: no number or capitalised ticker lost, not much longer, and similar text; or,
-    for a follow-up completed from the context, anything added (tickers, numbers) comes from that context."""
+    for a follow-up completed from the context or the recent conversation, anything added (tickers, numbers) comes from
+    there."""
     if not fixed:
         return False
+    original, fixed = _THOUSANDS.sub("", original), _THOUSANDS.sub("", fixed)
     if any(n not in fixed for n in _NUMBER.findall(original)):
         return False
     if any(t not in fixed for t in _TICKER_TOKEN.findall(original) if not original.isupper()):
         return False
     if ctx is not None:
-        known = f"{original.upper()} {CTX.describe(ctx).upper()}"
+        known = _THOUSANDS.sub("", f"{original} {CTX.describe(ctx)} {recent}").upper()
         return (len(fixed) <= len(original) + FOLLOW_UP_EXTRA_CHARS
                 and all(t in known for t in _TICKER_TOKEN.findall(fixed))
-                and all(n in known for n in _NUMBER.findall(fixed)))
+                and set(_NUMBER.findall(fixed)) <= set(_NUMBER.findall(known)))     # whole numbers: 9 isn't in 14693.28
     if len(fixed) > 2 * len(original) + 40:
         return False
     return difflib.SequenceMatcher(None, original.lower(), fixed.lower()).ratio() >= 0.5
 
 
-def _proofread_reply(q: str, ctx: dict | None) -> tuple[str, bool] | None:
+def _proofread_reply(q: str, ctx: dict | None, recent: str) -> tuple[str, bool] | None:
     """(corrected question, follow-up?) from the LLM; None if it gave nothing usable. A plain-text reply counts as a correction."""
-    prompt = (f"CONTEXT:\n{CTX.describe(ctx)}\n\n" if ctx else "") + f"Message: {q}"
+    prompt = ((f"CONTEXT:\n{CTX.describe(ctx)}\n\n" if ctx else "")
+              + (f"RECENT CONVERSATION:\n{recent}\n\n" if recent else "") + f"Message: {q}")
     reply = ask_llm(PROOFREAD_SYSTEM, prompt)
     if not reply:
         return None
@@ -119,7 +137,7 @@ def _proofread_reply(q: str, ctx: dict | None) -> tuple[str, bool] | None:
         fixed = reply.strip().strip('"“”').strip()
         return (fixed, False) if fixed else None
     fixed = str(data.get("question") or "").strip()
-    return (fixed, bool(data.get("follow_up")) and bool(ctx)) if fixed else None
+    return (fixed, bool(data.get("follow_up")) and bool(ctx or recent)) if fixed else None
 
 
 def proofread_node(state: FinanceState, config: RunnableConfig):
@@ -129,17 +147,18 @@ def proofread_node(state: FinanceState, config: RunnableConfig):
     the user typed. `follow_up` tells the router and agents to carry the context's companies, period and figures over.
     Without an LLM the message is kept and a follow-up is recognised by its wording (context.looks_like_follow_up)."""
     q, ctx = state["question"], state.get("context_in") or None
-    base = {"original_question": q, "follow_up": bool(ctx) and CTX.looks_like_follow_up(q)}
+    base = {"original_question": q, "follow_up": bool(ctx or state.get("history")) and CTX.looks_like_follow_up(q)}
     note = " (follow-up: carrying the earlier context)" if base["follow_up"] else ""
     if not get_config()["workflow"].get("proofread", True) or current_llm() is None:
         return {**base, "trace": [("proofread: skipped (no LLM)" if current_llm() is None else "proofread: off") + note]}
     if R.is_gibberish(q) or len(q) > PROOFREAD_MAX_CHARS:
         return {**base, "trace": ["proofread: left as typed" + note]}
-    got = _proofread_reply(q, ctx)
+    recent = H.transcript(state.get("history"))
+    got = _proofread_reply(q, ctx, recent)
     if got is None:
         return {**base, "trace": ["proofread: no reply, left as typed" + note]}
     fixed, follow_up = got
-    if not _proofread_ok(q, fixed, ctx if follow_up else None):
+    if not _proofread_ok(q, fixed, (ctx or {}) if follow_up else None, recent if follow_up else ""):
         log.info("proofread rewrite rejected: %r -> %r", q, fixed)
         return {**base, "trace": ["proofread: rewrite rejected, left as typed" + note]}
     tag = " (follow-up of the previous question)" if follow_up else ""
@@ -158,9 +177,10 @@ AGENTS AND THEIR RESPONSIBILITIES
 - news: Recent headlines and developments ("latest", "recent", "what happened", "what's being reported", "any news") about a company, industry, sector, topic or the whole market. Summarizes and gives context.
 - goal: Builds a savings plan: monthly amount needed to reach a target amount by a date (risk appetite may apply). Only when they want a plan or "how much should I save".
 - tax: Tax rules and account types (401k, IRA, Roth, HSA, 529), contribution limits, capital gains, deductions, tax treatment of investments.
-- calc: Computes a specific number: future value, loan/mortgage payment, doubling time, present value, real return, APY, bond yield. Use when the user wants a figure calculated, not explained.
+- calc: Computes a specific number: future value, loan/mortgage payment, doubling time, present value, real return, APY, bond yield, how long savings last with yearly withdrawals, or any other finance formula. Use when the user wants a figure calculated, not explained.
 
 ROUTING RULES
+0. qa is the DEFAULT. Use goal, portfolio or tax only when the message itself explicitly asks for that agent's job: a savings plan or how much to save (goal), an analysis of the user's own holdings (portfolio), tax treatment, tax rules or tax-advantaged accounts (tax). Mentioning retirement, saving, investing or an amount of money is not by itself a request for any of them: "I plan to retire with $1 million and need $50,000 a year" asks nothing about a savings plan, so it is not goal.
 1. A message can need several agents. Return every intent whose responsibility is required; usually 1-3, never more than 4.
 2. Performance or condition of a market, sector or asset class ("how is the housing market performing", "how are tech stocks doing", "state of the bond market") -> market + qa. market supplies the data; qa supplies the explanation of what drives it and what it means for a learner. Add news if they ask about recent events/causes or use "lately/this week/why now".
 3. "Why did X move / why is X up/down" -> market + news (+ qa if they also ask what the concept means).
@@ -168,10 +188,11 @@ ROUTING RULES
 5. A pure price/quote request ("price of NVDA") -> market only. A pure definition ("what is an ETF") -> qa only. Only use a single intent when the WHOLE message is that one thing. Do not add agents that contribute nothing.
 6. "Should I buy/invest in X" or "is X a good investment" -> qa + market (+ portfolio if they mention their holdings). Education only, never personal advice.
 7. Questions about what to consider or how something works (buying a house, mortgages, retirement accounts) -> qa. Add goal only if they ask for a savings plan, calc only if they ask for a number, tax only if tax treatment is asked.
-8. "How much will I have / what is my payment" -> calc. "How much must I save each month to reach $X by <date>" -> goal. If both a number and an explanation are requested, calc + qa.
+8. "How much will I have / what is my payment" -> calc. A request to SEE a calculation worked through ("show me an example of how to calculate WACC", "how do you calculate APY? walk me through it") -> calc, even without numbers: the calculator explains the formula with sample numbers. "How much must I save each month to reach $X by <date>" -> goal. If both a number and an explanation are requested, calc + qa.
 9. Tax-related investing questions ("how are dividends taxed", "Roth vs traditional") -> tax (+ qa if broad concept explanation is also requested).
 10. Follow-ups: pronouns or references to the earlier subject ("them", "it", "the same sector", "grab the recent news") inherit the intents the conversation is about. A short "what about X?" repeats ALL intents of the previous question for the new subject (price and news for NVDA, then "what about NU?" -> market + news).
 11. Anything unclear or very general about money/investing -> qa, with lower confidence.
+12. Finnie can only READ. If the message asks Finnie itself to CHANGE something (add/remove/edit holdings, goals or the profile, place a trade, move money, change settings, data or the system) -> ["read_only"] alone. Asking whether or how to do it ("should I sell?", "how do I add holdings?") only needs reading and is routed as usual.
 
 EXAMPLES
 "What is the performance of the housing market?" -> ["market","qa"]
@@ -185,10 +206,16 @@ EXAMPLES
 "Is my portfolio too concentrated in tech?" -> ["portfolio","qa"]
 "What's the monthly payment on a $400k mortgage at 6.5% for 30 years?" -> ["calc"]
 "I want $50k for a down payment in 4 years, how much per month?" -> ["goal"]
+"If I split $600 a month equally into 3 accounts, how much goes into each and how much does it grow at 6%?" -> ["calc"] (two calculations, nothing to explain)
+"Can you show me an example of how to calculate WACC?" -> ["calc"]
+"I plan to retire with $1 million and need $50,000 a year" -> ["calc","qa"] (how long the money lasts, not a savings plan)
+"How should I plan for retirement?" -> ["qa"]
+"How much should I save each month to retire with $1 million in 25 years?" -> ["goal"]
 "Roth IRA or 401k, and how are the gains taxed?" -> ["tax","qa"]
 "Should I invest in real estate right now?" -> ["qa","market"]
+"Put 20 Apple shares in my portfolio" -> ["read_only"]
 
-Reply with ONLY JSON: {"intents": ["qa"], "confidence": 0.0-1.0}. Intents must come from: qa, portfolio, market, news, goal, tax, calc. Confidence reflects how sure you are that the intent SET is complete and correct."""
+Reply with ONLY JSON: {"intents": ["qa"], "confidence": 0.0-1.0}. Intents must come from: qa, portfolio, market, news, goal, tax, calc, read_only. Confidence reflects how sure you are that the intent SET is complete and correct."""
 
 
 def _resolved_label(c: dict) -> str:
@@ -252,6 +279,10 @@ def router_node(state: FinanceState, config: RunnableConfig):
 def _route(state: FinanceState) -> dict:
     text = state["question"]
     entities = R.extract_entities(text, state.get("history"))
+    write = R.write_request(state.get("original_question") or text) or R.write_request(text)
+    if write:                                       # checked before the LLM, so basic mode flags it too
+        return {"intent": ["read_only"], "entities": {**entities, "write_request": write}, "router_mode": "keywords",
+                "trace": [f"router: asks to change something ({write}) → read_only guard"]}
     if R.is_gibberish(text):
         return {"intent": ["clarify"], "entities": entities, "router_mode": "keywords", "trace": ["router: no words found → clarify"]}
     if current_llm() is not None:
@@ -262,6 +293,9 @@ def _route(state: FinanceState) -> dict:
             intents, confidence = parsed
             if confidence < 0.3:
                 return {"intent": ["clarify"], "entities": entities, "router_mode": "llm", "trace": [f"router (LLM): low confidence {confidence:.1f} → clarify"]}
+            if "read_only" in intents:
+                return {"intent": ["read_only"], "entities": {**entities, "write_request": "data"}, "router_mode": "llm",
+                        "trace": ["router (LLM): asks to change something → read_only guard"]}
             intents = _with_listed_tickers(intents, text)
             return _routed({"intent": intents, "entities": entities, "router_mode": "llm", "trace": [f"router (LLM): {', '.join(intents)}"]}, state)
         log.warning("router LLM reply unusable; falling back to keywords")
@@ -273,8 +307,8 @@ def _route(state: FinanceState) -> dict:
 
 def route_after_router(state: FinanceState) -> list[str]:
     intents = state.get("intent") or ["qa"]
-    if intents == ["clarify"]:
-        return ["clarify"]
+    if intents in (["clarify"], ["read_only"]):
+        return intents
     nodes = {f"{i}_agent" for i in intents if i in R.INTENTS}
     return sorted(nodes) or ["qa_agent"]
 
@@ -734,69 +768,114 @@ def goal_node(state: FinanceState, config: RunnableConfig):
 
 @safe("calc")
 def calc_node(state: FinanceState, config: RunnableConfig):
-    """Pick a calculation and its inputs (LLM, or a keyword fallback), compute it in Python, show the working."""
-    name, args, how, eq, missing = None, {}, "keywords", None, None
-    recent, known = "", ""
-    if current_llm() is not None:
-        recent = H.transcript(state.get("history"))
-        known = CTX.describe(state.get("context_in"))          # the previous answer's figures, e.g. "SBUX: price $94.71"
-        reply = _json(ask_llm(CALC.CALC_SYSTEM, f"Recent conversation:\n{recent or '(none)'}\n\n"
-                                                + (f"Figures from the previous answer:\n{known}\n\n" if known else "")
-                                                + f"Message: {state['question']}"))
-        if reply is not None:
-            name, args, how = reply.get("function"), reply.get("args") or {}, "LLM"
-            eq = reply if reply.get("equation") else None
-            missing = reply.get("missing")
-    if name is None and how == "keywords":
-        name, args = CALC.keyword_request(state["question"])
-    if name not in CALC.CATALOG:
-        if eq:                                                  # not one of ours, but the numbers are there: solve the equation
-            return _equation_calc(eq, how, f"{state['question']}\n{recent}\n{known}")
-        return _out("calc", CALC.ask_text(missing), status="need_info", choices=CALC.CHOICES, confidence="medium",
-                    trace=f"calc ({how}): numbers missing → ask")
-    try:
-        text = CALC.run(name, args)
-    except (TypeError, ValueError) as e:
-        return _out("calc", f"{CALC.ASK}\n\n_({e})_", status="need_info", choices=CALC.CHOICES, confidence="medium",
-                    trace=f"calc ({how}): {name} rejected inputs ({e}) → ask")
-    shown = ", ".join(f"{k}={v:g}" if isinstance(v, (int, float)) else f"{k}={v}" for k, v in args.items() if v not in (None, "", 0))
-    return _out("calc", text, verbatim=True, trace=f"calc ({how}): {name}({shown})")
-
-
-def _equation_calc(spec: dict, how: str, known_text: str) -> dict:
-    """A calculation none of the calculators does, written by the LLM as an equation. Wolfram|Alpha (when configured) is
-    sent only the symbolic "solve <equation> for <unknown>", never the numbers, and supplies the formula; Python puts the
-    numbers in, checks the formula against the equation and computes the result, or solves the equation numerically when
-    there's no usable formula. An equation missing some values asks for exactly those (the next turn's LLM sees the
-    equation in the conversation); anything unsolvable falls back to asking for the numbers."""
-    ask = dict(status="need_info", choices=CALC.CHOICES, confidence="medium")
-    try:
-        eq = CALC.equation_request(spec, known_text)
-    except ValueError as e:
-        return _out("calc", CALC.ASK, **ask, trace=f"calc ({how}): equation rejected ({e}) → ask")
-    if eq["missing"]:                                           # the equation first, then ask for exactly what it lacks
-        return _out("calc", CALC.equation_ask(eq), **{**ask, "choices": []},
-                    trace=f"calc ({how}): equation {eq['equation']!r} needs {', '.join(eq['missing'])} → ask")
-    query = f"solve {eq['equation']} for {eq['unknown']}"
-    candidates, sources, note = [], [], "no Wolfram|Alpha"
-    if wolfram_enabled():
+    """The calculator's steps (calc_pipeline, mds/calc-pipeline-design.md): understand, define, find a sourced and
+    cross-checked equation, fill its variables; Python validates, computes and shows the working with quotes. Questions
+    no single equation answers go to the plan path. Without an LLM a keyword fallback runs a CATALOG calculator."""
+    q = state["question"]
+    if current_llm() is None:
+        name, args = CALC.keyword_request(q)
+        if name is None:
+            return _out("calc", CALC.ASK, status="need_info", choices=CALC.CHOICES, confidence="medium",
+                        trace="calc (keywords): no calculation recognised → ask")
         try:
-            res = ask_wolfram(query)
-            candidates = EQ.formulas(res["sections"], eq["unknown"])
-            sources = [{"id": f"wolfram:{query}", "title": "Wolfram|Alpha", "url": res["url"]}] if res.get("url") else []
-            note = f"wolfram({query!r}) → {len(candidates)} formula(s)"
-        except WolframNoResult:
-            note = f"wolfram({query!r}) → no result"
-        except WolframUnavailable as e:
-            log.warning("wolfram failed: %s", e)
-            note = f"wolfram({query!r}) → failed ({e})"
-    try:
-        sol = EQ.solve(eq["equation"], eq["unknown"], eq["values"], candidates)
-    except EQ.EquationError as e:
-        return _out("calc", CALC.ASK, **ask, trace=f"calc ({how}): {note} → not solved ({e}) → ask")
-    return _out("calc", CALC.equation_text(eq, sol), verbatim=True, sources=sources if sol["formula"] else [],
-                trace=f"calc ({how}): {note} → {'formula' if sol['formula'] else 'solved numerically'}: "
-                      f"{eq['unknown']} = {sol['value']:.6g}")
+            text = CALC.run(name, args)
+        except (TypeError, ValueError) as e:
+            return _out("calc", f"{CALC.ASK}\n\n_({e})_", status="need_info", choices=CALC.CHOICES, confidence="medium",
+                        trace=f"calc (keywords): {name} rejected inputs ({e}) → ask")
+        shown = ", ".join(f"{k}={v:g}" for k, v in args.items() if v not in (None, "", 0))
+        return _out("calc", text, verbatim=True, trace=f"calc (keywords): {name}({shown})")
+    # a new topic starts clean: an earlier question's figures would otherwise become extra targets or "user" numbers
+    recent = H.transcript(state.get("history")) if state.get("follow_up") else ""
+    known = CTX.describe(CTX.carried(state))
+    prompt = (f"Recent conversation:\n{recent or '(none)'}\n\n"
+              + (f"Figures from the previous answer:\n{known}\n\n" if known else "") + f"Message: {q}")
+    out = calculate(q, prompt, f"{q}\n{recent}\n{known}")
+    steps = [f"calc step {line}" for line in out.trace]
+    if out.kind == "needs":
+        res = _out("calc", CALC.needs_input_text(out.needs.label, out.needs.inputs), status="need_info",
+                   choices=CALC.CHOICES, confidence="medium",
+                   trace=f"calc (LLM plan): no number is the user's → ask for {', '.join(out.needs.inputs)}")
+    elif out.kind == "ask" and out.text:
+        res = _out("calc", out.text, status="need_info", choices=CALC.CHOICES, confidence="medium",
+                   trace=out.note or "calc (LLM steps): → ask")
+    elif out.kind == "ask":                               # nothing worked: confirm what they meant, not a fixed request
+        text, readings = CP.confirm(q, out.understood, out.errors)
+        res = _out("calc", text, status="need_info", choices=readings or CALC.CHOICES, readings=bool(readings),
+                   confidence="medium", trace=(out.note or "calc (LLM steps): → ask") + " → confirm with the user")
+    else:
+        sources = [{"id": f"calc:{s['url']}", "title": s["title"], "url": s["url"]}
+                   for q_ in out.result.get("quotes", []) for s in q_["sources"] if s.get("url")]
+        res = _out("calc", CALC.plan_text(out.result), verbatim=True, sources=sources,
+                   trace=out.note or "calc (LLM steps): " + out.trace[-1])
+    res["trace"] = steps + res["trace"]
+    return res
+
+
+def calculate(question: str, prompt: str, known_text: str) -> CP.Outcome:
+    """The calculator's steps (calc_pipeline): a sourced equation when one fits, else the plan path."""
+    def plan_path(example: bool, hint: str = "") -> CP.Outcome:
+        result, errors, _ = plan_calculation(question, prompt + hint + (CP.EXAMPLE_NOTE if example else ""), known_text,
+                                             example)
+        if isinstance(result, PLAN.NeedsInput):
+            return CP.Outcome("needs", needs=result, errors=errors)
+        if result is None:
+            return CP.Outcome("ask", errors=errors,
+                              note="calc (LLM plan): rejected twice (" + " | ".join(errors) + ") → ask")
+        values = "; ".join(f"{s['name']} = {result['values'][s['name']]:.6g}" if result["values"].get(s["name"]) is not None
+                           else f"{s['name']} ({s['kind']})" for s in result["steps"])
+        note = f"calc (LLM plan{', repaired after: ' + errors[0] if errors else ''}): {result['label']}: {values}"
+        if result["checks"]:
+            note += f"; {len(result['checks'])} check(s) passed"
+        if result["set_aside"]:
+            note += f"; {len(result['set_aside'])} check(s) set aside by the judge"
+        return CP.Outcome("answer", result=result, errors=errors, note=note)
+    return CP.calculate(question, prompt, known_text, plan_path)
+
+
+JUDGE_CALLS = 2                                         # most judge calls per question
+
+
+def plan_calculation(question: str, prompt: str, known_text: str,
+                     example: bool = False) -> tuple[dict | PLAN.NeedsInput | None, list[str], list]:
+    """Ask the LLM for a plan and run it. When only one of the plan's own checks disagrees, a judge call decides which is
+    wrong: a wrong check is set aside (and shown in the answer), a wrong plan goes to the repair round with the judge's
+    reason. Any other rejection goes back to the LLM once with the error. Returns (the executed plan, or NeedsInput when
+    no number is the user's, or None when both plans were rejected; the rejection messages; the plans)."""
+    plans, errors, judged = [_json(ask_llm(CALC.PLAN_SYSTEM, prompt))], [], 0
+    for attempt in (1, 2):
+        skip, set_aside = frozenset(), []
+        while True:
+            try:
+                result = PLAN.run(plans[-1], question, known_text, skip, example=example)
+                return {**result, "set_aside": set_aside}, errors, plans
+            except PLAN.NeedsInput as e:
+                return e, errors, plans
+            except PLAN.CheckFailed as e:
+                error = str(e)
+                if judged < JUDGE_CALLS:
+                    judged += 1
+                    verdict = _json(ask_llm(CALC.JUDGE_SYSTEM, CALC.judge_prompt(question, plans[-1], e))) or {}
+                    why = " ".join(str(verdict.get("reasoning") or "").split())
+                    if len(why) > 600:                           # cut at a sentence, not mid-word
+                        why = why[:600].rsplit(". ", 1)[0] + "."
+                    if verdict.get("wrong") == "check":
+                        skip |= {e.index}
+                        c = e.check
+                        set_aside.append({"when": ", ".join(f"`{k} = {v:g}`" for k, v in c["when"].items()),
+                                          "expect": c["expect"], "why": why,
+                                          "expected": "none" if e.expected is None else f"{e.expected:.6g}",
+                                          "actual": "none" if e.actual is None else f"{e.actual:.6g}"})
+                        continue
+                    error += f" A reviewer judged {'the plan' if verdict.get('wrong') == 'plan' else 'it unclear'}: {why}"
+            except PLAN.PlanError as e:
+                error = str(e)
+            break
+        errors.append(error)
+        if attempt == 1:
+            plans.append(_json(ask_llm(CALC.PLAN_SYSTEM, CALC.repair_prompt(prompt, plans[-1], error))))
+            if plans[-1] == plans[-2]:                           # the same plan again: say so, once
+                plans.append(_json(ask_llm(CALC.PLAN_SYSTEM, CALC.repair_prompt(prompt, plans[-1], error, True))))
+    return None, errors, plans
 
 
 def clarify_node(state: FinanceState, config: RunnableConfig):
@@ -804,19 +883,28 @@ def clarify_node(state: FinanceState, config: RunnableConfig):
                 trace="clarify: asked the user to rephrase")
 
 
+READ_ONLY_FLAG = "⚠️ **Request flagged: Finnie is read-only.**"
+READ_ONLY_MESSAGES = {
+    "trade": ("I can't place trades, orders or transfers: I'm not connected to any brokerage or bank account, and every agent here "
+              "can only read. I can explain how this kind of order works or look up the figures for you."),
+    "data": ("I can't change your portfolio, goals, profile or chat history from the chat: every agent here can only read them. "
+             "You can edit them yourself on the **Portfolio** and **Goals** tabs and in the profile sidebar."),
+    "system": ("I can't change the system, its data, files or settings: every agent here has read-only access. "
+               "I can answer questions using what's already there."),
+}
+READ_ONLY_CHOICES = ["Is my portfolio diversified?", "How does a limit order work?", "Am I on track for my goal?"]
+
+
+def read_only_node(state: FinanceState, config: RunnableConfig):
+    """The read-only guardrail (mds/read-only-guardrail.md): agents read the user's data and the market, they never change
+    anything. A request to write (edit holdings/goals/profile, trade, move money, alter the system) is flagged, not attempted."""
+    kind = state["entities"].get("write_request") or "data"
+    return _out("read_only", f"{READ_ONLY_FLAG} {READ_ONLY_MESSAGES[kind]}", status="need_info", choices=READ_ONLY_CHOICES,
+                confidence="high", verbatim=True, trace=f"read_only: flagged a request to change something ({kind}); nothing was changed")
+
+
 # ---------------------------------------------------------------- verifier + research
-def _json(reply: str | None) -> dict | None:
-    """The first complete JSON object in an LLM reply, or None. Text around it, including stray extra braces (seen in
-    gpt-4o-mini replies), is ignored."""
-    text = reply or ""
-    start = text.find("{")
-    while start != -1:
-        try:
-            obj, _ = json.JSONDecoder().raw_decode(text, start)
-            return obj if isinstance(obj, dict) else None
-        except ValueError:
-            start = text.find("{", start + 1)
-    return None
+_json = first_json
 
 
 SUFFICIENCY_SYSTEM = (
@@ -866,11 +954,12 @@ def verifier_node(state: FinanceState, config: RunnableConfig):
                     trace.append(f"verifier: {agent} {'web' if o['origin'] == 'web' else 'researched'} sources don't answer the question either"
                                  + (f" (missing: {missing})" if missing else ""))
                 continue
-            updates[agent] = {**o, "verified": True}
+            kept = {k: v for k, v in o.items() if k != "fallback"}       # accepted: an earlier rejected answer can't be used now
+            updates[agent] = {**kept, "verified": True}
             trace.append(f"verifier: {agent} sources answer the question" if verdict else f"verifier: {agent} check unavailable, kept")
         elif status == "need_info":
             choices = o.get("choices") or []
-            if llm_on and agent != "clarify":
+            if llm_on and agent not in ("clarify", "read_only") and not o.get("readings"):   # calc's readings already confirm its reading
                 reply = _json(ask_llm(CHOICES_SYSTEM, f"User's message: {state['question']}\nWhat the assistant still needs: {o['content']}"))
                 picked = [c.strip() for c in (reply or {}).get("choices", [])
                           if isinstance(c, str) and c.strip() and not _ADDRESSES_USER.search(c)][:3]   # must be the user's words
@@ -996,6 +1085,7 @@ AGENTS
 
 RULES
 - Choose only from the agents listed as AVAILABLE. Never choose an agent that was already tried.
+- goal, portfolio and tax only if the user explicitly asked for a savings plan, an analysis of their own holdings, or tax treatment; never because the question mentions retirement, saving or an amount.
 - Choose an agent only if its job directly supplies what is missing. If none can, return an empty list: an honest "not found" is better than an unrelated answer.
 - Usually 0-2 agents.
 
@@ -1095,7 +1185,8 @@ def synthesizer_node(state: FinanceState, config: RunnableConfig):
             data = MT.data_block(state.get("market_data") or {})        # exact figures the market tools fetched (volume, P/E...)
             figures = (f"\n\nData (exact figures from the market tools; use only those the question needs, and keep them "
                        f"exactly as given):\n{data}" if data else "")
-            reply = ask_llm(SYNTH_SYSTEM, f"Knowledge level: {level}\nConversation so far:\n{history or '(none)'}\n\n"
+            style = LENGTH_BY_LEVEL.get(level, LENGTH_BY_LEVEL["beginner"])
+            reply = ask_llm(SYNTH_SYSTEM, f"Knowledge level: {level} ({style})\nConversation so far:\n{history or '(none)'}\n\n"
                                           f"Question: {state['question']}\n\nContext:\n{context}{figures}{shown_after}")
             if reply:
                 text, mode = reply, "llm"

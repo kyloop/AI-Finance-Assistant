@@ -3,7 +3,7 @@ import pytest
 
 def test_profile_roundtrip(client, sid):
     assert client.get(f"/api/sessions/{sid}/profile").json()["knowledge_level"] == "beginner"
-    r = client.put(f"/api/sessions/{sid}/profile", json={"knowledge_level": "advanced", "risk_tolerance": "aggressive", "horizon_years": 20, "goals": ["retire"]})
+    r = client.put(f"/api/sessions/{sid}/profile", json={"knowledge_level": "advanced", "risk_tolerance": "aggressive", "horizon_years": 20})
     assert r.json()["risk_tolerance"] == "aggressive"
 
 
@@ -169,3 +169,15 @@ def test_market_cache_survives_a_concurrent_writer(tmp_path, monkeypatch):
     with Local() as db:
         env = ms.get_market_data(db, "quote", "ZZ")
     assert env["data"] == {"price": 1.0} and env["freshness"] == "cached"
+
+
+def test_chat_cannot_change_portfolio_goals_or_profile(client, sid):
+    client.put(f"/api/sessions/{sid}/portfolio", json={"holdings": [{"ticker": "VTI", "shares": 10}]})
+    client.post(f"/api/sessions/{sid}/goals/project", json={"goal_type": "retirement", "target_amount": 500000, "horizon_years": 30,
+                                                            "current_savings": 0, "monthly_contribution": 500, "risk_tolerance": "moderate"})
+    state = lambda: [client.get(f"/api/sessions/{sid}/{p}").json() for p in ("portfolio", "goals", "profile")]   # noqa: E731
+    before = state()
+    for m in ["Add 10 shares of AAPL to my portfolio", "Delete my goals", "Set my risk tolerance to aggressive", "Sell all my VTI"]:
+        r = client.post(f"/api/sessions/{sid}/chat", json={"message": m}).json()
+        assert r["agents"] == ["Read-only guard"] and "Request flagged" in r["content"]
+    assert state() == before

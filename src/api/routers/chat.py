@@ -123,7 +123,7 @@ class _Turn:
         holdings = [{"ticker": h.ticker, "shares": h.shares, "cost_basis": h.cost_basis, "purchase_date": h.purchase_date.isoformat() if h.purchase_date else None}
                     for h in (s.portfolio.holdings if s.portfolio else [])]
         profile = {"knowledge_level": s.profile.knowledge_level, "risk_tolerance": s.profile.risk_tolerance,
-                   "horizon_years": s.profile.horizon_years, "goals": s.profile.goals}
+                   "horizon_years": s.profile.horizon_years}
         g = s.goals[-1] if s.goals else None
         saved_goal = {k: getattr(g, k) for k in ("goal_type", "target_amount", "horizon_years", "current_savings", "monthly_contribution", "risk_tolerance")} if g else None
         self.graph_args = dict(history=self.history, profile=profile, holdings=holdings, db=db, saved_goal=saved_goal,

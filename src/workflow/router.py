@@ -5,11 +5,15 @@ import re
 
 from src.core.market_service import INSTRUMENTS
 
+# qa is the default: goal, portfolio and tax only when the message explicitly asks for that agent's job (a savings plan,
+# the user's own holdings, tax), never because it merely mentions retirement, saving or an amount.
 INTENT_PATTERNS = {
-    "tax": r"\b(tax|taxes|taxable|401\(?k\)?|ira|roth|capital gains?|deduction)\b",
-    "portfolio": r"\b(my portfolio|my holdings|my investments|allocation|diversif\w*|rebalanc\w*|expense ratio)\b",
+    "tax": r"\b(tax|taxes|taxed|taxable|taxation|401\(?k\)?|ira|roth|capital gains?|deduction)\b",
+    "portfolio": r"\b(my (portfolio|holdings|investments|stocks|positions|allocation)|am i (diversified|too concentrated)|"
+                 r"rebalanc\w* my)\b",
     "market": r"\b(watchlist|price of|quote|stock market|market today|index|indices|s&p|nasdaq|dow|trend|moving average)\b",
-    "goal": r"\b(goal|retire\w*|save for|saving for|how much (should|do) i (save|invest)|down payment|college|nest egg)\b",
+    "goal": r"\b(savings? plan|savings goal|my goal|save for|saving for|how much (should|do|must) i (need to )?(save|invest)|"
+            r"on track)\b",
     "news": r"\b(news|headlines?|latest (on|about|news)|what happened|what('s| is| has been| have been)? (happening|said|going on)|in the news|"
             r"(recent|latest) (updates?|developments?|reports?) (on|about|in))\b",
     "calc": r"\b(calculate|calculation|compute|work out|how much (will|would|do|does) .{0,40}\b(grow|be worth|have|cost|pay)|"
@@ -18,7 +22,8 @@ INTENT_PATTERNS = {
 }
 INTENTS = ["qa", "portfolio", "market", "news", "goal", "tax", "calc"]
 AGENT_FOR_INTENT = {"qa": "Finance Q&A", "portfolio": "Portfolio Analysis", "market": "Market Analysis",
-                    "goal": "Goal Planning", "tax": "Tax Education", "calc": "Calculator", "example": "Calculator", "news": "News", "clarify": "Finnie"}
+                    "goal": "Goal Planning", "tax": "Tax Education", "calc": "Calculator", "example": "Calculator", "news": "News", "clarify": "Finnie",
+                    "read_only": "Read-only guard"}
 
 COMPANY_ALIASES = {"apple": "AAPL", "microsoft": "MSFT", "nvidia": "NVDA", "jpmorgan": "JPM", "johnson & johnson": "JNJ"}
 INDEX_ALIASES = {"s&p 500": "^GSPC", "s&p": "^GSPC", "nasdaq": "^IXIC", "dow jones": "^DJI", "the dow": "^DJI", "dow": "^DJI"}
@@ -48,6 +53,45 @@ _ADVICE_REQUEST = re.compile(r"\bshould i (buy|sell|invest|put|move|dump|hold|sh
 
 def is_advice_request(text: str) -> bool:
     return bool(_ADVICE_REQUEST.search(text))
+
+
+# Requests for Finnie to CHANGE something. Every agent can only read (the portfolio, goals and profile reach the graph as copies,
+# and no node writes them), so such a request is flagged rather than routed: mds/read-only-guardrail.md.
+# Checked per sentence, and only in the imperative ("add…", "can you delete…"): "if I add $500 a month to my goal…" is a question.
+_ASKS = r"^\s*(hey\s+)?(finnie[,:]?\s+)?(please\s+)?((can|could|would|will) you\s+(please\s+)?)?(go ahead and\s+|i want you to\s+|i'?d like you to\s+)?"
+_MY_DATA = (r"(portfolio|holdings?|positions?|goals?|savings plan|profile|watchlist|risk (tolerance|profile|level)|knowledge level|"
+            r"settings?|preferences?|account|database|db|records?|conversations?|chats?|(chat )?history|messages?|memory|data)")
+_EDIT = (r"(add|remove|delete|drop|update|change|edit|set|save|store|record|log|rename|clear|reset|erase|wipe|modify|create|insert|"
+         r"replace|overwrite|cancel|remember)")
+WRITE_PATTERNS = {
+    "trade": [
+        re.compile(_ASKS + r"(buy|sell|purchase|short|trade)\s+(\d|some\b|all\b|half\b|more\b|my\b|it\b|them\b|shares\b|(?-i:[A-Z]{1,5})\b|\$)", re.I),
+        re.compile(_ASKS + r"(transfer|wire|withdraw|deposit|move)\s+(\$?\d|my\b|money\b|funds\b|cash\b)", re.I),
+        re.compile(_ASKS + r"rebalance\s+(my|the)\b", re.I),
+        re.compile(r"\b(buy|sell|purchase|short|trade|invest|transfer|move|rebalance)\b.{0,60}\b(for me|on my behalf)\b", re.I),
+        re.compile(r"\b(place|put in|submit|execute)\s+(an?\s+|the\s+|this\s+|that\s+|my\s+)?(buy\s+|sell\s+|market\s+|limit\s+|stop\s+)?(order|trade)s?\b", re.I),
+    ],
+    "data": [
+        re.compile(_ASKS + _EDIT + r"\b.{0,60}?\b(to|from|in|into|on|off)\s+(my|the)\s+" + _MY_DATA + r"\b", re.I),
+        re.compile(_ASKS + _EDIT + r"\s+(my|the|this|that|these|all( of)?( my)?)\s+(\w+\s+){0,2}?" + _MY_DATA + r"\b", re.I),
+    ],
+    "system": [
+        re.compile(r"\b(drop|truncate|alter)\s+table\b|\bdelete\s+from\s+\w|\binsert\s+into\s+\w|\bupdate\s+\w+\s+set\s+\w", re.I),
+        re.compile(r"\b(write|save|dump|export)\s+(it|this|that|them|.{0,30}?)\s*(to|into)\s+(a|the|your)\s+(file|disk|database|db|server)\b", re.I),
+        re.compile(_ASKS + r"(modify|change|edit|update|delete|rewrite|overwrite|reset)\s+(the|your)\s+(code|config(uration)?|system( prompt)?|"
+                   r"instructions|rules|knowledge base|index|files?|server|cache)\b", re.I),
+    ],
+}
+
+
+def write_request(text: str) -> str | None:
+    """"trade", "data" or "system" if the message asks Finnie to change something (place a trade or move money, edit the user's
+    portfolio/goals/profile, or alter the system itself); None for anything that only needs reading."""
+    for sentence in re.split(r"(?<=[.!?;])\s+|\n+", text):
+        for kind, patterns in WRITE_PATTERNS.items():
+            if any(p.search(sentence) for p in patterns):
+                return kind
+    return None
 
 
 def is_gibberish(text: str) -> bool:
@@ -94,7 +138,7 @@ def parse_llm_intents(reply: str) -> tuple[list[str], float] | None:
         return None
     try:
         data = json.loads(m.group(0))
-        intents = [i for i in data.get("intents", []) if i in INTENTS]
+        intents = [i for i in data.get("intents", []) if i in INTENTS or i == "read_only"]
         return (intents, float(data.get("confidence", 1))) if intents else None
     except (ValueError, TypeError, AttributeError):
         return None

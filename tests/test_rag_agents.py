@@ -40,3 +40,13 @@ def test_broken_index_falls_back_to_wikipedia():
     set_kb_searcher(boom)
     s = ask("What is an ETF?")
     assert s["agents"] == ["Finance Q&A"] and any("wiki_search('ETF')" in t for t in s["trace"])
+
+
+def test_higher_knowledge_level_gets_a_shorter_excerpt():
+    long = " ".join(f"word{i}" for i in range(300))
+    set_kb_searcher(lambda q, k=None: [hit(MIN + 0.1, text=long)])
+    lengths = {}
+    for level in ("beginner", "intermediate", "advanced"):
+        s = run_chat("How often can interest be added?", history=[], profile={**PROFILE, "knowledge_level": level}, holdings=[], db=None)
+        lengths[level] = sum(w.startswith("word") for w in s["final_response"].split())
+    assert lengths["beginner"] > lengths["intermediate"] > lengths["advanced"]

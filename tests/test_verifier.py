@@ -58,7 +58,7 @@ def test_need_info_is_passed_through_with_choices_and_never_rewritten():
 
 
 def test_need_info_choices_fall_back_to_defaults_without_llm():
-    s = ask("How should I plan for retirement?")
+    s = ask("How much should I save for retirement?")
     assert "target amount" in s["final_response"] and s["choices"] == N.GOAL_CHOICES
 
 
@@ -105,7 +105,7 @@ def test_nothing_found_anywhere_says_so_without_an_llm_answer():
 
 
 def test_chat_api_returns_and_stores_choices(client, sid):
-    r = client.post(f"/api/sessions/{sid}/chat", json={"message": "How should I plan for retirement?"}).json()
+    r = client.post(f"/api/sessions/{sid}/chat", json={"message": "How much should I save for retirement?"}).json()
     assert r["choices"] == N.GOAL_CHOICES
     assert client.get(f"/api/sessions/{sid}/messages").json()[-1]["choices"] == N.GOAL_CHOICES
 

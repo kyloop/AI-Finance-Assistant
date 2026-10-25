@@ -10,6 +10,8 @@ ADVICE_PATTERNS = [
     r"\bguarantee[sd]?\b.{0,30}\b(returns?|profits?|gains?)\b",
     r"\bwill\s+(definitely\s+|certainly\s+)?(make|earn|return|grow)\b.{0,25}\d+\s*%",
 ]
+# The disclaimer as the LLM may echo it from earlier answers in the history (optionally italic/bold or in a quote).
+_DISCLAIMER_RE = re.compile(r"^[ \t>*_]*" + re.escape(DISCLAIMER).replace(r"\ ", r"\s+") + r"[ \t*_]*$", re.I | re.M)
 REFUSAL_NOTE = "I can explain how these things work, but I can't tell you what to buy or sell."
 
 
@@ -28,5 +30,6 @@ def filter_advice(text: str) -> tuple[str, int]:
 
 
 def finalize(text: str) -> tuple[str, int]:
-    cleaned, removed = filter_advice(text)
+    """Filter advice and append the disclaimer exactly once, dropping any copy already in the text."""
+    cleaned, removed = filter_advice(_DISCLAIMER_RE.sub("", text))
     return f"{cleaned}\n\n{DISCLAIMER}", removed

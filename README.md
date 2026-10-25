@@ -179,8 +179,9 @@ flowchart LR
     router -- news --> news_agent[news_agent<br/><i>live headlines + news index</i>]
     router -- portfolio --> portfolio_agent[portfolio_agent<br/><i>portfolio calculator</i>]
     router -- goal --> goal_agent[goal_agent<br/><i>goal projection maths</i>]
-    router -- calc --> calc_agent[calc_agent<br/><i>finance calculators</i>]
+    router -- calc --> calc_agent[calc_agent<br/><i>LLM plan, Python computes</i>]
     router -- clarify only --> clarify[clarify<br/><i>unreadable message</i>]
+    router -- asks to change something --> read_only[read_only<br/><i>flag: Finnie is read-only</i>]
 
     qa_agent --> verifier
     tax_agent --> verifier
@@ -190,6 +191,7 @@ flowchart LR
     goal_agent --> verifier
     calc_agent --> verifier
     clarify --> verifier
+    read_only --> verifier
 
     verifier{verifier<br/>recheck each new output once:<br/>answered / not_found / need_info}
     verifier -- not_found,<br/>not yet researched --> research[research<br/>LLM picks Wikipedia topics<br/>exact-title lookup]
@@ -209,7 +211,22 @@ flowchart LR
 Which tools each agent calls, and the data source behind each tool, are mapped in [Agent tools](mds/agent-tools.md). Where each agent lives in the code (function, file, helpers) is in [Agent code map](mds/agent-code-map.md).
 
 The router can pick several agents for one question; they run in parallel. If no intent matches, it falls back to
-`qa_agent`; `clarify` runs only when it is the sole intent (`route_after_router` in `src/workflow/nodes.py`).
+`qa_agent`; `clarify` and `read_only` run only when they are the sole intent (`route_after_router` in `src/workflow/nodes.py`).
+
+### Guardrails
+
+- **Read-only agents.** Every node reads; none can change your portfolio, goals or profile, place trades, move money,
+  or alter the system. Your data reaches the graph only as copies, and the writes a node can make are limited to the
+  caches it fills from outside (market data, ticker lookups, indexed news headlines). Changes go through the Portfolio
+  and Goals tabs and the profile sidebar, never through the chat. The router flags a request to change something ("add
+  10 AAPL to my portfolio", "sell half my TSLA", "delete my goal", "drop table holdings"): it goes to the `read_only` node
+  alone, and the reply starts with **⚠️ Request flagged: Finnie is read-only.** It runs with or without an LLM. The audit
+  of each node, the detection rules and the tests are in [mds/read-only-guardrail.md](mds/read-only-guardrail.md).
+- **No personal advice.** Compliance removes advice-like sentences ("you should buy…", promised returns) and appends the
+  disclaimer to every answer (`src/workflow/safety.py`). Questions like "should I buy X?" are answered with facts and
+  concepts, plus a note that Finnie can't say what to buy or sell.
+- **Grounded answers.** The synthesizer writes only from agent outputs the verifier accepted. Calculations are done in
+  Python and shown word for word.
 
 - **Proofread** (`proofread_node` in `nodes.py`): with an LLM, rewrites the message with spelling, grammar and
   abbreviations fixed ("tsla last 10 yrs" → "TSLA over the last 10 years"), and turns a follow-up into a complete question
@@ -224,8 +241,10 @@ The router can pick several agents for one question; they run in parallel. If no
   ("if SBUX rose 2%" uses the quoted price). A message that isn't a follow-up starts afresh, except a calculation, which
   keeps the subject.
 - **Router** (`src/workflow/router.py`, `nodes.py`): LLM intent classifier when a model is connected, keyword/regex
-  fallback otherwise. "What should I consider / how does X work" questions go to Q&A; Goal Planning is for savings
-  projections with amounts and years.
+  fallback otherwise. Q&A is the default. Goal Planning, Portfolio and Tax run only when the message explicitly asks
+  for their job (a savings plan or how much to save, an analysis of the user's own holdings, tax treatment or
+  tax-advantaged accounts); mentioning retirement, saving or an amount is not enough ("I plan to retire with $1 million
+  and need $50,000 a year" goes to Q&A and the Calculator, not Goal Planning).
 - **Companies in market and news questions** are resolved once, by the router, with the recent conversation (`entities["companies"]`):
   the LLM corrects misspellings ("nvdia" → NVIDIA) and resolves "them" / "the same sector" to the company discussed earlier,
   then Yahoo maps the name to a ticker. A price question that names nothing we can identify asks which company is meant
@@ -251,12 +270,21 @@ The router can pick several agents for one question; they run in parallel. If no
   re-runs an agent, and is skipped without an LLM. When no agent can help, the answer is written from whatever was
   found; if nothing answered at all, from the research the verifier found incomplete, and the reply says what it
   couldn't cover.
-- **Calculator** (`src/workflow/calc.py`, maths in `src/core/calculators.py`): the LLM picks one calculation and
-  extracts the user's numbers (a keyword fallback covers growth and doubling time without an LLM); Python computes the
-  result, so figures are exact. Available: growth of a lump sum and/or monthly deposits, present value, loan or
-  mortgage payment, doubling time (Rule of 72 vs exact), real return after inflation, purchasing power after
-  inflation, APY from APR, bond current yield. The reply shows the inputs, formula and result, and is passed through word for word. Missing numbers → it
-  asks, with example choices. "How much should I save each month to reach $X" stays with Goal Planning.
+- **Calculator** (`src/workflow/calc_pipeline.py`, `src/workflow/calc.py`, `src/core/calc_plan.py`; design in
+  [mds/calc-pipeline-design.md](mds/calc-pipeline-design.md)): separate LLM steps (1) understand the question, (2) define
+  what to calculate, (3) find each standard equation in the knowledge base **and** on the web (Tavily), copied as the
+  source writes it (LaTeX, Greek letters) and converted by Python into its own notation, with an LLM judge
+  checking that the two agree and fit the question (a second search when they don't; it asks you if they still
+  disagree), (4) fill the equation's variables; then Python checks the numbers (none invented, every number in the
+  question used, the formula solves the source's equation), computes the result and shows the working with the
+  equations' verbatim quotes and links. Questions no single equation answers (paying 3% of a balance each month,
+  withdrawals rising with inflation) get a period-by-period model designed by the LLM and checked by its own test cases
+  ([mds/calc-plan-design.md](mds/calc-plan-design.md)), marked as not sourced. Numbers you didn't give are marked
+  *(sample)*. Asking to see a calculation ("show me an example of how to calculate WACC") gives a worked example with
+  sample numbers and the quoted formula. Without an LLM a keyword fallback covers growth and doubling time with
+  `src/core/calculators.py`.
+  Measured in [mds/calc-eval.md](mds/calc-eval.md). "How much should I save each month to reach $X" stays with Goal
+  Planning.
 - **Illustrate**: conceptual answers about numeric topics come with a worked example straight away, without being asked.
   The LLM picks the fitting calculation and sample numbers (compound interest → growth of $10,000 at 6% over 10 years;
   mortgages → a loan payment; inflation → purchasing power; APY → APY from APR …), and the Calculator computes it
@@ -298,16 +326,6 @@ The router can pick several agents for one question; they run in parallel. If no
 | `GOOGLE_API_KEY` | `pip install langchain-google-genai` |
 
 `llm.provider: auto` in `config.yaml` uses the first provider whose key is set. Knowledge-base ingest from Wikipedia: `python -m src.kb.ingest --dry-run`.
-
-**Optional: Wolfram|Alpha for calculations the built-in calculators don't cover** (IRR of cash flows, solving for a rate
-or a number of years, CAGR between two values). Add `WOLFRAM_APP_ID=<your AppID>` to `.env` (an AppID from
-developer.wolframalpha.com; the LLM API). The Calculator still tries its own Python functions first; only when none fits
-and you gave every number does its LLM write the calculation as an equation with letters (`p*(1+r)^n = f`) plus your
-numbers. Only `solve <equation> for <unknown>` is sent to the [Wolfram|Alpha LLM API](https://products.wolframalpha.com/llm-api/documentation),
-never the numbers, your message or the conversation; Wolfram returns the formula (`r = (f/p)^(1/n) - 1`) and Python
-(`src/core/equations.py`) puts your numbers in, checks the formula against the equation and computes the result. Without
-the key, or when Wolfram has no usable formula (an IRR over several years has no neat closed form) or is unreachable,
-Python solves the equation numerically. `WOLFRAM_ALPHA_APP_ID` works as the key name too. Settings: `wolfram` in `config.yaml`.
 
 **Optional: Tavily web search as Research's last resort.** Add `TAVILY_API_KEY=<your key>` to `.env` (from app.tavily.com).
 When the knowledge base and Wikipedia have nothing that answers a question, Research sends the question (only the

@@ -12,7 +12,7 @@ from src.core import market_service
 from src.workflow import market_tools as MT
 from src.workflow.graph import run_chat
 
-PROFILE = {"knowledge_level": "beginner", "risk_tolerance": "moderate", "horizon_years": 10, "goals": []}
+PROFILE = {"knowledge_level": "beginner", "risk_tolerance": "moderate", "horizon_years": 10}
 
 
 @pytest.fixture

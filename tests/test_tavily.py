@@ -10,7 +10,7 @@ from src.core import llm as llm_module
 from src.core import tavily as T
 from src.workflow.graph import run_chat
 
-PROFILE = {"knowledge_level": "beginner", "risk_tolerance": "moderate", "horizon_years": 10, "goals": []}
+PROFILE = {"knowledge_level": "beginner", "risk_tolerance": "moderate", "horizon_years": 10}
 
 RESULTS = [
     {"title": "What Is a Flibbertigibbet Fund?", "url": "https://www.investopedia.com/terms/f/flibbertigibbet-fund.asp",
@@ -160,6 +160,14 @@ def test_the_verifier_checks_web_results_like_wikipedia_ones():
     s = ask("What does an ETF hold, exactly?")
     assert llm.checked == ["wikipedia", "web"]                        # Wikipedia rejected, so the web is tried and checked
     assert s["sources"][0]["url"].startswith("https://www.investopedia.com/")
+
+
+def test_an_accepted_web_answer_drops_the_rejected_wikipedia_fallback():
+    T.set_web_searcher(lambda q: RESULTS)
+    llm_module.set_llm(CheckLLM(['{"answers": false}', '{"answers": true}']))
+    qa = ask("What does an ETF hold, exactly?")["agent_outputs"]["qa"]
+    assert qa["status"] == "answered" and qa["origin"] == "web"
+    assert "fallback" not in qa                                       # the trace shows only the answer that was used
 
 
 def test_a_rejected_web_result_is_dropped_and_the_wikipedia_fallback_kept():

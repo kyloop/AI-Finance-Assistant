@@ -1,7 +1,9 @@
 """Wolfram|Alpha LLM API client: supplies formulas for the Calculator agent's equations, for calculations its Python
 functions don't cover (IRR of a series of cash flows, solving for a rate or a number of years...).
 
-Only the symbolic "solve <equation> for <unknown>" is sent, never the numbers, the user's message or the conversation;
+Two kinds of query are sent: a standard formula's name ("number of periods of an annuity"), which returns its equation,
+what each variable means and example values, and the symbolic "solve <equation> for <unknown>". Never the numbers, the
+user's message or the conversation;
 src/core/equations.py puts the numbers into the formula and computes the result. Needs WOLFRAM_APP_ID (or
 WOLFRAM_ALPHA_APP_ID) in .env (an AppID from developer.wolframalpha.com) and `wolfram.enabled` in config.yaml; without them
 `wolfram_enabled()` is False and the Calculator solves its equations numerically. Tests inject a fake with

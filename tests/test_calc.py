@@ -15,17 +15,25 @@ def ask(q):
     return run_chat(q, history=[], profile=PROFILE, holdings=[], db=None)
 
 
+MORTGAGE_PLAN = ('{"label": "monthly mortgage payment", "inputs": {"P": {"value": 300000, "from": "user", "means": '
+                 '"amount borrowed", "unit": "money"}, "r": {"value": 0.065, "from": "user", "means": "yearly interest '
+                 'rate", "unit": "rate"}, "t": {"value": 30, "from": "user", "means": "term", "unit": "years"}}, '
+                 '"steps": [{"name": "M", "label": "monthly payment", "expr": "P*(r/12)/(1-(1+r/12)^(-12*t))", '
+                 '"unit": "money"}], "checks": [{"when": {"t": 0.08333333333333333}, "of": "M", "expect": "P*(1+r/12)"}]}')
+
+
 class RoleLLM:
     """Replies by role (recognised from the system prompt) and records the roles used."""
     model = "role"
 
     def __init__(self, **replies):
         self.replies = {"router": '{"intents": ["calc"], "confidence": 0.9}',
-                        "calc": '{"function": "loan_payment", "args": {"principal": 300000, "annual_rate": 6.5, "years": 30}}',
+                        "calc": MORTGAGE_PLAN,
                         "followups": '{"calculation": "How much would $5,000 grow to at 5% over 20 years?", '
                                      '"example": "What would a $250,000 mortgage at 7% cost each month?", '
                                      '"related": "What is the difference between APR and APY?"}',
-                        "example": '{"function": null}', "check": '{"answers": true}', "synth": "Prose answer.", **replies}
+                        "example": '{"function": null}', "check": '{"answers": true}', "synth": "Prose answer.",
+                        "step": "{}", **replies}                       # calculator steps 1-4: no reply → the plan path
         self.calls, self.prompts = [], {}
 
     def invoke(self, messages):
@@ -33,6 +41,7 @@ class RoleLLM:
         if "You are the proofreader" in system:                  # the proofread node: message unchanged, not counted as a call
             return type("R", (), {"content": messages[1][1].removeprefix("Message: ")})()
         role = ("router" if "You are the router" in system else "calc" if "finance calculator" in system else
+                "step" if system.startswith("Calculator step") else
                 "example" if "conceptual answer" in system else "followups" if "could ask next" in system else
                 "check" if "retrieved SOURCES" in system else "synth")
         self.calls.append(role)
@@ -80,16 +89,22 @@ def test_llm_extracted_calculation_is_shown_verbatim():
     llm = RoleLLM()
     llm_module.set_llm(llm)
     s = ask("What's the monthly payment on a $300,000 mortgage at 6.5% over 30 years?")
-    assert "**Result: about $1,896.20 a month.**" in s["final_response"]
+    assert "**Result: monthly payment = $1,896.20**" in s["final_response"]
     assert "synth" not in llm.calls                                              # the result is never reworded
     assert s["choices"] == ["How much would $5,000 grow to at 5% over 20 years?",
                             "What would a $250,000 mortgage at 7% cost each month?", "What is the difference between APR and APY?"]
 
 
-def test_missing_numbers_ask_for_what_the_llm_says_is_missing_with_example_choices():
-    llm_module.set_llm(RoleLLM(calc='{"function": null, "missing": "the interest rate"}'))
+def test_a_plan_with_no_number_from_the_user_asks_for_them_with_example_choices():
+    plan = ('{"label": "how your savings grow", "inputs": {"P": {"value": 10000, "from": "sample", "means": "amount '
+            'saved", "unit": "money"}, "r": {"value": 0.06, "from": "sample", "means": "yearly return", "unit": "rate"}, '
+            '"t": {"value": 10, "from": "sample", "means": "number of years", "unit": "years"}}, "steps": [{"name": "A", '
+            '"label": "balance", "expr": "P*(1+r)^t", "unit": "money"}], "checks": [{"when": {"r": 0}, "of": "A", '
+            '"expect": "P"}]}')
+    llm_module.set_llm(RoleLLM(calc=plan))
     s = ask("Can you calculate how much my savings will grow?")
-    assert s["final_response"].startswith("I can work that out, but I need the interest rate.") and s["choices"] == CALC.CHOICES
+    assert s["final_response"].startswith("I can work out how your savings grow. Tell me:") and s["choices"] == CALC.CHOICES
+    assert "- yearly return" in s["final_response"]
     assert not any(t.startswith("follow-ups") and "suggested" in t for t in s["trace"])   # the ask's own choices are kept
 
 
@@ -152,6 +167,22 @@ def test_llm_json_is_read_despite_extra_braces_and_text():
         {"function": "apy_from_apr", "args": {"apr": 4.65, "compounds_per_year": 12}}
     assert _json('Sure! {"answers": true} Hope that helps.') == {"answers": True}
     assert _json("no json here") is None and _json(None) is None
+    assert _json('{{"a": 1}') == {"a": 1}
+
+
+def test_llm_json_keeps_latex_copied_from_a_source():
+    from src.workflow.nodes import _json
+    reply = r'{"found": true, "quote": "$r_{e}=r_{f}+\beta \cdot (r_{m}-r_{f})$, \mu_{M}, \frac{a}{b} \times \nu"}'
+    assert _json(reply)["quote"] == r"$r_{e}=r_{f}+\beta \cdot (r_{m}-r_{f})$, \mu_{M}, \frac{a}{b} \times \nu"
+    assert _json(r'{"q": "one\nThe next\t\"x\" \\ é"}') == {"q": 'one\nThe next\t"x" \\ é'}   # real escapes kept
+
+
+def test_an_object_closed_early_is_rejoined_and_an_inner_one_never_taken_for_the_reply():
+    from src.workflow.nodes import _json
+    assert _json('{"inputs": {"PV": {"value": 5000}}, {"derived": {"A": 1}, "ignored": []}}') == \
+        {"inputs": {"PV": {"value": 5000}}, "derived": {"A": 1}, "ignored": []}
+    assert _json('{"a": [{"x": 1}, {"y": 2}]}') == {"a": [{"x": 1}, {"y": 2}]}
+    assert _json(r'{"found": true, "quote": "x", "variables": {"mu_i": "return"}, "bad": \q}') is None
 
 
 def test_percent_change_applies_a_rise_or_fall_to_an_amount():

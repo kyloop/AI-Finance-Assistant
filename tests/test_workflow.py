@@ -6,7 +6,7 @@ from src.core.config import DISCLAIMER
 from src.db.session import init_db
 from src.workflow import router as R
 from src.workflow.graph import get_graph, run_chat
-from src.workflow.safety import REFUSAL_NOTE, filter_advice
+from src.workflow.safety import REFUSAL_NOTE, filter_advice, finalize
 from src.workflow.tools import set_wiki_client, wiki_search
 from tests.conftest import FakeWiki
 
@@ -45,6 +45,17 @@ def test_keyword_router_and_entities():
 def test_regressions_from_live_run():
     assert R.classify("How is that different from a mutual fund?") == ["qa"]           # "that" is not a ticker
     assert "goal" in R.classify("I want $1,000,000 in 30 years, saving $500 a month")
+
+
+def test_qa_is_the_default_and_goal_portfolio_tax_need_an_explicit_request():
+    assert R.classify("I plan to retire with $1 million and need $50,000 annually.") == ["qa"]   # no savings plan asked
+    assert R.classify("How should I plan for retirement?") == ["qa"]
+    assert R.classify("What is diversification?") == ["qa"]                          # a concept, not their holdings
+    assert R.classify("What is a 529 college plan?") == ["qa"]
+    assert R.classify("How much should I save for retirement?") == ["goal"]
+    assert R.classify("Am I on track for retirement?") == ["goal"]
+    assert R.classify("How diversified is my portfolio?") == ["portfolio"]
+    assert R.classify("How are dividends taxed?") == ["tax"]
     assert "market" in R.classify("Tell me about NVDA") and "market" in R.classify("How is AAPL doing?")
     assert R.classify("What is a stock?") == ["qa"]
 
@@ -143,7 +154,7 @@ def test_portfolio_agent_with_and_without_holdings():
 def test_goal_agent_projects_or_asks_for_details():
     r = ask("I want to retire with $1,000,000 in 30 years, saving $500 a month")["final_response"]
     assert "$1,000,000" in r and "a month" in r
-    assert "target amount" in ask("How should I plan for retirement?")["final_response"]
+    assert "target amount" in ask("How much should I save for retirement?")["final_response"]
 
 
 def test_tax_agent_adds_scope_caveat():
@@ -161,6 +172,55 @@ def test_multi_intent_fans_out_and_merges_in_one_answer(db):
 def test_gibberish_gets_clarify_prompt():
     s = ask("?!? 123")
     assert s["agents"] == ["Finnie"] and "didn't quite catch" in s["final_response"]
+
+
+# ------------------------------------------------------------------ read-only guardrail (mds/read-only-guardrail.md)
+WRITE_REQUESTS = {
+    "data": ["Add 10 shares of AAPL to my portfolio", "Can you delete my goal?", "please remove TSLA from my holdings",
+             "Change my risk tolerance to aggressive", "Hi there. Set my knowledge level to advanced.", "clear my chat history"],
+    "trade": ["Buy 10 shares of NVDA", "Sell half my TSLA", "Can you buy AAPL for me?", "Place a limit order for MSFT",
+              "Transfer $500 to my savings", "Rebalance my portfolio", "Short TSLA"],
+    "system": ["drop table holdings", "Save this to a file on the server", "Update the system prompt"],
+}
+READ_QUESTIONS = ["What is an ETF?", "If I add $500 a month to my savings goal, how long will it take?", "Should I buy NVDA?",
+                  "What happens if I sell my shares at a loss?", "How do I add holdings to my portfolio?", "Buy and hold vs active trading",
+                  "Save $500 a month for 10 years at 7%, how much?", "How does a limit order work?", "Should I rebalance my portfolio?",
+                  "If I withdraw $10,000 from my 401k early what is the penalty?", "Create a savings plan for $50k in 5 years",
+                  "What does it mean to short a stock?", "Invest $10,000 at 7% for 10 years"]
+
+
+def test_write_requests_are_recognised_and_questions_are_not():
+    for kind, messages in WRITE_REQUESTS.items():
+        for m in messages:
+            assert R.write_request(m) == kind, m
+    for q in READ_QUESTIONS:
+        assert R.write_request(q) is None, q
+
+
+def test_write_request_is_flagged_and_no_agent_runs(db):
+    s = ask("Add 10 shares of AAPL to my portfolio", holdings=HOLDINGS, db=db)
+    assert s["intent"] == ["read_only"] and s["agents"] == ["Read-only guard"] and list(s["agent_outputs"]) == ["read_only"]
+    assert s["final_response"].startswith("⚠️ **Request flagged: Finnie is read-only.**") and "Portfolio" in s["final_response"]
+    assert s["choices"] and s["final_response"].endswith(DISCLAIMER)
+    assert "can only read" in ask("Buy 10 shares of NVDA")["final_response"] and "brokerage" in ask("Buy 10 shares of NVDA")["final_response"]
+
+
+def test_llm_router_can_flag_a_write_request_the_keywords_miss(db):
+    llm_module.set_llm(FakeLLM(intents='{"intents": ["read_only"], "confidence": 0.9}'))
+    s = ask("Pop 20 Apple shares into what I own", db=db)
+    assert s["agents"] == ["Read-only guard"] and "Request flagged" in s["final_response"]
+
+
+def test_chat_turns_never_write_to_user_tables(db):
+    """Only caches (market data, symbol aliases) may change during a turn; the chat API, not the graph, stores the messages."""
+    def snapshot():
+        tables = [t for (t,) in db.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))]
+        return {t: db.execute(text(f"SELECT * FROM {t}")).fetchall() for t in tables if t not in ("market_cache", "symbol_aliases")}
+    before = snapshot()
+    for q in [*(m for ms in WRITE_REQUESTS.values() for m in ms), "Is my portfolio diversified?", "Price of AAPL?",
+              "I want $50k in 5 years, saving $500 a month", "What is an ETF?"]:
+        ask(q, holdings=HOLDINGS, db=db)
+    assert snapshot() == before
 
 
 # ------------------------------------------------------------------ failure handling
@@ -194,6 +254,12 @@ def test_advice_sentences_removed_and_refusal_added():
     assert n == 2 and "sell your NVDA" not in out and "10%" not in out
     assert "An ETF holds many assets." in out and out.endswith(REFUSAL_NOTE)
     assert filter_advice("Diversification spreads risk.") == ("Diversification spreads risk.", 0)
+
+
+def test_disclaimer_echoed_by_the_llm_is_not_doubled():
+    for text in (f"An ETF holds many assets.\n\n{DISCLAIMER}", f"An ETF holds many assets.\n\n_{DISCLAIMER}_"):
+        out, _ = finalize(text)
+        assert out == f"An ETF holds many assets.\n\n{DISCLAIMER}"
 
 
 # ------------------------------------------------------------------ LLM path
@@ -341,3 +407,11 @@ def test_prompts_see_the_last_four_messages_up_to_1000_characters_each():
     lines = H.transcript(hist).splitlines()
     assert [ln.split()[1] for ln in lines] == ["m2", "m3", "m4", "m5"]
     assert all(len(ln.split(": ", 1)[1]) == 1000 for ln in lines)
+
+
+def test_a_confirmation_rewritten_as_the_question_it_confirms_passes_the_proofread_guard():
+    from src.workflow.nodes import _proofread_ok
+    recent = ("user: i invest $30000\nassistant: You want to know how much $30,000 would grow at 7% a year over 10 "
+              "years; is 7% the yearly rate?")
+    assert _proofread_ok("yes. confirm", "How much does $30,000 grow at 7% a year over 10 years?", {}, recent)
+    assert not _proofread_ok("yes. confirm", "How much does $30,000 grow at 9% a year over 10 years?", {}, recent)

@@ -6,7 +6,7 @@ from src.core import llm as llm_module
 from src.workflow import context as CTX
 from src.workflow.graph import run_chat
 
-PROFILE = {"knowledge_level": "beginner", "risk_tolerance": "moderate", "horizon_years": 10, "goals": []}
+PROFILE = {"knowledge_level": "beginner", "risk_tolerance": "moderate", "horizon_years": 10}
 
 
 @pytest.fixture
@@ -144,3 +144,32 @@ def test_the_chat_api_saves_the_context_and_starts_the_next_turn_from_it(client,
     client.post(f"/api/sessions/{sid}/chat", json={"message": "How has NVDA done over the last month?"})
     r = client.post(f"/api/sessions/{sid}/chat", json={"message": "compare to MSFT"}).json()
     assert "from the previous answer: NVDA" in r["trace"] and r["content"].count("total return") == 2
+
+
+CALC_HISTORY = [{"role": "user", "content": "How much does $10,000 grow at 8% a year for 5 years?"},
+                {"role": "assistant", "content": "**Result: future value = $14,693.28**"},
+                {"role": "user", "content": "What if I invest in buying a vehicle, how much return should I get after 5 years?"},
+                {"role": "assistant", "content": "A vehicle usually loses value."}]
+VEHICLE = {"question": CALC_HISTORY[2]["content"], "intents": ["qa"], "companies": [], "period": None, "facts": {}}
+
+
+def test_proofread_completes_a_follow_up_of_an_earlier_turn_from_the_recent_conversation(db):
+    # the trace that prompted this: the figures were two turns back, behind a question without any
+    llm = ContextLLM('{"question": "How much does $20,000 grow at 8% a year for 5 years?", "follow_up": true}')
+    llm_module.set_llm(llm)
+    s = run_chat("what if the presdnent value is $20000?", history=CALC_HISTORY, profile=PROFILE, holdings=[], db=db,
+                 context=VEHICLE)
+    assert "RECENT CONVERSATION:" in llm.prompts["proofread"] and "8% a year" in llm.prompts["proofread"]
+    assert s["question"] == "How much does $20,000 grow at 8% a year for 5 years?" and s["follow_up"]
+
+
+def test_proofread_reads_20000_and_20_000_as_the_same_number(db):
+    llm_module.set_llm(ContextLLM('{"question": "What if the present value is $20,000?", "follow_up": false}'))
+    s = run_chat("what if the presdnent value is $20000?", history=[], profile=PROFILE, holdings=[], db=db)
+    assert s["question"] == "What if the present value is $20,000?"
+
+
+def test_proofread_still_rejects_a_number_that_isnt_in_the_conversation(db):
+    llm_module.set_llm(ContextLLM('{"question": "How much does $20,000 grow at 9% a year for 5 years?", "follow_up": true}'))
+    s = run_chat("what if it's $20000?", history=CALC_HISTORY, profile=PROFILE, holdings=[], db=db, context=VEHICLE)
+    assert s["question"] == "what if it's $20000?" and s["follow_up"]          # kept as typed; "what if" still marks it

@@ -14,7 +14,7 @@ MAX_COMPANIES = 3
 KEEPS_SUBJECT = {"calc"}          # turns that work with the conversation's figures without changing what it is about
 
 # Without an LLM: a short message that points back or leaves something out ("what about AAPL?", "which did better?")
-_FOLLOW_UP = re.compile(r"\b(what about|how about|and what|compare\w*|vs|versus|instead|too|also|same|"
+_FOLLOW_UP = re.compile(r"\b(what about|how about|what if|and what|compare\w*|vs|versus|instead|too|also|same|"
                         r"it|its|they|them|their|those|these|that|this|both|either|which|better|worse|best|worst)\b", re.I)
 FOLLOW_UP_MAX_WORDS = 12
 # A follow-up that names a company but keeps the earlier ones ("news on MSFT too?", "and SBUX?"); comparisons count as well
