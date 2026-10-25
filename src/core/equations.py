@@ -14,7 +14,9 @@ class EquationError(ValueError):
     """An expression we can't read or evaluate to a real number, or an equation with no real solution."""
 
 
-FUNCS = {"log": math.log, "ln": math.log, "exp": math.exp, "sqrt": math.sqrt, "abs": abs}   # Wolfram's log is natural
+FUNCS = {"log": math.log, "ln": math.log, "exp": math.exp, "sqrt": math.sqrt, "abs": abs,   # Wolfram's log is natural
+         "floor": math.floor, "ceil": math.ceil}
+FUNCS2 = {"min": min, "max": max}                # two arguments
 CONSTS = {"pi": math.pi, "e": math.e}            # a variable of the same name in the values wins
 _TOKEN = re.compile(r"\s*(?:(\d+(?:\.\d*)?|\.\d+)|([A-Za-zπ][A-Za-z0-9_]*)|([-+*/^(),]))")
 
@@ -31,7 +33,7 @@ _OPS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, as
 
 def to_python(expr: str) -> str:
     """Wolfram notation as Python syntax: ^ for powers, implicit multiplication ("10000 (1 + r)^5", "2 r"), π."""
-    expr = expr.replace("−", "-").replace("×", "*").replace("·", "*").strip()
+    expr = expr.replace("−", "-").replace("×", "*").replace("·", "*").replace("**", "^").strip()
     out, pos, prev = [], 0, "op"                 # prev: the kind of the last token (num, name, func, ")" or op)
     while pos < len(expr):
         m = _TOKEN.match(expr, pos)
@@ -46,7 +48,7 @@ def to_python(expr: str) -> str:
             prev = "num"
         elif name:
             out.append("pi" if name == "π" else name)
-            prev = "func" if name in FUNCS else "name"
+            prev = "func" if name in FUNCS or name in FUNCS2 else "name"
         else:
             out.append("**" if op == "^" else op)
             prev = ")" if op == ")" else "op"
@@ -84,6 +86,9 @@ def evaluate(tree: ast.Expression | str, values: dict[str, float]) -> float:
         if (isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in FUNCS and len(n.args) == 1
                 and not n.keywords):
             return float(FUNCS[n.func.id](ev(n.args[0])))
+        if (isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in FUNCS2 and len(n.args) == 2
+                and not n.keywords):
+            return float(FUNCS2[n.func.id](ev(n.args[0]), ev(n.args[1])))
         raise EquationError("unsupported expression")
 
     try:
@@ -124,7 +129,7 @@ def variables(equation: str) -> set[str]:
     names = set()
     for side in equation.split("="):
         names |= {n.id for n in ast.walk(compile_expr(side)) if isinstance(n, ast.Name)}
-    return names - set(FUNCS) - {"pi"}
+    return names - set(FUNCS) - set(FUNCS2) - {"pi"}
 
 
 def _residual(equation: str, unknown: str, values: dict[str, float]):

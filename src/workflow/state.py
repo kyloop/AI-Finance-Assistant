@@ -21,6 +21,7 @@ class AgentOutput(TypedDict, total=False):
     query: str                   # not_found: what research should look up
     prefix: str                  # text kept in front of a researched answer (e.g. the tax caveat)
     choices: list[str]           # need_info: follow-up questions the user can pick
+    readings: bool               # need_info: the choices are the calculator's readings of the question, kept as is
     no_results: bool             # answered "nothing found" (news): shown, but not a real answer to follow up on
     verbatim: bool               # shown word for word, never rewritten by the LLM (calculator results)
     verified: bool               # the verifier has checked this output; later passes skip it

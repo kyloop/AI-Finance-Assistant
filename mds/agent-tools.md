@@ -33,7 +33,7 @@ flowchart LR
         portfolio_data[portfolio_instruments<br/>portfolio_history]
         analyze_portfolio[analyze_portfolio]
         project_goal[project_goal]
-        calculators[calculators<br/>growth, loan, PV, APY ...]
+        calculators[calc plan executor<br/>formulas, solve, simulate]
         ask_llm[[ask_llm<br/>optional]]
     end
 
@@ -89,7 +89,7 @@ flowchart LR
 | `news_agent` | `news_latest`, `news_search`, `news_index_now`, `industry_peers` | Fetches live headlines, indexes them, then searches the news index for the topic and time window; "same sector" questions use `industry_peers` to get peers first |
 | `portfolio_agent` | `portfolio_instruments`, `analyze_portfolio`, `portfolio_history` | Holdings come from the session; prices, asset type, sectors and fees from the market service (quote, fund and stock endpoints; bundled instruments as fallback); performance against the `portfolio.benchmark` index (S&P 500) from daily closes, counting each holding from its purchase date (`portfolio.default_purchase_date`, 2026-01-01, when it has none) or from its own first close when that is later, so a recent listing does not hold the others back. No LLM: the answer is a fixed template filled with the computed figures. The Portfolio tab's report (`GET /portfolio/analysis`) runs the same functions plus `portfolio_dividends`. See [agent-portfolio-agent.md](agent-portfolio-agent.md) |
 | `goal_agent` | `project_goal` | Return assumption from `config.yaml` `risk_profiles`; uses the plan saved on the Goals tab for "am I on track?" |
-| `calc_agent` | calculators (`src/core/calculators.py`); fallback equation solver (`src/core/equations.py`) with formulas from `ask_wolfram` (`src/core/wolfram.py`) | The LLM only picks the function and extracts the numbers (keyword fallback without one); Python computes the result. When no function fits but every number is given, the LLM writes a symbolic equation, the values (which must come from the conversation) and the unknown instead. Wolfram\|Alpha is sent only `solve <equation> for <unknown>` and returns the formula; Python substitutes the values, keeps the formula only if it satisfies the equation, and computes the result, with a link to Wolfram. Without `WOLFRAM_APP_ID`, or when Wolfram has no usable formula or is down, Python solves the equation numerically; the LLM writes the equation even when numbers are missing, and the agent then asks for exactly the values it lacks (by what each letter stands for) before anything is sent to Wolfram; an equation it can't solve falls back to asking for the numbers |
+| `calc_agent` | `kb_search` (knowledge base) and `web_search` (Tavily) for each standard equation; plan executor (`src/core/calc_plan.py`) over the expression evaluator and numeric solver (`src/core/equations.py`); calculators (`src/core/calculators.py`) only without an LLM | Separate LLM steps understand the question, define the targets, extract each equation from the knowledge base and the web (Python verifies the quotes) and judge whether they agree and fit the question (one more search if not; ask if they still disagree), and fill the variables; Python validates, computes and renders the working with the quotes. Questions no equation answers get an LLM-designed period-by-period model with self-checks. See [calc-pipeline-design.md](calc-pipeline-design.md) |
 
 ## Pipeline steps
 

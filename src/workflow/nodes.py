@@ -12,23 +12,24 @@ from functools import wraps
 from langchain_core.runnables import RunnableConfig
 from sqlalchemy.orm import Session as DBSession
 
-from src.core import equations as EQ
+from src.core import calc_plan as PLAN
 from src.core.calculators import analyze_portfolio, project_goal
 from src.core.config import get_config
 from src.core.llm import ask_llm, current_llm
 from src.core.market_service import SymbolNotFound
 from src.core.portfolio_data import portfolio_history, portfolio_instruments
 from src.core.tavily import WebSearchUnavailable, web_search, web_search_enabled
-from src.core.wolfram import WolframNoResult, WolframUnavailable, ask_wolfram, wolfram_enabled
 from src.kb.wiki import WikiUnavailable
 
 from . import calc as CALC
+from . import calc_pipeline as CP
 from . import context as CTX
 from . import history as H
 from . import market_tools as MT
 from . import news as NEWS
 from . import router as R
 from . import symbols as SYM
+from .jsonreply import first_json
 from .safety import finalize
 from .state import AgentOutput, FinanceState
 from .tools import industry_peers, kb_search, news_index_now, news_latest, news_search, wiki_search, wiki_topic
@@ -176,7 +177,7 @@ AGENTS AND THEIR RESPONSIBILITIES
 - news: Recent headlines and developments ("latest", "recent", "what happened", "what's being reported", "any news") about a company, industry, sector, topic or the whole market. Summarizes and gives context.
 - goal: Builds a savings plan: monthly amount needed to reach a target amount by a date (risk appetite may apply). Only when they want a plan or "how much should I save".
 - tax: Tax rules and account types (401k, IRA, Roth, HSA, 529), contribution limits, capital gains, deductions, tax treatment of investments.
-- calc: Computes a specific number: future value, loan/mortgage payment, doubling time, present value, real return, APY, bond yield. Use when the user wants a figure calculated, not explained.
+- calc: Computes a specific number: future value, loan/mortgage payment, doubling time, present value, real return, APY, bond yield, how long savings last with yearly withdrawals, or any other finance formula. Use when the user wants a figure calculated, not explained.
 
 ROUTING RULES
 0. qa is the DEFAULT. Use goal, portfolio or tax only when the message itself explicitly asks for that agent's job: a savings plan or how much to save (goal), an analysis of the user's own holdings (portfolio), tax treatment, tax rules or tax-advantaged accounts (tax). Mentioning retirement, saving, investing or an amount of money is not by itself a request for any of them: "I plan to retire with $1 million and need $50,000 a year" asks nothing about a savings plan, so it is not goal.
@@ -187,7 +188,7 @@ ROUTING RULES
 5. A pure price/quote request ("price of NVDA") -> market only. A pure definition ("what is an ETF") -> qa only. Only use a single intent when the WHOLE message is that one thing. Do not add agents that contribute nothing.
 6. "Should I buy/invest in X" or "is X a good investment" -> qa + market (+ portfolio if they mention their holdings). Education only, never personal advice.
 7. Questions about what to consider or how something works (buying a house, mortgages, retirement accounts) -> qa. Add goal only if they ask for a savings plan, calc only if they ask for a number, tax only if tax treatment is asked.
-8. "How much will I have / what is my payment" -> calc. "How much must I save each month to reach $X by <date>" -> goal. If both a number and an explanation are requested, calc + qa.
+8. "How much will I have / what is my payment" -> calc. A request to SEE a calculation worked through ("show me an example of how to calculate WACC", "how do you calculate APY? walk me through it") -> calc, even without numbers: the calculator explains the formula with sample numbers. "How much must I save each month to reach $X by <date>" -> goal. If both a number and an explanation are requested, calc + qa.
 9. Tax-related investing questions ("how are dividends taxed", "Roth vs traditional") -> tax (+ qa if broad concept explanation is also requested).
 10. Follow-ups: pronouns or references to the earlier subject ("them", "it", "the same sector", "grab the recent news") inherit the intents the conversation is about. A short "what about X?" repeats ALL intents of the previous question for the new subject (price and news for NVDA, then "what about NU?" -> market + news).
 11. Anything unclear or very general about money/investing -> qa, with lower confidence.
@@ -205,6 +206,8 @@ EXAMPLES
 "Is my portfolio too concentrated in tech?" -> ["portfolio","qa"]
 "What's the monthly payment on a $400k mortgage at 6.5% for 30 years?" -> ["calc"]
 "I want $50k for a down payment in 4 years, how much per month?" -> ["goal"]
+"If I split $600 a month equally into 3 accounts, how much goes into each and how much does it grow at 6%?" -> ["calc"] (two calculations, nothing to explain)
+"Can you show me an example of how to calculate WACC?" -> ["calc"]
 "I plan to retire with $1 million and need $50,000 a year" -> ["calc","qa"] (how long the money lasts, not a savings plan)
 "How should I plan for retirement?" -> ["qa"]
 "How much should I save each month to retire with $1 million in 25 years?" -> ["goal"]
@@ -765,69 +768,114 @@ def goal_node(state: FinanceState, config: RunnableConfig):
 
 @safe("calc")
 def calc_node(state: FinanceState, config: RunnableConfig):
-    """Pick a calculation and its inputs (LLM, or a keyword fallback), compute it in Python, show the working."""
-    name, args, how, eq, missing = None, {}, "keywords", None, None
-    recent, known = "", ""
-    if current_llm() is not None:
-        recent = H.transcript(state.get("history"))
-        known = CTX.describe(state.get("context_in"))          # the previous answer's figures, e.g. "SBUX: price $94.71"
-        reply = _json(ask_llm(CALC.CALC_SYSTEM, f"Recent conversation:\n{recent or '(none)'}\n\n"
-                                                + (f"Figures from the previous answer:\n{known}\n\n" if known else "")
-                                                + f"Message: {state['question']}"))
-        if reply is not None:
-            name, args, how = reply.get("function"), reply.get("args") or {}, "LLM"
-            eq = reply if reply.get("equation") else None
-            missing = reply.get("missing")
-    if name is None and how == "keywords":
-        name, args = CALC.keyword_request(state["question"])
-    if name not in CALC.CATALOG:
-        if eq:                                                  # not one of ours, but the numbers are there: solve the equation
-            return _equation_calc(eq, how, f"{state['question']}\n{recent}\n{known}")
-        return _out("calc", CALC.ask_text(missing), status="need_info", choices=CALC.CHOICES, confidence="medium",
-                    trace=f"calc ({how}): numbers missing → ask")
-    try:
-        text = CALC.run(name, args)
-    except (TypeError, ValueError) as e:
-        return _out("calc", f"{CALC.ASK}\n\n_({e})_", status="need_info", choices=CALC.CHOICES, confidence="medium",
-                    trace=f"calc ({how}): {name} rejected inputs ({e}) → ask")
-    shown = ", ".join(f"{k}={v:g}" if isinstance(v, (int, float)) else f"{k}={v}" for k, v in args.items() if v not in (None, "", 0))
-    return _out("calc", text, verbatim=True, trace=f"calc ({how}): {name}({shown})")
-
-
-def _equation_calc(spec: dict, how: str, known_text: str) -> dict:
-    """A calculation none of the calculators does, written by the LLM as an equation. Wolfram|Alpha (when configured) is
-    sent only the symbolic "solve <equation> for <unknown>", never the numbers, and supplies the formula; Python puts the
-    numbers in, checks the formula against the equation and computes the result, or solves the equation numerically when
-    there's no usable formula. An equation missing some values asks for exactly those (the next turn's LLM sees the
-    equation in the conversation); anything unsolvable falls back to asking for the numbers."""
-    ask = dict(status="need_info", choices=CALC.CHOICES, confidence="medium")
-    try:
-        eq = CALC.equation_request(spec, known_text)
-    except ValueError as e:
-        return _out("calc", CALC.ASK, **ask, trace=f"calc ({how}): equation rejected ({e}) → ask")
-    if eq["missing"]:                                           # the equation first, then ask for exactly what it lacks
-        return _out("calc", CALC.equation_ask(eq), **{**ask, "choices": []},
-                    trace=f"calc ({how}): equation {eq['equation']!r} needs {', '.join(eq['missing'])} → ask")
-    query = f"solve {eq['equation']} for {eq['unknown']}"
-    candidates, sources, note = [], [], "no Wolfram|Alpha"
-    if wolfram_enabled():
+    """The calculator's steps (calc_pipeline, mds/calc-pipeline-design.md): understand, define, find a sourced and
+    cross-checked equation, fill its variables; Python validates, computes and shows the working with quotes. Questions
+    no single equation answers go to the plan path. Without an LLM a keyword fallback runs a CATALOG calculator."""
+    q = state["question"]
+    if current_llm() is None:
+        name, args = CALC.keyword_request(q)
+        if name is None:
+            return _out("calc", CALC.ASK, status="need_info", choices=CALC.CHOICES, confidence="medium",
+                        trace="calc (keywords): no calculation recognised → ask")
         try:
-            res = ask_wolfram(query)
-            candidates = EQ.formulas(res["sections"], eq["unknown"])
-            sources = [{"id": f"wolfram:{query}", "title": "Wolfram|Alpha", "url": res["url"]}] if res.get("url") else []
-            note = f"wolfram({query!r}) → {len(candidates)} formula(s)"
-        except WolframNoResult:
-            note = f"wolfram({query!r}) → no result"
-        except WolframUnavailable as e:
-            log.warning("wolfram failed: %s", e)
-            note = f"wolfram({query!r}) → failed ({e})"
-    try:
-        sol = EQ.solve(eq["equation"], eq["unknown"], eq["values"], candidates)
-    except EQ.EquationError as e:
-        return _out("calc", CALC.ASK, **ask, trace=f"calc ({how}): {note} → not solved ({e}) → ask")
-    return _out("calc", CALC.equation_text(eq, sol), verbatim=True, sources=sources if sol["formula"] else [],
-                trace=f"calc ({how}): {note} → {'formula' if sol['formula'] else 'solved numerically'}: "
-                      f"{eq['unknown']} = {sol['value']:.6g}")
+            text = CALC.run(name, args)
+        except (TypeError, ValueError) as e:
+            return _out("calc", f"{CALC.ASK}\n\n_({e})_", status="need_info", choices=CALC.CHOICES, confidence="medium",
+                        trace=f"calc (keywords): {name} rejected inputs ({e}) → ask")
+        shown = ", ".join(f"{k}={v:g}" for k, v in args.items() if v not in (None, "", 0))
+        return _out("calc", text, verbatim=True, trace=f"calc (keywords): {name}({shown})")
+    # a new topic starts clean: an earlier question's figures would otherwise become extra targets or "user" numbers
+    recent = H.transcript(state.get("history")) if state.get("follow_up") else ""
+    known = CTX.describe(CTX.carried(state))
+    prompt = (f"Recent conversation:\n{recent or '(none)'}\n\n"
+              + (f"Figures from the previous answer:\n{known}\n\n" if known else "") + f"Message: {q}")
+    out = calculate(q, prompt, f"{q}\n{recent}\n{known}")
+    steps = [f"calc step {line}" for line in out.trace]
+    if out.kind == "needs":
+        res = _out("calc", CALC.needs_input_text(out.needs.label, out.needs.inputs), status="need_info",
+                   choices=CALC.CHOICES, confidence="medium",
+                   trace=f"calc (LLM plan): no number is the user's → ask for {', '.join(out.needs.inputs)}")
+    elif out.kind == "ask" and out.text:
+        res = _out("calc", out.text, status="need_info", choices=CALC.CHOICES, confidence="medium",
+                   trace=out.note or "calc (LLM steps): → ask")
+    elif out.kind == "ask":                               # nothing worked: confirm what they meant, not a fixed request
+        text, readings = CP.confirm(q, out.understood, out.errors)
+        res = _out("calc", text, status="need_info", choices=readings or CALC.CHOICES, readings=bool(readings),
+                   confidence="medium", trace=(out.note or "calc (LLM steps): → ask") + " → confirm with the user")
+    else:
+        sources = [{"id": f"calc:{s['url']}", "title": s["title"], "url": s["url"]}
+                   for q_ in out.result.get("quotes", []) for s in q_["sources"] if s.get("url")]
+        res = _out("calc", CALC.plan_text(out.result), verbatim=True, sources=sources,
+                   trace=out.note or "calc (LLM steps): " + out.trace[-1])
+    res["trace"] = steps + res["trace"]
+    return res
+
+
+def calculate(question: str, prompt: str, known_text: str) -> CP.Outcome:
+    """The calculator's steps (calc_pipeline): a sourced equation when one fits, else the plan path."""
+    def plan_path(example: bool, hint: str = "") -> CP.Outcome:
+        result, errors, _ = plan_calculation(question, prompt + hint + (CP.EXAMPLE_NOTE if example else ""), known_text,
+                                             example)
+        if isinstance(result, PLAN.NeedsInput):
+            return CP.Outcome("needs", needs=result, errors=errors)
+        if result is None:
+            return CP.Outcome("ask", errors=errors,
+                              note="calc (LLM plan): rejected twice (" + " | ".join(errors) + ") → ask")
+        values = "; ".join(f"{s['name']} = {result['values'][s['name']]:.6g}" if result["values"].get(s["name"]) is not None
+                           else f"{s['name']} ({s['kind']})" for s in result["steps"])
+        note = f"calc (LLM plan{', repaired after: ' + errors[0] if errors else ''}): {result['label']}: {values}"
+        if result["checks"]:
+            note += f"; {len(result['checks'])} check(s) passed"
+        if result["set_aside"]:
+            note += f"; {len(result['set_aside'])} check(s) set aside by the judge"
+        return CP.Outcome("answer", result=result, errors=errors, note=note)
+    return CP.calculate(question, prompt, known_text, plan_path)
+
+
+JUDGE_CALLS = 2                                         # most judge calls per question
+
+
+def plan_calculation(question: str, prompt: str, known_text: str,
+                     example: bool = False) -> tuple[dict | PLAN.NeedsInput | None, list[str], list]:
+    """Ask the LLM for a plan and run it. When only one of the plan's own checks disagrees, a judge call decides which is
+    wrong: a wrong check is set aside (and shown in the answer), a wrong plan goes to the repair round with the judge's
+    reason. Any other rejection goes back to the LLM once with the error. Returns (the executed plan, or NeedsInput when
+    no number is the user's, or None when both plans were rejected; the rejection messages; the plans)."""
+    plans, errors, judged = [_json(ask_llm(CALC.PLAN_SYSTEM, prompt))], [], 0
+    for attempt in (1, 2):
+        skip, set_aside = frozenset(), []
+        while True:
+            try:
+                result = PLAN.run(plans[-1], question, known_text, skip, example=example)
+                return {**result, "set_aside": set_aside}, errors, plans
+            except PLAN.NeedsInput as e:
+                return e, errors, plans
+            except PLAN.CheckFailed as e:
+                error = str(e)
+                if judged < JUDGE_CALLS:
+                    judged += 1
+                    verdict = _json(ask_llm(CALC.JUDGE_SYSTEM, CALC.judge_prompt(question, plans[-1], e))) or {}
+                    why = " ".join(str(verdict.get("reasoning") or "").split())
+                    if len(why) > 600:                           # cut at a sentence, not mid-word
+                        why = why[:600].rsplit(". ", 1)[0] + "."
+                    if verdict.get("wrong") == "check":
+                        skip |= {e.index}
+                        c = e.check
+                        set_aside.append({"when": ", ".join(f"`{k} = {v:g}`" for k, v in c["when"].items()),
+                                          "expect": c["expect"], "why": why,
+                                          "expected": "none" if e.expected is None else f"{e.expected:.6g}",
+                                          "actual": "none" if e.actual is None else f"{e.actual:.6g}"})
+                        continue
+                    error += f" A reviewer judged {'the plan' if verdict.get('wrong') == 'plan' else 'it unclear'}: {why}"
+            except PLAN.PlanError as e:
+                error = str(e)
+            break
+        errors.append(error)
+        if attempt == 1:
+            plans.append(_json(ask_llm(CALC.PLAN_SYSTEM, CALC.repair_prompt(prompt, plans[-1], error))))
+            if plans[-1] == plans[-2]:                           # the same plan again: say so, once
+                plans.append(_json(ask_llm(CALC.PLAN_SYSTEM, CALC.repair_prompt(prompt, plans[-1], error, True))))
+    return None, errors, plans
 
 
 def clarify_node(state: FinanceState, config: RunnableConfig):
@@ -856,18 +904,7 @@ def read_only_node(state: FinanceState, config: RunnableConfig):
 
 
 # ---------------------------------------------------------------- verifier + research
-def _json(reply: str | None) -> dict | None:
-    """The first complete JSON object in an LLM reply, or None. Text around it, including stray extra braces (seen in
-    gpt-4o-mini replies), is ignored."""
-    text = reply or ""
-    start = text.find("{")
-    while start != -1:
-        try:
-            obj, _ = json.JSONDecoder().raw_decode(text, start)
-            return obj if isinstance(obj, dict) else None
-        except ValueError:
-            start = text.find("{", start + 1)
-    return None
+_json = first_json
 
 
 SUFFICIENCY_SYSTEM = (

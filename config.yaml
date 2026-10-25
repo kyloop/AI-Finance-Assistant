@@ -3,7 +3,7 @@ llm:
   temperature: 0.2
   models:
     anthropic: claude-sonnet-5-5
-    openai: gpt-4o
+    openai: gpt-4o-mini
     gemini: gemini-2.0-flash
 workflow:
   history_turns: 8          # prior messages passed to the graph
