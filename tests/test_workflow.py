@@ -6,7 +6,7 @@ from src.core.config import DISCLAIMER
 from src.db.session import init_db
 from src.workflow import router as R
 from src.workflow.graph import get_graph, run_chat
-from src.workflow.safety import REFUSAL_NOTE, filter_advice
+from src.workflow.safety import REFUSAL_NOTE, filter_advice, finalize
 from src.workflow.tools import set_wiki_client, wiki_search
 from tests.conftest import FakeWiki
 
@@ -254,6 +254,12 @@ def test_advice_sentences_removed_and_refusal_added():
     assert n == 2 and "sell your NVDA" not in out and "10%" not in out
     assert "An ETF holds many assets." in out and out.endswith(REFUSAL_NOTE)
     assert filter_advice("Diversification spreads risk.") == ("Diversification spreads risk.", 0)
+
+
+def test_disclaimer_echoed_by_the_llm_is_not_doubled():
+    for text in (f"An ETF holds many assets.\n\n{DISCLAIMER}", f"An ETF holds many assets.\n\n_{DISCLAIMER}_"):
+        out, _ = finalize(text)
+        assert out == f"An ETF holds many assets.\n\n{DISCLAIMER}"
 
 
 # ------------------------------------------------------------------ LLM path
