@@ -181,6 +181,7 @@ flowchart LR
     router -- goal --> goal_agent[goal_agent<br/><i>goal projection maths</i>]
     router -- calc --> calc_agent[calc_agent<br/><i>finance calculators</i>]
     router -- clarify only --> clarify[clarify<br/><i>unreadable message</i>]
+    router -- asks to change something --> read_only[read_only<br/><i>flag: Finnie is read-only</i>]
 
     qa_agent --> verifier
     tax_agent --> verifier
@@ -190,6 +191,7 @@ flowchart LR
     goal_agent --> verifier
     calc_agent --> verifier
     clarify --> verifier
+    read_only --> verifier
 
     verifier{verifier<br/>recheck each new output once:<br/>answered / not_found / need_info}
     verifier -- not_found,<br/>not yet researched --> research[research<br/>LLM picks Wikipedia topics<br/>exact-title lookup]
@@ -209,7 +211,22 @@ flowchart LR
 Which tools each agent calls, and the data source behind each tool, are mapped in [Agent tools](mds/agent-tools.md). Where each agent lives in the code (function, file, helpers) is in [Agent code map](mds/agent-code-map.md).
 
 The router can pick several agents for one question; they run in parallel. If no intent matches, it falls back to
-`qa_agent`; `clarify` runs only when it is the sole intent (`route_after_router` in `src/workflow/nodes.py`).
+`qa_agent`; `clarify` and `read_only` run only when they are the sole intent (`route_after_router` in `src/workflow/nodes.py`).
+
+### Guardrails
+
+- **Read-only agents.** Every node reads; none can change your portfolio, goals or profile, place trades, move money,
+  or alter the system. Your data reaches the graph only as copies, and the writes a node can make are limited to the
+  caches it fills from outside (market data, ticker lookups, indexed news headlines). Changes go through the Portfolio
+  and Goals tabs and the profile sidebar, never through the chat. The router flags a request to change something ("add
+  10 AAPL to my portfolio", "sell half my TSLA", "delete my goal", "drop table holdings"): it goes to the `read_only` node
+  alone, and the reply starts with **⚠️ Request flagged: Finnie is read-only.** It runs with or without an LLM. The audit
+  of each node, the detection rules and the tests are in [mds/read-only-guardrail.md](mds/read-only-guardrail.md).
+- **No personal advice.** Compliance removes advice-like sentences ("you should buy…", promised returns) and appends the
+  disclaimer to every answer (`src/workflow/safety.py`). Questions like "should I buy X?" are answered with facts and
+  concepts, plus a note that Finnie can't say what to buy or sell.
+- **Grounded answers.** The synthesizer writes only from agent outputs the verifier accepted. Calculations are done in
+  Python and shown word for word.
 
 - **Proofread** (`proofread_node` in `nodes.py`): with an LLM, rewrites the message with spelling, grammar and
   abbreviations fixed ("tsla last 10 yrs" → "TSLA over the last 10 years"), and turns a follow-up into a complete question

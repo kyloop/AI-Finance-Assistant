@@ -14,6 +14,7 @@ Decision records and the measurements behind them.
 | [yfinance-capabilities.md](yfinance-capabilities.md) | What the yfinance library (1.7.0) can fetch, checked live: per-ticker data, funds and ETFs, sectors, calendars, screeners; what the app uses and what it could add |
 | [agent-code-map.md](agent-code-map.md) | Where each agent and workflow step lives in the code (functions, files, how to add a node) |
 | [agent-tools.md](agent-tools.md) | Graph of which tools each agent and pipeline step calls, and the data source behind each tool |
+| [read-only-guardrail.md](read-only-guardrail.md) | Guardrail: every node only reads; how write requests (edit data, trade, change the system) are detected and flagged; per-node audit of reads and writes |
 | [agent-portfolio-agent.md](agent-portfolio-agent.md) | Portfolio agent: its responsibility and the data it needs (user portfolio data, live market data, knowledge base); the Portfolio tab report it shares, how each metric is computed and its limits |
 | [data/](data/) | CSVs behind the stats (`python -m scripts.kb_token_stats`), the retrieval test (`python -m scripts.eval_retrieval`) and the answer-quality test (`python -m scripts.eval_generation`, needs `OPENAI_API_KEY`) |
 

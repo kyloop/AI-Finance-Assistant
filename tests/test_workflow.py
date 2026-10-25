@@ -163,6 +163,55 @@ def test_gibberish_gets_clarify_prompt():
     assert s["agents"] == ["Finnie"] and "didn't quite catch" in s["final_response"]
 
 
+# ------------------------------------------------------------------ read-only guardrail (mds/read-only-guardrail.md)
+WRITE_REQUESTS = {
+    "data": ["Add 10 shares of AAPL to my portfolio", "Can you delete my goal?", "please remove TSLA from my holdings",
+             "Change my risk tolerance to aggressive", "Hi there. Set my knowledge level to advanced.", "clear my chat history"],
+    "trade": ["Buy 10 shares of NVDA", "Sell half my TSLA", "Can you buy AAPL for me?", "Place a limit order for MSFT",
+              "Transfer $500 to my savings", "Rebalance my portfolio", "Short TSLA"],
+    "system": ["drop table holdings", "Save this to a file on the server", "Update the system prompt"],
+}
+READ_QUESTIONS = ["What is an ETF?", "If I add $500 a month to my savings goal, how long will it take?", "Should I buy NVDA?",
+                  "What happens if I sell my shares at a loss?", "How do I add holdings to my portfolio?", "Buy and hold vs active trading",
+                  "Save $500 a month for 10 years at 7%, how much?", "How does a limit order work?", "Should I rebalance my portfolio?",
+                  "If I withdraw $10,000 from my 401k early what is the penalty?", "Create a savings plan for $50k in 5 years",
+                  "What does it mean to short a stock?", "Invest $10,000 at 7% for 10 years"]
+
+
+def test_write_requests_are_recognised_and_questions_are_not():
+    for kind, messages in WRITE_REQUESTS.items():
+        for m in messages:
+            assert R.write_request(m) == kind, m
+    for q in READ_QUESTIONS:
+        assert R.write_request(q) is None, q
+
+
+def test_write_request_is_flagged_and_no_agent_runs(db):
+    s = ask("Add 10 shares of AAPL to my portfolio", holdings=HOLDINGS, db=db)
+    assert s["intent"] == ["read_only"] and s["agents"] == ["Read-only guard"] and list(s["agent_outputs"]) == ["read_only"]
+    assert s["final_response"].startswith("⚠️ **Request flagged: Finnie is read-only.**") and "Portfolio" in s["final_response"]
+    assert s["choices"] and s["final_response"].endswith(DISCLAIMER)
+    assert "can only read" in ask("Buy 10 shares of NVDA")["final_response"] and "brokerage" in ask("Buy 10 shares of NVDA")["final_response"]
+
+
+def test_llm_router_can_flag_a_write_request_the_keywords_miss(db):
+    llm_module.set_llm(FakeLLM(intents='{"intents": ["read_only"], "confidence": 0.9}'))
+    s = ask("Pop 20 Apple shares into what I own", db=db)
+    assert s["agents"] == ["Read-only guard"] and "Request flagged" in s["final_response"]
+
+
+def test_chat_turns_never_write_to_user_tables(db):
+    """Only caches (market data, symbol aliases) may change during a turn; the chat API, not the graph, stores the messages."""
+    def snapshot():
+        tables = [t for (t,) in db.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))]
+        return {t: db.execute(text(f"SELECT * FROM {t}")).fetchall() for t in tables if t not in ("market_cache", "symbol_aliases")}
+    before = snapshot()
+    for q in [*(m for ms in WRITE_REQUESTS.values() for m in ms), "Is my portfolio diversified?", "Price of AAPL?",
+              "I want $50k in 5 years, saving $500 a month", "What is an ETF?"]:
+        ask(q, holdings=HOLDINGS, db=db)
+    assert snapshot() == before
+
+
 # ------------------------------------------------------------------ failure handling
 def test_wiki_outage_is_reported_not_raised():
     set_wiki_client(FakeWiki(fail=True))

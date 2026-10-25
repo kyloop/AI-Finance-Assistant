@@ -37,7 +37,7 @@ log = logging.getLogger(__name__)
 
 WORDS_BY_LEVEL = {"beginner": 0.6, "intermediate": 1.0, "advanced": 1.5}
 SYMBOL_OK = re.compile(r"^[A-Z0-9.\-=^]{1,15}$")
-ORDER = ["portfolio", "market", "news", "calc", "goal", "tax", "qa", "example", "clarify"]
+ORDER = ["portfolio", "market", "news", "calc", "goal", "tax", "qa", "example", "clarify", "read_only"]
 FALLBACK_MESSAGE = "I'm having trouble answering that right now. Please try again in a moment."
 CLARIFY_MESSAGE = ("I didn't quite catch that. You could ask things like “What is an ETF?”, “How does a Roth IRA work?”, "
                    "“What is the S&P 500 doing?” or “Is my portfolio diversified?”")
@@ -172,6 +172,7 @@ ROUTING RULES
 9. Tax-related investing questions ("how are dividends taxed", "Roth vs traditional") -> tax (+ qa if broad concept explanation is also requested).
 10. Follow-ups: pronouns or references to the earlier subject ("them", "it", "the same sector", "grab the recent news") inherit the intents the conversation is about. A short "what about X?" repeats ALL intents of the previous question for the new subject (price and news for NVDA, then "what about NU?" -> market + news).
 11. Anything unclear or very general about money/investing -> qa, with lower confidence.
+12. Finnie can only READ. If the message asks Finnie itself to CHANGE something (add/remove/edit holdings, goals or the profile, place a trade, move money, change settings, data or the system) -> ["read_only"] alone. Asking whether or how to do it ("should I sell?", "how do I add holdings?") only needs reading and is routed as usual.
 
 EXAMPLES
 "What is the performance of the housing market?" -> ["market","qa"]
@@ -187,8 +188,9 @@ EXAMPLES
 "I want $50k for a down payment in 4 years, how much per month?" -> ["goal"]
 "Roth IRA or 401k, and how are the gains taxed?" -> ["tax","qa"]
 "Should I invest in real estate right now?" -> ["qa","market"]
+"Put 20 Apple shares in my portfolio" -> ["read_only"]
 
-Reply with ONLY JSON: {"intents": ["qa"], "confidence": 0.0-1.0}. Intents must come from: qa, portfolio, market, news, goal, tax, calc. Confidence reflects how sure you are that the intent SET is complete and correct."""
+Reply with ONLY JSON: {"intents": ["qa"], "confidence": 0.0-1.0}. Intents must come from: qa, portfolio, market, news, goal, tax, calc, read_only. Confidence reflects how sure you are that the intent SET is complete and correct."""
 
 
 def _resolved_label(c: dict) -> str:
@@ -252,6 +254,10 @@ def router_node(state: FinanceState, config: RunnableConfig):
 def _route(state: FinanceState) -> dict:
     text = state["question"]
     entities = R.extract_entities(text, state.get("history"))
+    write = R.write_request(state.get("original_question") or text) or R.write_request(text)
+    if write:                                       # checked before the LLM, so basic mode flags it too
+        return {"intent": ["read_only"], "entities": {**entities, "write_request": write}, "router_mode": "keywords",
+                "trace": [f"router: asks to change something ({write}) → read_only guard"]}
     if R.is_gibberish(text):
         return {"intent": ["clarify"], "entities": entities, "router_mode": "keywords", "trace": ["router: no words found → clarify"]}
     if current_llm() is not None:
@@ -262,6 +268,9 @@ def _route(state: FinanceState) -> dict:
             intents, confidence = parsed
             if confidence < 0.3:
                 return {"intent": ["clarify"], "entities": entities, "router_mode": "llm", "trace": [f"router (LLM): low confidence {confidence:.1f} → clarify"]}
+            if "read_only" in intents:
+                return {"intent": ["read_only"], "entities": {**entities, "write_request": "data"}, "router_mode": "llm",
+                        "trace": ["router (LLM): asks to change something → read_only guard"]}
             intents = _with_listed_tickers(intents, text)
             return _routed({"intent": intents, "entities": entities, "router_mode": "llm", "trace": [f"router (LLM): {', '.join(intents)}"]}, state)
         log.warning("router LLM reply unusable; falling back to keywords")
@@ -273,8 +282,8 @@ def _route(state: FinanceState) -> dict:
 
 def route_after_router(state: FinanceState) -> list[str]:
     intents = state.get("intent") or ["qa"]
-    if intents == ["clarify"]:
-        return ["clarify"]
+    if intents in (["clarify"], ["read_only"]):
+        return intents
     nodes = {f"{i}_agent" for i in intents if i in R.INTENTS}
     return sorted(nodes) or ["qa_agent"]
 
@@ -804,6 +813,26 @@ def clarify_node(state: FinanceState, config: RunnableConfig):
                 trace="clarify: asked the user to rephrase")
 
 
+READ_ONLY_FLAG = "⚠️ **Request flagged: Finnie is read-only.**"
+READ_ONLY_MESSAGES = {
+    "trade": ("I can't place trades, orders or transfers: I'm not connected to any brokerage or bank account, and every agent here "
+              "can only read. I can explain how this kind of order works or look up the figures for you."),
+    "data": ("I can't change your portfolio, goals, profile or chat history from the chat: every agent here can only read them. "
+             "You can edit them yourself on the **Portfolio** and **Goals** tabs and in the profile sidebar."),
+    "system": ("I can't change the system, its data, files or settings: every agent here has read-only access. "
+               "I can answer questions using what's already there."),
+}
+READ_ONLY_CHOICES = ["Is my portfolio diversified?", "How does a limit order work?", "Am I on track for my goal?"]
+
+
+def read_only_node(state: FinanceState, config: RunnableConfig):
+    """The read-only guardrail (mds/read-only-guardrail.md): agents read the user's data and the market, they never change
+    anything. A request to write (edit holdings/goals/profile, trade, move money, alter the system) is flagged, not attempted."""
+    kind = state["entities"].get("write_request") or "data"
+    return _out("read_only", f"{READ_ONLY_FLAG} {READ_ONLY_MESSAGES[kind]}", status="need_info", choices=READ_ONLY_CHOICES,
+                confidence="high", verbatim=True, trace=f"read_only: flagged a request to change something ({kind}); nothing was changed")
+
+
 # ---------------------------------------------------------------- verifier + research
 def _json(reply: str | None) -> dict | None:
     """The first complete JSON object in an LLM reply, or None. Text around it, including stray extra braces (seen in
@@ -870,7 +899,7 @@ def verifier_node(state: FinanceState, config: RunnableConfig):
             trace.append(f"verifier: {agent} sources answer the question" if verdict else f"verifier: {agent} check unavailable, kept")
         elif status == "need_info":
             choices = o.get("choices") or []
-            if llm_on and agent != "clarify":
+            if llm_on and agent not in ("clarify", "read_only") and not o.get("readings"):   # calc's readings already confirm its reading
                 reply = _json(ask_llm(CHOICES_SYSTEM, f"User's message: {state['question']}\nWhat the assistant still needs: {o['content']}"))
                 picked = [c.strip() for c in (reply or {}).get("choices", [])
                           if isinstance(c, str) and c.strip() and not _ADDRESSES_USER.search(c)][:3]   # must be the user's words
