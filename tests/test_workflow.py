@@ -401,3 +401,11 @@ def test_prompts_see_the_last_four_messages_up_to_1000_characters_each():
     lines = H.transcript(hist).splitlines()
     assert [ln.split()[1] for ln in lines] == ["m2", "m3", "m4", "m5"]
     assert all(len(ln.split(": ", 1)[1]) == 1000 for ln in lines)
+
+
+def test_a_confirmation_rewritten_as_the_question_it_confirms_passes_the_proofread_guard():
+    from src.workflow.nodes import _proofread_ok
+    recent = ("user: i invest $30000\nassistant: You want to know how much $30,000 would grow at 7% a year over 10 "
+              "years; is 7% the yearly rate?")
+    assert _proofread_ok("yes. confirm", "How much does $30,000 grow at 7% a year over 10 years?", {}, recent)
+    assert not _proofread_ok("yes. confirm", "How much does $30,000 grow at 9% a year over 10 years?", {}, recent)

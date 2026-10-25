@@ -75,42 +75,56 @@ PROOFREAD_SYSTEM = (
     "abbreviations fixed, so the agents after you can read it: \"yrs\" -> \"years\", \"mo\" -> \"months\", \"tsla\" -> \"TSLA\", "
     "\"nvdia\" -> \"NVIDIA\", \"wht abt\" -> \"what about\". Keep the meaning, every number and every ticker symbol; never answer "
     "the message, add facts or drop a request. If a word may be a ticker or name you don't know, leave it unchanged.\n"
-    "You may be given the CONTEXT of the conversation so far (the previous question, its companies, period and figures). If the "
-    "message continues it (it points back with \"it\", \"them\", \"which\", \"compare to\", \"what about X\", or leaves out a "
-    "company or period it relies on), rewrite it as a complete question that names them, using ticker symbols from the CONTEXT: "
+    "You may be given the CONTEXT of the conversation so far (the previous question, its companies, period and figures) and the "
+    "RECENT CONVERSATION. If the message continues it, or an earlier question there (it points back with \"it\", \"them\", "
+    "\"which\", \"compare to\", \"what about X\", \"what if X is Y\", or leaves out a company, period or figure it relies on), "
+    "rewrite it as a complete question that names them, using ticker symbols from the CONTEXT: "
     "\"compare to starbucks\" after TSLA over the last month -> \"Compare TSLA and Starbucks over the last month.\"; "
-    "\"which did better?\" -> \"Which did better over the last month, TSLA or SBUX?\". Set follow_up to true then. If the message "
-    "starts a new topic, only correct it and set follow_up to false. Take companies, periods and numbers only from the message "
-    "or the CONTEXT.\n"
+    "\"which did better?\" -> \"Which did better over the last month, TSLA or SBUX?\"; \"what if it's $20000?\" after how much "
+    "$10,000 grows at 8% a year for 5 years -> \"How much does $20,000 grow at 8% a year for 5 years?\". A reply to the "
+    "assistant's last message (\"yes\", \"confirm\", \"the first one\", \"no, 6%\", or a value it asked for) answers it: rewrite it "
+    "as the complete question the assistant proposed or asked about, with the value given; that is the question to answer "
+    "itself (the calculation), never a question about the assumption it confirms: \"yes, confirm\" or \"yes, no extra "
+    "contributions\" after \"You want to know how much $30,000 grows at 7% a year over 10 years; is 7% the yearly rate?\" -> "
+    "\"How much does $30,000 grow at 7% a year over 10 years with no extra contributions?\", not \"Is 7% the yearly rate?\"; "
+    "\"3%\" after \"what risk-free rate should I use?\" -> the earlier question with a 3% risk-free rate. "
+    "Set follow_up to true then. If the message starts a new topic, only correct it and set follow_up to false; a message that states every "
+    "company, period and figure it needs is a new question even on the same subject (\"How much would $2,500 grow to at 7% a "
+    "year over 10 years?\" after a 7% example). Take companies, periods and numbers "
+    "only from the message, the CONTEXT or the RECENT CONVERSATION.\n"
     'Reply with ONLY JSON: {"question": "<the corrected message>", "follow_up": true}')
 _TICKER_TOKEN = re.compile(r"\b[A-Z]{2,5}\b")
-_NUMBER = re.compile(r"\d+(?:[.,]\d+)?")
+_NUMBER = re.compile(r"\d+(?:\.\d+)?")
+_THOUSANDS = re.compile(r"(?<=\d),(?=\d{3}\b)")         # "$20,000" and "$20000" are the same number
 PROOFREAD_MAX_CHARS = 500                  # longer messages go to the router as typed
 FOLLOW_UP_EXTRA_CHARS = 200                # room a completed follow-up may add (company names, the period)
 
 
-def _proofread_ok(original: str, fixed: str, ctx: dict | None = None) -> bool:
+def _proofread_ok(original: str, fixed: str, ctx: dict | None = None, recent: str = "") -> bool:
     """A correction, not a different message: no number or capitalised ticker lost, not much longer, and similar text; or,
-    for a follow-up completed from the context, anything added (tickers, numbers) comes from that context."""
+    for a follow-up completed from the context or the recent conversation, anything added (tickers, numbers) comes from
+    there."""
     if not fixed:
         return False
+    original, fixed = _THOUSANDS.sub("", original), _THOUSANDS.sub("", fixed)
     if any(n not in fixed for n in _NUMBER.findall(original)):
         return False
     if any(t not in fixed for t in _TICKER_TOKEN.findall(original) if not original.isupper()):
         return False
     if ctx is not None:
-        known = f"{original.upper()} {CTX.describe(ctx).upper()}"
+        known = _THOUSANDS.sub("", f"{original} {CTX.describe(ctx)} {recent}").upper()
         return (len(fixed) <= len(original) + FOLLOW_UP_EXTRA_CHARS
                 and all(t in known for t in _TICKER_TOKEN.findall(fixed))
-                and all(n in known for n in _NUMBER.findall(fixed)))
+                and set(_NUMBER.findall(fixed)) <= set(_NUMBER.findall(known)))     # whole numbers: 9 isn't in 14693.28
     if len(fixed) > 2 * len(original) + 40:
         return False
     return difflib.SequenceMatcher(None, original.lower(), fixed.lower()).ratio() >= 0.5
 
 
-def _proofread_reply(q: str, ctx: dict | None) -> tuple[str, bool] | None:
+def _proofread_reply(q: str, ctx: dict | None, recent: str) -> tuple[str, bool] | None:
     """(corrected question, follow-up?) from the LLM; None if it gave nothing usable. A plain-text reply counts as a correction."""
-    prompt = (f"CONTEXT:\n{CTX.describe(ctx)}\n\n" if ctx else "") + f"Message: {q}"
+    prompt = ((f"CONTEXT:\n{CTX.describe(ctx)}\n\n" if ctx else "")
+              + (f"RECENT CONVERSATION:\n{recent}\n\n" if recent else "") + f"Message: {q}")
     reply = ask_llm(PROOFREAD_SYSTEM, prompt)
     if not reply:
         return None
@@ -119,7 +133,7 @@ def _proofread_reply(q: str, ctx: dict | None) -> tuple[str, bool] | None:
         fixed = reply.strip().strip('"“”').strip()
         return (fixed, False) if fixed else None
     fixed = str(data.get("question") or "").strip()
-    return (fixed, bool(data.get("follow_up")) and bool(ctx)) if fixed else None
+    return (fixed, bool(data.get("follow_up")) and bool(ctx or recent)) if fixed else None
 
 
 def proofread_node(state: FinanceState, config: RunnableConfig):
@@ -129,17 +143,18 @@ def proofread_node(state: FinanceState, config: RunnableConfig):
     the user typed. `follow_up` tells the router and agents to carry the context's companies, period and figures over.
     Without an LLM the message is kept and a follow-up is recognised by its wording (context.looks_like_follow_up)."""
     q, ctx = state["question"], state.get("context_in") or None
-    base = {"original_question": q, "follow_up": bool(ctx) and CTX.looks_like_follow_up(q)}
+    base = {"original_question": q, "follow_up": bool(ctx or state.get("history")) and CTX.looks_like_follow_up(q)}
     note = " (follow-up: carrying the earlier context)" if base["follow_up"] else ""
     if not get_config()["workflow"].get("proofread", True) or current_llm() is None:
         return {**base, "trace": [("proofread: skipped (no LLM)" if current_llm() is None else "proofread: off") + note]}
     if R.is_gibberish(q) or len(q) > PROOFREAD_MAX_CHARS:
         return {**base, "trace": ["proofread: left as typed" + note]}
-    got = _proofread_reply(q, ctx)
+    recent = H.transcript(state.get("history"))
+    got = _proofread_reply(q, ctx, recent)
     if got is None:
         return {**base, "trace": ["proofread: no reply, left as typed" + note]}
     fixed, follow_up = got
-    if not _proofread_ok(q, fixed, ctx if follow_up else None):
+    if not _proofread_ok(q, fixed, (ctx or {}) if follow_up else None, recent if follow_up else ""):
         log.info("proofread rewrite rejected: %r -> %r", q, fixed)
         return {**base, "trace": ["proofread: rewrite rejected, left as typed" + note]}
     tag = " (follow-up of the previous question)" if follow_up else ""
