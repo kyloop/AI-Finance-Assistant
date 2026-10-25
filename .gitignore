@@ -23,3 +23,9 @@ spec.md
 # Cloudflare
 .wrangler/
 .dev.vars
+
+# Generated slide decks
+presentation/
+
+# macOS folder metadata
+.DS_Store
