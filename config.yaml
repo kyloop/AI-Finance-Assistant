@@ -11,7 +11,7 @@ workflow:
   history_chars: 1000       # each cut to this many characters (enough for an answer's figures)
   market_tool_calls: 4      # market agent: most tool calls the LLM may make per question (quote, performance, profiles)
   market_tool_rounds: 1     # replies in which it may call them (1 = everything requested at once; each extra round is one more LLM call)
-  wiki_max_words: 150       # extract length per knowledge lookup (scaled by knowledge level)
+  wiki_max_words: 150       # extract length per knowledge lookup (scaled by knowledge level: shorter for advanced readers)
   proofread: true           # fix spelling/grammar/abbreviations before routing (proofread node; needs an LLM)
   max_replans: 3            # times per question the graph may send an unanswered question to other agents (replan node)
 wolfram:                    # Calculator fallback for calculations the Python calculators don't cover (src/core/wolfram.py)

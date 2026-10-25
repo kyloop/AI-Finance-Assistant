@@ -35,7 +35,10 @@ from .tools import industry_peers, kb_search, news_index_now, news_latest, news_
 
 log = logging.getLogger(__name__)
 
-WORDS_BY_LEVEL = {"beginner": 0.6, "intermediate": 1.0, "advanced": 1.5}
+WORDS_BY_LEVEL = {"beginner": 1.0, "intermediate": 0.7, "advanced": 0.4}     # more experienced readers need less explanation
+LENGTH_BY_LEVEL = {"beginner": "explain terms in plain words, with a short example if the context has one",
+                   "intermediate": "skip the basic definitions and keep it to a short paragraph or a few bullets",
+                   "advanced": "assume the basics are known: give only the key points, in two or three sentences or bullets"}
 SYMBOL_OK = re.compile(r"^[A-Z0-9.\-=^]{1,15}$")
 ORDER = ["portfolio", "market", "news", "calc", "goal", "tax", "qa", "example", "clarify", "read_only"]
 FALLBACK_MESSAGE = "I'm having trouble answering that right now. Please try again in a moment."
@@ -1144,7 +1147,8 @@ def synthesizer_node(state: FinanceState, config: RunnableConfig):
             data = MT.data_block(state.get("market_data") or {})        # exact figures the market tools fetched (volume, P/E...)
             figures = (f"\n\nData (exact figures from the market tools; use only those the question needs, and keep them "
                        f"exactly as given):\n{data}" if data else "")
-            reply = ask_llm(SYNTH_SYSTEM, f"Knowledge level: {level}\nConversation so far:\n{history or '(none)'}\n\n"
+            style = LENGTH_BY_LEVEL.get(level, LENGTH_BY_LEVEL["beginner"])
+            reply = ask_llm(SYNTH_SYSTEM, f"Knowledge level: {level} ({style})\nConversation so far:\n{history or '(none)'}\n\n"
                                           f"Question: {state['question']}\n\nContext:\n{context}{figures}{shown_after}")
             if reply:
                 text, mode = reply, "llm"
