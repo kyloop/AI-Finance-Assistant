@@ -30,7 +30,17 @@ export default function PortfolioTab({ sid, onAsk }: { sid: string; onAsk: (q: s
   const [busy, setBusy] = useState(false);
   const [defaultDate, setDefaultDate] = useState("");
 
-  useEffect(() => { api.getPortfolio(sid).then((p) => { setRows(p.holdings); setDefaultDate(p.default_purchase_date); if (p.holdings.length) api.analysis(sid).then(setAnalysis); }).catch((e) => setError(e.message)); }, [sid]);
+  // The saved portfolio arrives asynchronously: never let it overwrite rows or an analysis the user produced meanwhile (sample, CSV, Analyze).
+  useEffect(() => {
+    let live = true;
+    api.getPortfolio(sid).then((p) => {
+      if (!live) return;
+      setDefaultDate(p.default_purchase_date);
+      setRows((r) => (r.length ? r : p.holdings));
+      if (p.holdings.length) api.analysis(sid).then((a) => live && setAnalysis((cur) => cur ?? a)).catch((e) => live && setError(e.message));
+    }).catch((e) => live && setError(e.message));
+    return () => { live = false; };
+  }, [sid]);
 
   async function analyze(next: Holding[] = rows) {
     setError(null);
@@ -83,7 +93,7 @@ export default function PortfolioTab({ sid, onAsk }: { sid: string; onAsk: (q: s
       {analysis && !analysis.empty && (
         <>
           {analysis.data_info && <div className="muted small">Prices: <FreshnessBadge freshness={analysis.data_info.freshness} provider={analysis.data_info.provider} fetchedAt={analysis.data_info.fetched_at} /></div>}
-          <div className="cards">
+          <div className="cards metrics">
             <Card label="Total value" value={usd(analysis.total_value)} sub={`${analysis.holdings.length} holdings`} />
             {analysis.total_gain_loss != null && <Card label="Total return" value={signedUsd(analysis.total_gain_loss)} tone={tone(analysis.total_gain_loss)}
               sub={analysis.total_return_pct != null ? `${signedPct(analysis.total_return_pct)} on cost basis` : undefined} />}
@@ -93,11 +103,10 @@ export default function PortfolioTab({ sid, onAsk }: { sid: string; onAsk: (q: s
             <Card label="Risk level" value={`${analysis.risk_level}/5`} sub={analysis.risk_label} />
             <Card label="Yearly fees" value={`$${analysis.annual_fee?.toFixed(2)}`} sub={`${pct(analysis.weighted_expense_ratio ?? 0, 2)} weighted`} />
           </div>
-          {analysis.warnings.length > 0 && <ul className="warnings">{analysis.warnings.map((w) => <li key={w}>{w}</li>)}</ul>}
           {perf && perf.period_return != null && (
             <>
               <h3>Performance vs {perf.benchmark.name}</h3>
-              <div className="cards">
+              <div className="cards metrics">
                 <Card label={`Return since ${perf.start}`} value={signedPct(perf.period_return)} tone={tone(perf.period_return)}
                   sub={perf.annualized_return != null ? `${signedPct(perf.annualized_return)} annualized` : undefined} />
                 {perf.benchmark_return != null && <Card label={perf.benchmark.name} value={signedPct(perf.benchmark_return)} tone={tone(perf.benchmark_return)}
