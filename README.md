@@ -241,8 +241,10 @@ The router can pick several agents for one question; they run in parallel. If no
   ("if SBUX rose 2%" uses the quoted price). A message that isn't a follow-up starts afresh, except a calculation, which
   keeps the subject.
 - **Router** (`src/workflow/router.py`, `nodes.py`): LLM intent classifier when a model is connected, keyword/regex
-  fallback otherwise. "What should I consider / how does X work" questions go to Q&A; Goal Planning is for savings
-  projections with amounts and years.
+  fallback otherwise. Q&A is the default. Goal Planning, Portfolio and Tax run only when the message explicitly asks
+  for their job (a savings plan or how much to save, an analysis of the user's own holdings, tax treatment or
+  tax-advantaged accounts); mentioning retirement, saving or an amount is not enough ("I plan to retire with $1 million
+  and need $50,000 a year" goes to Q&A and the Calculator, not Goal Planning).
 - **Companies in market and news questions** are resolved once, by the router, with the recent conversation (`entities["companies"]`):
   the LLM corrects misspellings ("nvdia" → NVIDIA) and resolves "them" / "the same sector" to the company discussed earlier,
   then Yahoo maps the name to a ticker. A price question that names nothing we can identify asks which company is meant

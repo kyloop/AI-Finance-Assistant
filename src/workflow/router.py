@@ -5,11 +5,15 @@ import re
 
 from src.core.market_service import INSTRUMENTS
 
+# qa is the default: goal, portfolio and tax only when the message explicitly asks for that agent's job (a savings plan,
+# the user's own holdings, tax), never because it merely mentions retirement, saving or an amount.
 INTENT_PATTERNS = {
-    "tax": r"\b(tax|taxes|taxable|401\(?k\)?|ira|roth|capital gains?|deduction)\b",
-    "portfolio": r"\b(my portfolio|my holdings|my investments|allocation|diversif\w*|rebalanc\w*|expense ratio)\b",
+    "tax": r"\b(tax|taxes|taxed|taxable|taxation|401\(?k\)?|ira|roth|capital gains?|deduction)\b",
+    "portfolio": r"\b(my (portfolio|holdings|investments|stocks|positions|allocation)|am i (diversified|too concentrated)|"
+                 r"rebalanc\w* my)\b",
     "market": r"\b(watchlist|price of|quote|stock market|market today|index|indices|s&p|nasdaq|dow|trend|moving average)\b",
-    "goal": r"\b(goal|retire\w*|save for|saving for|how much (should|do) i (save|invest)|down payment|college|nest egg)\b",
+    "goal": r"\b(savings? plan|savings goal|my goal|save for|saving for|how much (should|do|must) i (need to )?(save|invest)|"
+            r"on track)\b",
     "news": r"\b(news|headlines?|latest (on|about|news)|what happened|what('s| is| has been| have been)? (happening|said|going on)|in the news|"
             r"(recent|latest) (updates?|developments?|reports?) (on|about|in))\b",
     "calc": r"\b(calculate|calculation|compute|work out|how much (will|would|do|does) .{0,40}\b(grow|be worth|have|cost|pay)|"

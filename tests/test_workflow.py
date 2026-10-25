@@ -45,6 +45,17 @@ def test_keyword_router_and_entities():
 def test_regressions_from_live_run():
     assert R.classify("How is that different from a mutual fund?") == ["qa"]           # "that" is not a ticker
     assert "goal" in R.classify("I want $1,000,000 in 30 years, saving $500 a month")
+
+
+def test_qa_is_the_default_and_goal_portfolio_tax_need_an_explicit_request():
+    assert R.classify("I plan to retire with $1 million and need $50,000 annually.") == ["qa"]   # no savings plan asked
+    assert R.classify("How should I plan for retirement?") == ["qa"]
+    assert R.classify("What is diversification?") == ["qa"]                          # a concept, not their holdings
+    assert R.classify("What is a 529 college plan?") == ["qa"]
+    assert R.classify("How much should I save for retirement?") == ["goal"]
+    assert R.classify("Am I on track for retirement?") == ["goal"]
+    assert R.classify("How diversified is my portfolio?") == ["portfolio"]
+    assert R.classify("How are dividends taxed?") == ["tax"]
     assert "market" in R.classify("Tell me about NVDA") and "market" in R.classify("How is AAPL doing?")
     assert R.classify("What is a stock?") == ["qa"]
 
@@ -143,7 +154,7 @@ def test_portfolio_agent_with_and_without_holdings():
 def test_goal_agent_projects_or_asks_for_details():
     r = ask("I want to retire with $1,000,000 in 30 years, saving $500 a month")["final_response"]
     assert "$1,000,000" in r and "a month" in r
-    assert "target amount" in ask("How should I plan for retirement?")["final_response"]
+    assert "target amount" in ask("How much should I save for retirement?")["final_response"]
 
 
 def test_tax_agent_adds_scope_caveat():

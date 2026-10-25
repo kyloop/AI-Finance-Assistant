@@ -161,6 +161,7 @@ AGENTS AND THEIR RESPONSIBILITIES
 - calc: Computes a specific number: future value, loan/mortgage payment, doubling time, present value, real return, APY, bond yield. Use when the user wants a figure calculated, not explained.
 
 ROUTING RULES
+0. qa is the DEFAULT. Use goal, portfolio or tax only when the message itself explicitly asks for that agent's job: a savings plan or how much to save (goal), an analysis of the user's own holdings (portfolio), tax treatment, tax rules or tax-advantaged accounts (tax). Mentioning retirement, saving, investing or an amount of money is not by itself a request for any of them: "I plan to retire with $1 million and need $50,000 a year" asks nothing about a savings plan, so it is not goal.
 1. A message can need several agents. Return every intent whose responsibility is required; usually 1-3, never more than 4.
 2. Performance or condition of a market, sector or asset class ("how is the housing market performing", "how are tech stocks doing", "state of the bond market") -> market + qa. market supplies the data; qa supplies the explanation of what drives it and what it means for a learner. Add news if they ask about recent events/causes or use "lately/this week/why now".
 3. "Why did X move / why is X up/down" -> market + news (+ qa if they also ask what the concept means).
@@ -186,6 +187,9 @@ EXAMPLES
 "Is my portfolio too concentrated in tech?" -> ["portfolio","qa"]
 "What's the monthly payment on a $400k mortgage at 6.5% for 30 years?" -> ["calc"]
 "I want $50k for a down payment in 4 years, how much per month?" -> ["goal"]
+"I plan to retire with $1 million and need $50,000 a year" -> ["calc","qa"] (how long the money lasts, not a savings plan)
+"How should I plan for retirement?" -> ["qa"]
+"How much should I save each month to retire with $1 million in 25 years?" -> ["goal"]
 "Roth IRA or 401k, and how are the gains taxed?" -> ["tax","qa"]
 "Should I invest in real estate right now?" -> ["qa","market"]
 "Put 20 Apple shares in my portfolio" -> ["read_only"]
@@ -1025,6 +1029,7 @@ AGENTS
 
 RULES
 - Choose only from the agents listed as AVAILABLE. Never choose an agent that was already tried.
+- goal, portfolio and tax only if the user explicitly asked for a savings plan, an analysis of their own holdings, or tax treatment; never because the question mentions retirement, saving or an amount.
 - Choose an agent only if its job directly supplies what is missing. If none can, return an empty list: an honest "not found" is better than an unrelated answer.
 - Usually 0-2 agents.
 
