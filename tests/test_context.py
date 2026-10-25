@@ -6,7 +6,7 @@ from src.core import llm as llm_module
 from src.workflow import context as CTX
 from src.workflow.graph import run_chat
 
-PROFILE = {"knowledge_level": "beginner", "risk_tolerance": "moderate", "horizon_years": 10, "goals": []}
+PROFILE = {"knowledge_level": "beginner", "risk_tolerance": "moderate", "horizon_years": 10}
 
 
 @pytest.fixture

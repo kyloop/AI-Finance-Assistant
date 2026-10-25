@@ -35,7 +35,7 @@ class UserProfile(Base):
     knowledge_level: Mapped[str] = mapped_column(String(16), default="beginner")      # beginner|intermediate|advanced
     risk_tolerance: Mapped[str] = mapped_column(String(16), default="moderate")       # conservative|moderate|aggressive
     horizon_years: Mapped[int] = mapped_column(Integer, default=10)
-    goals: Mapped[list] = mapped_column(JSON, default=list)
+    goals: Mapped[list] = mapped_column(JSON, default=list)                            # unused: no longer in the profile form; kept so existing databases need no migration
 
     session: Mapped[Session] = relationship(back_populates="profile")
 

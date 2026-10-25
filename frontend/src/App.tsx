@@ -14,7 +14,7 @@ import type { ChatView, Message, Profile } from "./types";
 
 const TABS = ["Portfolio", "Market", "Research", "Live", "Goals"] as const;
 type Tab = (typeof TABS)[number];
-const DEFAULT_PROFILE: Profile = { knowledge_level: "beginner", risk_tolerance: "moderate", horizon_years: 10, goals: [] };
+const DEFAULT_PROFILE: Profile = { knowledge_level: "beginner", risk_tolerance: "moderate", horizon_years: 10 };
 const CHAT_W_KEY = "finnie_chat_w", CHAT_MIN_W = 320, CHAT_DEFAULT_W = 400;
 const chatMaxW = () => Math.max(CHAT_MIN_W, Math.min(1000, window.innerWidth - 480));
 const clampChatW = (w: number) => Math.round(Math.min(chatMaxW(), Math.max(CHAT_MIN_W, w)));

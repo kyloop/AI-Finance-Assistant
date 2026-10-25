@@ -27,7 +27,6 @@ class ProfileIn(BaseModel):
     knowledge_level: Knowledge = "beginner"
     risk_tolerance: Risk = "moderate"
     horizon_years: int = Field(10, ge=1, le=60)
-    goals: list[str] = []
 
 
 class ProfileOut(ProfileIn, ORM):

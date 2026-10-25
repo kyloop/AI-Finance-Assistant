@@ -5,7 +5,7 @@ import pytest
 
 from src.workflow import graph as G
 
-PROFILE = {"knowledge_level": "beginner", "risk_tolerance": "moderate", "horizon_years": 10, "goals": []}
+PROFILE = {"knowledge_level": "beginner", "risk_tolerance": "moderate", "horizon_years": 10}
 
 
 @pytest.fixture

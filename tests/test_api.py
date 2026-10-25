@@ -3,7 +3,7 @@ import pytest
 
 def test_profile_roundtrip(client, sid):
     assert client.get(f"/api/sessions/{sid}/profile").json()["knowledge_level"] == "beginner"
-    r = client.put(f"/api/sessions/{sid}/profile", json={"knowledge_level": "advanced", "risk_tolerance": "aggressive", "horizon_years": 20, "goals": ["retire"]})
+    r = client.put(f"/api/sessions/{sid}/profile", json={"knowledge_level": "advanced", "risk_tolerance": "aggressive", "horizon_years": 20})
     assert r.json()["risk_tolerance"] == "aggressive"
 
 

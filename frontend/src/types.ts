@@ -2,7 +2,7 @@ export type Knowledge = "beginner" | "intermediate" | "advanced";
 export type Risk = "conservative" | "moderate" | "aggressive";
 export type Freshness = "live" | "cached" | "stale" | "sample";
 
-export interface Profile { knowledge_level: Knowledge; risk_tolerance: Risk; horizon_years: number; goals: string[] }
+export interface Profile { knowledge_level: Knowledge; risk_tolerance: Risk; horizon_years: number }
 export interface Source { id: string; title: string; url?: string | null }
 export interface DataInfo { provider: string; fetched_at: string; freshness: Freshness }
 export interface Message {

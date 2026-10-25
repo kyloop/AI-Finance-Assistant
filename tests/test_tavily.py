@@ -10,7 +10,7 @@ from src.core import llm as llm_module
 from src.core import tavily as T
 from src.workflow.graph import run_chat
 
-PROFILE = {"knowledge_level": "beginner", "risk_tolerance": "moderate", "horizon_years": 10, "goals": []}
+PROFILE = {"knowledge_level": "beginner", "risk_tolerance": "moderate", "horizon_years": 10}
 
 RESULTS = [
     {"title": "What Is a Flibbertigibbet Fund?", "url": "https://www.investopedia.com/terms/f/flibbertigibbet-fund.asp",
