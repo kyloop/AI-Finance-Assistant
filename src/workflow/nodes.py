@@ -917,7 +917,8 @@ def verifier_node(state: FinanceState, config: RunnableConfig):
                     trace.append(f"verifier: {agent} {'web' if o['origin'] == 'web' else 'researched'} sources don't answer the question either"
                                  + (f" (missing: {missing})" if missing else ""))
                 continue
-            updates[agent] = {**o, "verified": True}
+            kept = {k: v for k, v in o.items() if k != "fallback"}       # accepted: an earlier rejected answer can't be used now
+            updates[agent] = {**kept, "verified": True}
             trace.append(f"verifier: {agent} sources answer the question" if verdict else f"verifier: {agent} check unavailable, kept")
         elif status == "need_info":
             choices = o.get("choices") or []
