@@ -191,6 +191,7 @@ def test_news_stock_and_market_merge_dedupe_and_fallback(client, monkeypatch):
 
     monkeypatch.setattr(ms, "PROVIDERS", {"yfinance": {"news": ms._yf_news}, "sample": ms.PROVIDERS["sample"]})
     monkeypatch.setattr(ms, "_yf_ticker", FakeTicker)
+    monkeypatch.setattr(ms, "_search_news", lambda sym, count: [])              # the search endpoint has nothing: the ticker feed
     r = client.get("/api/market/news").json()
     assert r["provider"] == "yfinance" and [i["title"] for i in r["data"]["items"]] == ["New", "Old"]
     assert client.get("/api/market/news?symbol=AAPL").json()["data"]["items"][0]["url"] == "https://x.test/c"

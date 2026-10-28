@@ -12,6 +12,7 @@ Decision records and the measurements behind them.
 | [kb-token-stats-goal-planning.md](kb-token-stats-goal-planning.md) | `goal-planning` category (150 pages): the same measurements and both tests; not indexed yet |
 | [kb-eval-summary.md](kb-eval-summary.md) | Both tests for every category side by side, and combined |
 | [yfinance-capabilities.md](yfinance-capabilities.md) | What the yfinance library (1.7.0) can fetch, checked live: per-ticker data, funds and ETFs, sectors, calendars, screeners; what the app uses and what it could add |
+| [market-symbols.md](market-symbols.md) | Markets that aren't companies (forex, crypto, commodities, rates, indices, sectors): which Yahoo symbols have quotes and news, the list, its Qdrant points, how a question finds its companies, markets, topic and exclusions |
 | [agent-code-map.md](agent-code-map.md) | Where each agent and workflow step lives in the code (functions, files, how to add a node) |
 | [agent-tools.md](agent-tools.md) | Graph of which tools each agent and pipeline step calls, and the data source behind each tool |
 | [calc-pipeline-design.md](calc-pipeline-design.md) | Calculator steps: understand, define, find the equation in the knowledge base and on the web with a cross-check, fill the variables, compute, quote |

@@ -134,10 +134,11 @@ def _yf_quote(symbol: str, **_) -> dict:
         price, prev = float(fi["lastPrice"]), float(fi["previousClose"])
     except Exception as e:
         raise ProviderEmpty(symbol) from e
-    return {"symbol": symbol, "name": _yf_name(t, symbol), "price": round(price, 2), "prev_close": round(prev, 2),
-            "change": round(price - prev, 2), "change_pct": round(price / prev - 1, 4),
+    dp = 4 if abs(price) < 10 else 2                     # EUR/USD 1.1218, not 1.12
+    return {"symbol": symbol, "name": _yf_name(t, symbol), "price": round(price, dp), "prev_close": round(prev, dp),
+            "change": round(price - prev, dp), "change_pct": round(price / prev - 1, 4),
             "volume": int(fi["lastVolume"] or 0),
-            "day_high": round(float(fi["dayHigh"]), 2), "day_low": round(float(fi["dayLow"]), 2)}
+            "day_high": round(float(fi["dayHigh"]), dp), "day_low": round(float(fi["dayLow"]), dp)}
 
 
 def _yf_intraday(symbol: str, **_) -> dict:
@@ -193,7 +194,8 @@ def _search_news_item(raw: dict) -> dict | None:
 
 
 def _search_news(symbol: str, count: int) -> list[dict]:
-    """Second source for a symbol's headlines: Yahoo's search endpoint, used when the ticker news feed fails or is empty."""
+    """A symbol's headlines from Yahoo's search endpoint (also takes a name: "Ethereum", "DXY"). Tried first: in Oct 2026 the ticker
+    news feed returned nothing for every symbol (mds/market-symbols.md). Its stories have no summary."""
     import yfinance as yf
     raw = yf.Search(symbol, max_results=1, news_count=count, lists_count=0, timeout=10).news
     return [i for i in map(_search_news_item, raw or []) if i]
@@ -205,15 +207,14 @@ def _yf_news(symbol: str, count: int = 30, **_) -> dict:
     for src in sources:
         found = []
         try:
-            found = [i for i in map(_news_item, _yf_ticker(src).get_news(count=count)) if i]
-        except Exception as e:  # noqa: BLE001 — try the search endpoint, but leave the reason in the log
-            log.warning("yfinance news for %s failed: %s: %s", src, type(e).__name__, str(e)[:200])
+            found = _search_news(src, count)
+        except Exception as e:  # noqa: BLE001 — try the ticker feed, but leave the reason in the log
+            log.warning("Yahoo search news for %s failed: %s: %s", src, type(e).__name__, str(e)[:200])
         if not found:
-            log.warning("yfinance news for %s returned no stories; trying Yahoo search", src)
             try:
-                found = _search_news(src, count)
+                found = [i for i in map(_news_item, _yf_ticker(src).get_news(count=count)) if i]
             except Exception as e:  # noqa: BLE001
-                log.warning("Yahoo search news for %s failed: %s: %s", src, type(e).__name__, str(e)[:200])
+                log.warning("yfinance news for %s failed: %s: %s", src, type(e).__name__, str(e)[:200])
         for item in found:
             items.setdefault(item["id"], item)
     if not items:

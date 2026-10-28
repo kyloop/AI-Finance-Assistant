@@ -284,13 +284,15 @@ def ensure_index(client: QdrantClient | None = None) -> bool:
 
 
 def search_names(client: QdrantClient, query: str, k: int = 5, name: str | None = None) -> list[dict]:
-    """Closest company names as record dicts with a `score`. The query is embedded as a plain name, not as a retrieval question."""
+    """Closest company names as record dicts with a `score`. The query is embedded as a plain name, not as a retrieval question.
+    Stocks and ETFs only: the collection also holds the market points (markets.py), which have no rank."""
     name = name or _cfg()["collection"]
     qvec = next(iter(get_embedder().embed([query]))).tolist()
+    companies = models.Filter(must=[models.FieldCondition(key="asset_type", match=models.MatchAny(any=["stock", "etf"]))])
     with QDRANT_LOCK:
         if not client.collection_exists(name):
             return []
-        hits = client.query_points(name, query=qvec, limit=k, with_payload=True).points
+        hits = client.query_points(name, query=qvec, query_filter=companies, limit=k, with_payload=True).points
     return [{**h.payload, "score": h.score} for h in hits]
 
 

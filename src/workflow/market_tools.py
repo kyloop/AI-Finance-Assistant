@@ -241,6 +241,23 @@ def _money(x) -> str:
     return f"${x:,.2f}" if isinstance(x, (int, float)) else "n/a"
 
 
+def price(sym: str, x) -> str:
+    """A price in its unit: a currency rate as a plain number (EUR/USD 1.1218, USD/JPY 151.37), a Treasury yield as a percentage,
+    an index in points, anything else in dollars."""
+    if not isinstance(x, (int, float)):
+        return "n/a"
+    from src.rag.markets import entry
+    e = entry(sym)
+    group = e["group"] if e else None
+    if group == "forex":
+        return f"{x:,.4f}" if abs(x) < 10 else f"{x:,.2f}"
+    if group == "rates":
+        return f"{x:.2f}%"
+    if group in ("us_indices", "world_indices") and not sym.endswith("=F"):
+        return f"{x:,.2f} points"
+    return f"${x:,.4f}" if abs(x) < 1 else _money(x)
+
+
 def big(x) -> str:
     """84_200_000 -> "84.2M"; 1.2e12 -> "1.2T"."""
     if not isinstance(x, (int, float)):
@@ -270,16 +287,16 @@ def describe_lines(data: dict) -> list[str]:
             tag = {"sample": "sample data", "live": "live", "cached": "cached", "stale": "stale"}.get(q["freshness"], q["freshness"])
             so_far = " so far today" if market_open() and q["freshness"] in ("live", "cached") else ""
             vol = f", volume {big(q['volume'])}{so_far}" if q.get("volume") else ""
-            rng = f", day range {_money(q['day_low'])}–{_money(q['day_high'])}" if q.get("day_low") and q.get("day_high") else ""
+            rng = f", day range {price(sym, q['day_low'])}–{price(sym, q['day_high'])}" if q.get("day_low") and q.get("day_high") else ""
             chg = f", {_pct(q['change_pct'])} vs previous close" if q.get("change_pct") is not None else ""
-            lines.append(f"- **{name}** ({sym}): {_money(q['price'])}{chg}{vol}{rng} ({tag}, {q['as_of'][11:16]} UTC)")
+            lines.append(f"- **{name}** ({sym}): {price(sym, q['price'])}{chg}{vol}{rng} ({tag}, {q['as_of'][11:16]} UTC)")
         if p := d.get("period"):
             short = f" (data available from {p['start_date']} only)" if p.get("partial") else ""
-            line = (f"- **{name}**, {p['label']}{short}: {_money(p['start_price'])} on {p['start_date']} → {_money(p['end_price'])} on "
+            line = (f"- **{name}**, {p['label']}{short}: {price(sym, p['start_price'])} on {p['start_date']} → {price(sym, p['end_price'])} on "
                     f"{p['end_date']}, total return **{p['return'] * 100:+.1f}%**")
             if p.get("annualised") is not None:
                 line += f" (about {p['annualised'] * 100:+.1f}% a year annualised)"
-            line += f"; high {_money(p['high'])} ({p['high_date']}), low {_money(p['low'])} ({p['low_date']})"
+            line += f"; high {price(sym, p['high'])} ({p['high_date']}), low {price(sym, p['low'])} ({p['low_date']})"
             if p.get("avg_volume"):
                 line += f"; average daily volume {big(p['avg_volume'])}"
             lines.append(line + ". Closing prices are adjusted for splits and dividends.")

@@ -17,6 +17,7 @@ from datetime import datetime, timedelta, timezone
 
 from qdrant_client import QdrantClient, models
 
+from . import markets
 from .store import EMBEDDING_DIM, QDRANT_LOCK, QUERY_PREFIX, get_embedder
 
 log = logging.getLogger(__name__)
@@ -62,9 +63,12 @@ def _ensure_collection(client: QdrantClient) -> str:
 
 
 def ingest(symbol: str, items: list[dict], client: QdrantClient | None = None) -> int:
-    """Index the stories of a news fetch. `symbol` is the ticker they were fetched for (None, the market pseudo-symbol or an
-    index adds no ticker). Returns how many stories were new."""
-    ticker = symbol.upper() if symbol and not symbol.startswith("^") and symbol.upper() != "MARKET" else None
+    """Index the stories of a news fetch. `symbol` is the ticker or market news term they were fetched for; each story is tagged
+    with it (None, the market pseudo-symbol or an index that isn't a market news term adds none) and with its market groups
+    ("market:forex"), so a search can be limited to one market. Returns how many stories were new."""
+    term = bool(symbol) and markets.is_news_term(symbol)
+    ticker = symbol.upper() if symbol and (term or not symbol.startswith("^")) and symbol.upper() != markets.MARKET_FEED else None
+    tags = ([ticker] if ticker else []) + markets.news_tags(symbol)
     now = time.time()
     cutoff = now - _cfg()["retention_days"] * 86400
     stories = {}
@@ -79,9 +83,9 @@ def ingest(symbol: str, items: list[dict], client: QdrantClient | None = None) -
     with QDRANT_LOCK:
         name = _ensure_collection(client)
         existing = {p.id: p.payload for p in client.retrieve(name, ids=list(stories), with_payload=True)}
-        for pid, payload in existing.items():              # already indexed: only record the extra ticker
-            if ticker and ticker not in payload.get("tickers", []):
-                client.set_payload(name, {"tickers": sorted({*payload.get("tickers", []), ticker})}, points=[pid])
+        for pid, payload in existing.items():              # already indexed: only record the extra tags
+            if not set(tags) <= set(payload.get("tickers", [])):
+                client.set_payload(name, {"tickers": sorted({*payload.get("tickers", []), *tags})}, points=[pid])
         fresh = [(pid, it, ts) for pid, (it, ts) in stories.items() if pid not in existing]
         if not fresh:
             return 0
@@ -90,7 +94,7 @@ def ingest(symbol: str, items: list[dict], client: QdrantClient | None = None) -
             models.PointStruct(id=pid, vector=v.tolist(), payload={
                 "story_id": it["id"], "title": it["title"], "summary": it.get("summary", ""), "publisher": it.get("publisher", ""),
                 "url": it["url"], "published": it["published"], "published_ts": ts, "ingested_at": now,
-                "tickers": [ticker] if ticker else []})
+                "tickers": tags})
             for (pid, it, ts), v in zip(fresh, vectors)])
     log.info("news index: +%d stories (%s)", len(fresh), symbol or "market")
     return len(fresh)
@@ -124,7 +128,8 @@ def search(client: QdrantClient, query: str, *, tickers: list[str] | None = None
             return []
         must = [models.FieldCondition(key="published_ts", range=models.Range(gte=time.time() - days * 86400))]
         if tickers:
-            must.append(models.FieldCondition(key="tickers", match=models.MatchAny(any=[t.upper() for t in tickers])))
+            tags = [t if t.startswith("market:") else t.upper() for t in tickers]
+            must.append(models.FieldCondition(key="tickers", match=models.MatchAny(any=tags)))
         qvec = next(iter(get_embedder().embed([QUERY_PREFIX + query]))).tolist()
         hits = client.query_points(name, query=qvec, limit=k, query_filter=models.Filter(must=must), with_payload=True).points
     return [{"score": h.score, **h.payload} for h in hits]
@@ -133,7 +138,8 @@ def search(client: QdrantClient, query: str, *, tickers: list[str] | None = None
 # ---- background poll -----------------------------------------------------------------------------------------
 def tracked_symbols(db) -> list[str]:
     """What the poll covers: the market feed, every portfolio holding, and any ticker whose quote or news was fetched recently
-    (the Live-tab watchlist and Market-tab searches both go through those), most recently fetched first, capped."""
+    (the Live-tab watchlist, Market-tab searches and chat questions all go through those), most recently fetched first, capped.
+    A market someone asked about is polled by its news term ("DXY" for DX-Y.NYB, "^TNX"), or not at all when it has none."""
     from sqlalchemy import select
 
     from src.db.models import Holding, MarketCache
@@ -143,7 +149,10 @@ def tracked_symbols(db) -> list[str]:
     viewed = [s for (s,) in db.execute(select(MarketCache.symbol).where(MarketCache.endpoint.in_(("quote", "news")),
                                                                          MarketCache.fetched_at >= since)
                                        .order_by(MarketCache.fetched_at.desc()))]
-    wanted = list(dict.fromkeys(s.upper() for s in held + viewed if s and not s.startswith("^") and s.upper() != "MARKET"))
+    from src.core.market_service import _MARKET_NEWS_SOURCES
+    feed = {markets.MARKET_FEED, *_MARKET_NEWS_SOURCES}                   # already covered by the market feed
+    terms = [markets.news_term_for(s) for s in held + viewed if s]
+    wanted = list(dict.fromkeys(t.upper() for t in terms if t and (markets.is_news_term(t) or not t.startswith("^")) and t.upper() not in feed))
     return ["MARKET"] + wanted[:cfg["max_tracked_symbols"]]
 
 
