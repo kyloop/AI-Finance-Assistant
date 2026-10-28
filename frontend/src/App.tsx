@@ -98,9 +98,15 @@ export default function App() {
     <div className={`layout${chatOpen ? " chat-open" : ""}${profileCollapsed ? " profile-collapsed" : ""}`} style={{ "--chat-w": `${chatW}px` } as CSSProperties}>
       <Sidebar profile={profile} onChange={onProfile} onReset={reset} saving={saving} collapsed={profileCollapsed} onCollapse={collapseProfile} />
       <main>
-        <header><h1>Finnie <span className="muted">your finance learning assistant</span></h1>
-          <nav>{TABS.map((t) => <button key={t} className={t === tab ? "tab active" : "tab"} onClick={() => setTab(t)}>{t}</button>)}
-            <button className="secondary chat-toggle" aria-pressed={chatOpen} onClick={toggleChat}>{chatOpen ? "Hide chat" : "Show chat"}</button></nav></header>
+        <h1>Finnie <span className="muted">your finance learning assistant</span></h1>
+        <header>
+          <nav>{TABS.map((t) => <button key={t} className={t === tab ? "tab active" : "tab"} onClick={() => setTab(t)}>{t}</button>)}</nav>
+          <button className="chat-toggle" aria-pressed={chatOpen} aria-label={chatOpen ? "Hide chat" : "Show chat"} title={chatOpen ? "Hide chat" : "Show chat"} onClick={toggleChat}>
+            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" /><path d="M8.5 11h7" /><path d="M8.5 14.5h4" />
+            </svg>
+          </button>
+        </header>
         <ErrorBanner message={error} />
         {tab === "Portfolio" && <PortfolioTab sid={sid} onAsk={askInChat} />}
         {tab === "Market" && <MarketTab />}
