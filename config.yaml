@@ -72,6 +72,7 @@ news_index:                 # news stories embedded for the News agent's topic /
   retention_days: 14                # older stories are deleted
   default_days: 7                   # search window when the question names none
   top_k: 6
+  web_min_stories: 3                # fewer relevant stories than this from the index and Yahoo: also search web news (Tavily)
   min_score: 0.60                   # a story scoring below this is not relevant (hand-written headlines: on-topic >= 0.62, off-topic <= 0.61)
   score_margin: 0.08                # ...and neither is one this far below the best match, which drops the weak tail of a short list
   max_tracked_symbols: 30
