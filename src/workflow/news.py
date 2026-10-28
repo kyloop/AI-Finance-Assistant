@@ -14,7 +14,9 @@ _STOPWORDS = set("""a an the and or of on in at to for from with about around in
 what whats what's how when where who which any anything some there their they them me my you your i we us do does did has have had
 can could would should will tell show give get grab pull fetch check see know find latest recent recently lately new newest news headline headlines
 story stories article articles update updates happening happened going said saying been being today now currently right
-stock stocks share shares price prices quote quotes market markets ticker company companies please just also more other""".split())
+stock stocks share shares price prices quote quotes market markets ticker company companies please just also more other
+summarize summarise summarized summary summaries recap roundup overview brief briefing rundown digest highlights top main biggest
+am provide want wants wanted like looking interested need needs only general overall earlier earliest""".split())
 _CASHTAG = re.compile(r"\$([A-Z]{1,5})\b")
 _TICKER_NEWS = re.compile(r"\b([A-Z]{2,5})\s+(?:news|headlines?|stock|shares)\b|\b(?:news|headlines?|latest|updates?)\s+(?:on|about|for)\s+([A-Z]{2,5})\b")
 _DAYS = [(r"\btoday\b|\bthis morning\b|\btonight\b|\blast 24 hours\b", 1), (r"\byesterday\b", 2),

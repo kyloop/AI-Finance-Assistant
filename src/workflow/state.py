@@ -23,6 +23,8 @@ class AgentOutput(TypedDict, total=False):
     choices: list[str]           # need_info: follow-up questions the user can pick
     readings: bool               # need_info: the choices are the calculator's readings of the question, kept as is
     no_results: bool             # answered "nothing found" (news): shown, but not a real answer to follow up on
+    reading: str                 # answered on a guess: how the question was read, shown to the user ("the latest market-wide headlines")
+    alternatives: list[str]      # ...and other readings they can pick instead (clickable choices)
     verbatim: bool               # shown word for word, never rewritten by the LLM (calculator results)
     verified: bool               # the verifier has checked this output; later passes skip it
     researched: bool             # the research node has already looked this up
@@ -42,6 +44,7 @@ class FinanceState(TypedDict, total=False):
     profile: dict
     holdings: list[dict]
     view: dict | None                                      # {tab, selected, watchlist} from the UI
+    screen: dict | None                                    # proofread: the message is about the tab on screen (context.screen)
     saved_goal: dict | None                                # the user's latest plan from the Goals tab
     # router output
     intent: list[str]

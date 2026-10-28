@@ -18,8 +18,9 @@ from src.core.config import get_config
 from src.core.llm import ask_llm, current_llm
 from src.core.market_service import SymbolNotFound
 from src.core.portfolio_data import portfolio_history, portfolio_instruments
-from src.core.tavily import WebSearchUnavailable, web_search, web_search_enabled
+from src.core.tavily import WebSearchUnavailable, web_news, web_news_enabled, web_search, web_search_enabled
 from src.kb.wiki import WikiUnavailable
+from src.rag import markets as MK
 
 from . import calc as CALC
 from . import calc_pipeline as CP
@@ -78,7 +79,10 @@ PROOFREAD_SYSTEM = (
     "You are the proofreader in front of a personal-finance assistant. Rewrite the user's latest message with spelling, grammar and "
     "abbreviations fixed, so the agents after you can read it: \"yrs\" -> \"years\", \"mo\" -> \"months\", \"tsla\" -> \"TSLA\", "
     "\"nvdia\" -> \"NVIDIA\", \"wht abt\" -> \"what about\". Keep the meaning, every number and every ticker symbol; never answer "
-    "the message, add facts or drop a request. If a word may be a ticker or name you don't know, leave it unchanged.\n"
+    "the message, add facts or drop a request. If a word may be a ticker or name you don't know, leave it unchanged. "
+    "If the message says what the user does NOT want, rewrite it as what they do want and leave out what they ruled out: "
+    "\"I am not looking for DHSB news. I just want earlier news of today\" -> \"What were the market headlines earlier today?\"; "
+    "\"not Apple, show me Microsoft's price\" -> \"What is Microsoft's stock price?\".\n"
     "You may be given the CONTEXT of the conversation so far (the previous question, its companies, period and figures) and the "
     "RECENT CONVERSATION. If the message continues it, or an earlier question there (it points back with \"it\", \"them\", "
     "\"which\", \"compare to\", \"what about X\", \"what if X is Y\", or leaves out a company, period or figure it relies on), "
@@ -98,6 +102,7 @@ PROOFREAD_SYSTEM = (
     "only from the message, the CONTEXT or the RECENT CONVERSATION.\n"
     'Reply with ONLY JSON: {"question": "<the corrected message>", "follow_up": true}')
 _TICKER_TOKEN = re.compile(r"\b[A-Z]{2,5}\b")
+_NAME_WORD = re.compile(r"\b[A-Z][A-Za-z&.\-]+")          # a capitalised word: a ticker or a name the rewrite must not invent
 _NUMBER = re.compile(r"\d+(?:\.\d+)?")
 _THOUSANDS = re.compile(r"(?<=\d),(?=\d{3}\b)")         # "$20,000" and "$20000" are the same number
 PROOFREAD_MAX_CHARS = 500                  # longer messages go to the router as typed
@@ -113,7 +118,8 @@ def _proofread_ok(original: str, fixed: str, ctx: dict | None = None, recent: st
     original, fixed = _THOUSANDS.sub("", original), _THOUSANDS.sub("", fixed)
     if any(n not in fixed for n in _NUMBER.findall(original)):
         return False
-    if any(t not in fixed for t in _TICKER_TOKEN.findall(original) if not original.isupper()):
+    ruled_out = SYM.excluded(original)                    # "not looking for DHSB news": the rewrite may drop DHSB
+    if any(t not in fixed for t in _TICKER_TOKEN.findall(original) if not original.isupper() and t.lower() not in ruled_out):
         return False
     if ctx is not None:
         known = _THOUSANDS.sub("", f"{original} {CTX.describe(ctx)} {recent}").upper()
@@ -122,6 +128,9 @@ def _proofread_ok(original: str, fixed: str, ctx: dict | None = None, recent: st
                 and set(_NUMBER.findall(fixed)) <= set(_NUMBER.findall(known)))     # whole numbers: 9 isn't in 14693.28
     if len(fixed) > 2 * len(original) + 40:
         return False
+    if ruled_out:                                         # "not X, just Y" -> "Y?": a different sentence, so check what it names
+        return not SYM.excluded(fixed) & ruled_out and not any(t.lower() in ruled_out for t in re.findall(r"[\w&.\-]+", fixed)) \
+            and all(w.lower() in original.lower() for w in _NAME_WORD.findall(fixed.split(" ", 1)[-1]))
     return difflib.SequenceMatcher(None, original.lower(), fixed.lower()).ratio() >= 0.5
 
 
@@ -145,14 +154,25 @@ def proofread_node(state: FinanceState, config: RunnableConfig):
     a follow-up into a complete question from the previous answer's context ("compare to starbucks" -> "Compare TSLA and
     Starbucks over the last month"). The rewrite replaces `question` for every later node; `original_question` keeps what
     the user typed. `follow_up` tells the router and agents to carry the context's companies, period and figures over.
-    Without an LLM the message is kept and a follow-up is recognised by its wording (context.looks_like_follow_up)."""
+    Without an LLM the message is kept and a follow-up is recognised by its wording (context.looks_like_follow_up).
+    A message about what is on screen after a tab switch ("what about this?") is not a follow-up: `screen` says what it means."""
     q, ctx = state["question"], state.get("context_in") or None
-    base = {"original_question": q, "follow_up": bool(ctx or state.get("history")) and CTX.looks_like_follow_up(q)}
+    on_screen = CTX.screen(state, q)
+    base = {"original_question": q, "screen": on_screen,
+            "follow_up": not on_screen and bool(ctx or state.get("history")) and CTX.looks_like_follow_up(q)}
     note = " (follow-up: carrying the earlier context)" if base["follow_up"] else ""
+    if on_screen:
+        note = f" (about {on_screen['label']}" + (f"; switched from the {on_screen['switched']} tab)" if on_screen["switched"] else ")")
+        ctx = None
     if not get_config()["workflow"].get("proofread", True) or current_llm() is None:
         return {**base, "trace": [("proofread: skipped (no LLM)" if current_llm() is None else "proofread: off") + note]}
     if R.is_gibberish(q) or len(q) > PROOFREAD_MAX_CHARS:
         return {**base, "trace": ["proofread: left as typed" + note]}
+    if on_screen:                                    # spelling only: the earlier conversation must not fill in "this"
+        fixed = (_proofread_reply(q, None, "") or (q, False))[0]
+        if fixed == q or not _proofread_ok(q, fixed):
+            return {**base, "trace": ["proofread: no changes" + note]}
+        return {**base, "question": fixed, "trace": [f"proofread: “{q}” → “{fixed}”{note}"]}
     recent = H.transcript(state.get("history"))
     got = _proofread_reply(q, ctx, recent)
     if got is None:
@@ -239,35 +259,87 @@ def _with_listed_tickers(intents: list[str], text: str) -> list[str]:
 
 
 SHORT_QUESTION_WORDS = 12
+_MARKET_STATE = re.compile(r"\b(doing|performing|trading|status|price|prices|rate|rates|quote|level|up|down|today|now|worth)\b", re.I)
+
+
+def _with_market_words(intents: list[str], text: str) -> list[str]:
+    """Without an LLM: a short question about a market's current state ("how is the yen doing today?", "gold price") needs the
+    market agent, not Q&A; "what is forex?" stays a concept question."""
+    if intents != ["qa"] or len(text.split()) > SHORT_QUESTION_WORDS or not _MARKET_STATE.search(text) or not MK.in_text(text):
+        return intents
+    return ["market"]
 
 
 def _routed(res: dict, state: FinanceState) -> dict:
-    """Add the companies a market or news question is about. Resolved once here, with the conversation, so "nvdia" is corrected to
-    NVIDIA and "them" means the company discussed earlier; the market and news agents both read `entities["companies"]`."""
+    """Add what a market or news question is about: its companies, markets ("forex", "gold"), topic and what it rules out. Found
+    once here, with the conversation, so "nvdia" is corrected to NVIDIA and "them" means the company discussed earlier; the market
+    and news agents read `entities["companies"]`, `["markets"]`, `["topic"]` and `["excluded"]`."""
     e = res["entities"]
-    if {"market", "news"} & set(res["intent"]) and not (e["tickers"] or e["indices"]):
-        e["companies"] = SYM.resolve(state["question"], history=state.get("history"))
+    if not {"market", "news"} & set(res["intent"]):
+        e["tickers"] = [t for t in e["tickers"] if t.lower() not in SYM.excluded(state["question"])]
+        return res
+    known = bool(e["tickers"] or e["indices"])                # the router's own list named them: no model call needed
+    subj = SYM.subjects(state["question"], use_llm=not known, history=state.get("history"))
+    ruled_out = subj["excluded"] | SYM.excluded(state.get("original_question") or "")     # the proofreader may have dropped it
+    e["tickers"] = [t for t in e["tickers"] if t.lower() not in ruled_out]     # "not looking for DHSB news"
+    e.update(markets=subj["markets"], topic=subj["topic"], excluded=sorted(ruled_out))
+    if not known:
+        e["companies"] = subj["companies"]
         if e["companies"]:
             res["trace"] = [*res["trace"], "resolved " + ", ".join(_resolved_label(c) for c in e["companies"])]
+    if e["markets"]:
+        res["trace"] = [*res["trace"], "markets: " + ", ".join(_market_label(m) for m in e["markets"])]
     return _with_carried_companies(res, state)
 
 
+def _market_label(m: dict) -> str:
+    return f"{m['name']} ({m['symbol']})" if m["symbol"] else f"{m['name']} (all {m['group']})"
+
+
+def _carried_markets(prev: dict) -> list[dict]:
+    """The previous answer's markets, rebuilt from their saved keys (a market dropped from markets.yaml since is skipped)."""
+    out = []
+    for m in prev.get("markets") or []:
+        key = m["key"]
+        try:
+            out.append(MK.group(key.removeprefix("group:")) if key.startswith("group:") else MK.market(key))
+        except (KeyError, TypeError):
+            continue
+    return out
+
+
 def _with_carried_companies(res: dict, state: FinanceState) -> dict:
-    """A follow-up uses the companies the previous answer was about: all of them when it names none ("which did better?"),
-    and alongside the new one when it compares or adds ("compare to Starbucks", "news on MSFT too?")."""
+    """A follow-up uses the companies and markets the previous answer was about: all of them when it names none ("which did
+    better?", "any news on it?"), and alongside the new one when it compares or adds ("compare to Starbucks", "news on MSFT too?")."""
     prev, e = CTX.carried(state), res["entities"]
-    if not prev.get("companies") or not {"market", "news"} & set(res["intent"]):
+    if not (prev.get("companies") or prev.get("markets")) or not {"market", "news"} & set(res["intent"]):
         return res
-    new = e.get("companies") or []
-    have = {*e["tickers"], *e["indices"], *(c["symbol"] for c in new)}
+    new, new_markets = e.get("companies") or [], e.get("markets") or []
+    have = {*e["tickers"], *e["indices"], *(c["symbol"] for c in new), *(m["key"] for m in new_markets)}
     if have and not CTX.ADDS_TO.search(state["question"]):
         return res
-    add = [{**c, "mention": "(earlier)"} for c in prev["companies"] if c["symbol"] not in have]
+    ruled_out = set(e.get("excluded") or ()) | SYM.excluded(state["question"])
+    add = [{**c, "mention": "(earlier)"} for c in prev.get("companies") or [] if c["symbol"] not in have and not SYM.is_excluded(c, ruled_out)]
     add = add[:max(0, CTX.MAX_COMPANIES - len(have))]
     if add:
         e["companies"] = [*add, *new]
         res["trace"] = [*res["trace"], "from the previous answer: " + ", ".join(c["symbol"] for c in add)]
+    markets = [m for m in _carried_markets(prev) if m["key"] not in have and not SYM._ruled_out_market(m, ruled_out)]
+    if markets:
+        e["markets"] = [*markets, *new_markets][:CTX.MAX_COMPANIES]
+        res["trace"] = [*res["trace"], "markets from the previous answer: " + ", ".join(m["name"] for m in markets)]
     return res
+
+
+def _with_screen(intents: list[str], state: FinanceState) -> list[str]:
+    """A message about the tab on screen also goes to the agent that reads it (portfolio, goal, market). A short one
+    ("what about this?", "explain this") the router could only call Q&A goes to that agent alone."""
+    on_screen = state.get("screen")
+    if not on_screen:
+        return intents
+    if set(intents) <= {"qa"} and len(state["question"].split()) <= CTX.SCREEN_SHORT_WORDS:
+        return list(on_screen["intents"])
+    return list(dict.fromkeys([*intents, *on_screen["intents"]]))
 
 
 def router_node(state: FinanceState, config: RunnableConfig):
@@ -285,9 +357,13 @@ def _route(state: FinanceState) -> dict:
                 "trace": [f"router: asks to change something ({write}) → read_only guard"]}
     if R.is_gibberish(text):
         return {"intent": ["clarify"], "entities": entities, "router_mode": "keywords", "trace": ["router: no words found → clarify"]}
+    on_screen = state.get("screen")
+    if on_screen and on_screen["symbol"]:            # "how does this compare to MSFT?" on AAPL: both
+        entities["tickers"] = list(dict.fromkeys([on_screen["symbol"], *entities["tickers"]]))
     if current_llm() is not None:
-        recent = H.transcript(state.get("history"))
-        reply = ask_llm(ROUTER_SYSTEM, f"Recent conversation:\n{recent or '(none)'}\n\nMessage: {text}")
+        recent = "" if on_screen else H.transcript(state.get("history"))
+        shown = f"On screen: {on_screen['label']}; \"this\" and \"here\" in the message mean it.\n\n" if on_screen else ""
+        reply = ask_llm(ROUTER_SYSTEM, f"{shown}Recent conversation:\n{recent or '(none)'}\n\nMessage: {text}")
         parsed = R.parse_llm_intents(reply) if reply else None
         if parsed:
             intents, confidence = parsed
@@ -296,10 +372,10 @@ def _route(state: FinanceState) -> dict:
             if "read_only" in intents:
                 return {"intent": ["read_only"], "entities": {**entities, "write_request": "data"}, "router_mode": "llm",
                         "trace": ["router (LLM): asks to change something → read_only guard"]}
-            intents = _with_listed_tickers(intents, text)
+            intents = _with_screen(_with_listed_tickers(intents, text), state)
             return _routed({"intent": intents, "entities": entities, "router_mode": "llm", "trace": [f"router (LLM): {', '.join(intents)}"]}, state)
         log.warning("router LLM reply unusable; falling back to keywords")
-    intents = _with_listed_tickers(R.classify(text), text)
+    intents = _with_screen(_with_listed_tickers(_with_market_words(R.classify(text), text), text), state)
     if intents == ["qa"] and CTX.carried(state).get("companies"):                 # "which did better?" after a market answer
         intents = ["market"]
     return _routed({"intent": intents, "entities": entities, "router_mode": "keywords", "trace": [f"router (keywords): {', '.join(intents)}"]}, state)
@@ -390,12 +466,13 @@ MARKET_ASK = ("I couldn't tell which company or ticker you mean. Tell me the com
 
 
 def _view_symbols(state: FinanceState) -> list[str]:
-    """Symbols the user means without naming them: "my watchlist", or "this stock" while one is selected on the Live tab."""
+    """Symbols the user means without naming them: "my watchlist", or "this stock" while one is selected on the Market,
+    Research or Live tab."""
     view, q = state.get("view") or {}, state["question"]
     valid = lambda syms: [s for s in dict.fromkeys(str(x).strip().upper() for x in syms if x) if SYMBOL_OK.match(s)]  # noqa: E731
     if re.search(r"\b(watchlist|watching|tracking|following)\b", q, re.I):
         return valid(view.get("watchlist") or [])
-    if view.get("selected") and re.search(r"\b(this|it|that|selected|current)\b", q, re.I):
+    if view.get("selected") and re.search(r"\b(this|selected|current)\b", q, re.I):     # not "it"/"that": they usually mean something else
         return valid([view["selected"]])
     return []
 
@@ -434,7 +511,8 @@ def _llm_fetch(llm, state: FinanceState, db, symbols: list[str], period: tuple[d
     cfg = get_config()["workflow"]
     max_calls, rounds = int(cfg.get("market_tool_calls", 4)), int(cfg.get("market_tool_rounds", 1))
     names = {c["symbol"]: c.get("name") for c in state["entities"].get("companies") or []}
-    about = [f"Companies: {', '.join(f'{names[s]} ({s})' if names.get(s) else s for s in symbols)}"]
+    names.update({s: m["name"] if m["symbol"] else f"{m['name']}: {s}" for m in state["entities"].get("markets") or [] for s in m["quotes"]})
+    about = [f"Companies and markets: {', '.join(f'{names[s]} ({s})' if names.get(s) else s for s in symbols)}"]
     if period:
         about.append(f"Period the conversation is about: {period[1]}")
     if known := CTX.describe(state.get("context_in")):
@@ -512,7 +590,9 @@ def market_node(state: FinanceState, config: RunnableConfig):
     view_syms = _view_symbols(state) if not symbols else []
     symbols = symbols or view_syms
     named = e.get("companies") or []        # "price of Palantir": looked up on Yahoo by the router; or carried from the previous answer
-    symbols = list(dict.fromkeys([*symbols, *(r["symbol"] for r in named)]))
+    markets = e.get("markets") or []        # "how is gold doing?": GC=F; "forex": the group's main pairs
+    market_syms = [s for m in markets for s in m["quotes"]]
+    symbols = list(dict.fromkeys([*symbols, *(r["symbol"] for r in named), *market_syms]))
     if not symbols and _PRICE_ASK.search(state["question"]):                      # a quote for something we can't identify: ask, don't research
         return _out("market", MARKET_ASK, status="need_info", confidence="low", trace="market: price asked for, but no company or ticker recognised → ask")
     if not symbols:                        # a market concept rather than a quote: look it up
@@ -541,7 +621,9 @@ def market_node(state: FinanceState, config: RunnableConfig):
                trace=f"market ({how}): " + "; ".join(notes))
     res["market_data"] = data
     used = next((d["period"] for d in data.values() if "period" in d), None)
-    res["turn_context"] = {"companies": [{"symbol": s, "name": MT._name(d, s)} for s, d in data.items() if "error" not in d or len(d) > 1][:CTX.MAX_COMPANIES],
+    res["turn_context"] = {"companies": [{"symbol": s, "name": MT._name(d, s)} for s, d in data.items()
+                                         if ("error" not in d or len(d) > 1) and s not in market_syms][:CTX.MAX_COMPANIES],
+                           "markets": [{"key": m["key"], "name": m["name"]} for m in markets],
                            "facts": _key_facts(data),
                            **({"period": {"start": used["start"], "label": used["label"]}} if used else
                               {"period": {"start": period[0].isoformat(), "label": period[1]}} if period else {})}
@@ -549,6 +631,9 @@ def market_node(state: FinanceState, config: RunnableConfig):
 
 
 NEWS_LIVE_MAX = 6
+NEWS_MARKET_READING = "the latest market-wide headlines, not news about any particular company"
+NEWS_MARKET_ALTERNATIVES = ["What's in the news about interest rates and the Fed this week?",
+                            "What's the latest technology sector news?", "What moved the stock market this week?"]
 
 
 def _news_none(days: int, tried: list[str], trace: str, *, unavailable: bool = False) -> dict:
@@ -558,14 +643,17 @@ def _news_none(days: int, tried: list[str], trace: str, *, unavailable: bool = F
     else:
         did = "; ".join(tried)
         msg = (f"I looked, and found no news matching that from the last {days} days ({did}). "
-               "If you name a company or ticker, for example “news on NVDA”, I can pull its latest headlines.")
+               "If you name a company, ticker or market, for example “news on NVDA” or “forex news”, I can pull its latest headlines.")
     return _out("news", msg, confidence="low", verbatim=True, no_results=True, trace=trace)
 
 
+NEWS_FEEDS_MAX = 4               # feeds fetched for one question (a market group has up to four news terms)
+
+
 def _live_envs(db, tickers: list[str]) -> list[tuple[str | None, dict]]:
-    """Live (5-minute cached) headline feeds for the named tickers, or the market feed when there are none."""
+    """Live (5-minute cached) headline feeds for the named tickers and market news terms, or the market feed when there are none."""
     envs = []
-    for sym in tickers[:3] or [None]:
+    for sym in tickers[:NEWS_FEEDS_MAX] or [None]:
         try:
             envs.append((sym, news_latest(db, sym)))
         except SymbolNotFound:
@@ -627,26 +715,40 @@ def news_node(state: FinanceState, config: RunnableConfig):
     cached feed; a question with a topic or a date range is answered from the indexed stories, and if none of that ticker's are indexed
     yet its headlines are fetched live, indexed on the spot and searched again. Only then does it say nothing was found, and it says
     what it tried. It never falls through to the Wikipedia research step."""
-    text, tried = state["question"], []                      # the proofread question: corrected, and completed for a follow-up
-    tickers = [t for t in NEWS.tickers_in(text, state["entities"]) if SYMBOL_OK.match(t)]
-    resolved = state["entities"].get("companies") or []      # looked up by the router, or carried from the previous answer
+    text, tried, e = state["question"], [], state["entities"]   # the proofread question: corrected, and completed for a follow-up
+    ruled_out = set(e.get("excluded") or ()) | SYM.excluded(text)     # "not looking for DHSB news": neither the ticker nor the topic
+    text = SYM.without_excluded(text)
+    tickers = [t for t in NEWS.tickers_in(text, e) if SYMBOL_OK.match(t) and t.lower() not in ruled_out]
+    resolved = e.get("companies") or []                      # looked up by the router, or carried from the previous answer
+    markets = e.get("markets") or []                         # "forex", "gold": fetched by their news terms
     if resolved:
         tickers = list(dict.fromkeys([*tickers, *(r["symbol"] for r in resolved)]))
-        tried.append("matched " + ", ".join(f"{r['name']} ({r['symbol']})" for r in resolved))
-    tickers = tickers or _view_symbols(state)
-    res = _news_answer(state, config, text, tickers, resolved, tried)
-    if tickers:                                               # so "what about their earnings?" knows who "their" is
+    if resolved or markets:
+        tried.append("matched " + ", ".join([*(f"{r['name']} ({r['symbol']})" for r in resolved), *(_market_label(m) for m in markets)]))
+    if not markets:
+        tickers = tickers or [t for t in _view_symbols(state) if t.lower() not in ruled_out]
+    res = _news_answer(state, config, text, tickers, resolved, markets, tried)
+    if tickers or markets:                                    # so "what about their earnings?" knows who "their" is
         names = {r["symbol"]: r.get("name") or r["symbol"] for r in resolved}
-        res["turn_context"] = {"companies": [{"symbol": t, "name": names.get(t, t)} for t in tickers[:CTX.MAX_COMPANIES]]}
+        res["turn_context"] = {"companies": [{"symbol": t, "name": names.get(t, t)} for t in tickers[:CTX.MAX_COMPANIES]],
+                               "markets": [{"key": m["key"], "name": m["name"]} for m in markets]}
     return res
 
 
-def _news_answer(state: FinanceState, config: RunnableConfig, text: str, tickers: list[str], resolved: list[dict], tried: list[str]) -> dict:
+def _news_answer(state: FinanceState, config: RunnableConfig, text: str, tickers: list[str], resolved: list[dict], markets: list[dict],
+                 tried: list[str]) -> dict:
+    """Companies are fetched by ticker and markets by their news terms ("feeds"); stored stories are searched by ticker and by
+    market tag. The model's topic is used when there is one ("" = just the latest); without an LLM it is read from the words."""
     cfg, steps = get_config()["news_index"], []
-    label = ", ".join(tickers[:3]) if tickers else "the market"
-    if tickers and NEWS.asks_about_sector(text):
+    label = ", ".join([*tickers[:3], *(m["name"] for m in markets)][:4]) or "the market"
+    if tickers and not markets and NEWS.asks_about_sector(text):
         return _sector_news(tickers[0], config, steps)
-    topic = NEWS.topic_words(text, tickers, [x for r in resolved for x in (r["mention"], r["name"])])
+    feeds = list(dict.fromkeys([*tickers, *(t for m in markets for t in m["news"])]))
+    tags = list(dict.fromkeys([*tickers, *(t for m in markets for t in MK.search_tags(m))]))
+    llm_topic = state["entities"].get("topic")
+    mentions = [x for r in resolved for x in (r["mention"], r["name"])] + [w for m in markets for w in MK.words(m)]
+    topic = llm_topic.split() if llm_topic is not None else NEWS.topic_words(text, tickers, mentions)
+    query = llm_topic or text                                       # the model's topic phrase searches better than the whole question
     days = NEWS.time_window(text, cfg["retention_days"]) or cfg["default_days"]
     db = _db(config)
     if db is None:
@@ -654,39 +756,66 @@ def _news_answer(state: FinanceState, config: RunnableConfig, text: str, tickers
     envs = None
     if not topic:
         with DBSession(bind=db.get_bind(), autoflush=False, expire_on_commit=False) as own:     # agents run in parallel threads; a Session isn't shareable
-            envs = _live_envs(own, tickers)
+            envs = _live_envs(own, feeds)
         live = _live_news(envs, label)
         if live:
             live["trace"] = steps + live["trace"]
+            if not feeds:                                         # no company or market named or carried: say so rather than pick one
+                live["agent_outputs"]["news"].update(reading=NEWS_MARKET_READING, alternatives=NEWS_MARKET_ALTERNATIVES)
             return live
         tried.append(_fetched_note(envs, label))
     try:
-        hits = _relevant_news(text, tickers, days)
-        tried.append("searched the indexed stories" + (f" for {label}" if tickers else ""))
-        if not hits and tickers:                                  # not indexed yet: fetch the headlines now, index them, search again
+        hits = _relevant_news(query, tags, days)
+        tried.append("searched the indexed stories" + (f" for {label}" if tags else ""))
+        if not hits and feeds:                                    # not indexed yet: fetch the headlines now, index them, search again
             if envs is None:
                 with DBSession(bind=db.get_bind(), autoflush=False, expire_on_commit=False) as own:
-                    envs = _live_envs(own, tickers)
+                    envs = _live_envs(own, feeds)
                 tried.append(_fetched_note(envs, label))
             added = sum(news_index_now(sym, env["data"]["items"]) for sym, env in envs if sym and env["data"]["items"])
             steps.append(f"news_latest({label}) → {sum(len(e['data']['items']) for _, e in envs)} stories, {added} newly indexed")
-            hits = _relevant_news(text, tickers, days)
+            hits = _relevant_news(query, tags, days)
     except Exception as e:  # noqa: BLE001 — a broken index must not break chat
         log.warning("news search failed: %s", e)
         return _news_none(days, tried, f"news_search → failed ({type(e).__name__})", unavailable=True)
+    web = []
+    if len(hits) < cfg.get("web_min_stories", 3) and web_news_enabled():        # too little in the index and on Yahoo: the web
+        web = _web_stories(" ".join(x for x in (label if feeds else "", llm_topic or text) if x), days, feeds, hits, steps, tried)
+        hits = (hits + web)[:cfg["top_k"]]
     if not hits:
-        fallback = _live_news(envs, label, f"I found no stories about that specifically in the last {days} days. ") if envs and tickers else None
+        fallback = _live_news(envs, label, f"I found no stories about that specifically in the last {days} days. ") if envs and feeds else None
         if fallback:                                              # the feed has stories, just none on this topic: show them, labelled
             fallback["confidence"] = "medium"
             fallback["trace"] = steps + [f"news_search({days}d, {label}) → no relevant stories; showing the latest headlines"]
             return fallback
         return _news_none(days, tried, "; ".join(steps + [f"news_search({days}d, {label}) → no relevant stories"]))
     fetched = datetime.fromtimestamp(max(h.get("ingested_at") or 0 for h in hits), timezone.utc).isoformat()
-    body = f"Stories from the last {days} days that match the question (Yahoo Finance headlines and short summaries):\n" + "\n".join(NEWS.format_story(h) for h in hits)
+    where = "Yahoo Finance and web news search" if web else "Yahoo Finance"
+    body = f"Stories from the last {days} days that match the question ({where} headlines and short summaries):\n" + "\n".join(NEWS.format_story(h) for h in hits)
     return _out("news", body, sources=[NEWS.story_source(h) for h in hits],
-                data_info={"provider": "yfinance", "fetched_at": fetched, "freshness": "cached"},
-                confidence="high" if hits[0]["score"] >= cfg["min_score"] + 0.1 else "medium",
+                data_info={"provider": "yfinance+tavily" if web else "yfinance", "fetched_at": fetched, "freshness": "cached"},
+                confidence="medium" if web else "high" if hits[0]["score"] >= cfg["min_score"] + 0.1 else "medium",
                 trace="; ".join(steps + [f"news_search({days}d, {label}) → {len(hits)} stories, best {hits[0]['score']:.2f}"]))
+
+
+def _web_stories(query: str, days: int, feeds: list[str], have: list[dict], steps: list[str], tried: list[str]) -> list[dict]:
+    """Recent articles from Tavily's news search that the index and Yahoo didn't have, indexed under the first feed (so the next
+    question finds them without another paid search). Never raises: a failed web search just adds nothing."""
+    try:
+        found = web_news(query, days)
+    except WebSearchUnavailable as e:
+        steps.append(f"web_news → unavailable ({e})")
+        return []
+    seen = {h.get("url") for h in have}
+    new = [{**w, "ingested_at": datetime.now(timezone.utc).timestamp()} for w in found if w["url"] not in seen]
+    tried.append("searched web news")
+    if new:
+        try:
+            news_index_now(feeds[0] if feeds else None, new)
+        except Exception:  # noqa: BLE001 — indexing is best-effort
+            log.warning("could not index web news stories", exc_info=True)
+    steps.append(f"web_news({query!r}, {days}d) → {len(new)} new stories")
+    return new
 
 
 def _signed_usd(n: float) -> str:
@@ -1116,10 +1245,14 @@ def replan_node(state: FinanceState, config: RunnableConfig):
            "trace": [f"replan {n}/{limit}: " + (f"{', '.join(intents)}" + (f" ({reason})" if reason else "")
                                                if intents else "no other agent can supply what is missing")]}
     e = state.get("entities") or {}
-    if {"market", "news"} & set(intents) and not (e.get("tickers") or e.get("indices") or e.get("companies")):
-        res["entities"] = {**e, "companies": SYM.resolve(state["question"], history=state.get("history"))}   # as the router does
-        if res["entities"]["companies"]:
-            res["trace"].append("resolved " + ", ".join(_resolved_label(c) for c in res["entities"]["companies"]))
+    if {"market", "news"} & set(intents) and not (e.get("tickers") or e.get("indices") or e.get("companies") or e.get("markets")):
+        subj = SYM.subjects(state["question"], history=state.get("history"))           # as the router does
+        res["entities"] = {**e, "companies": subj["companies"], "markets": subj["markets"], "topic": subj["topic"],
+                           "excluded": sorted(subj["excluded"])}
+        if subj["companies"]:
+            res["trace"].append("resolved " + ", ".join(_resolved_label(c) for c in subj["companies"]))
+        if subj["markets"]:
+            res["trace"].append("markets: " + ", ".join(_market_label(m) for m in subj["markets"]))
     return res
 
 
@@ -1162,6 +1295,11 @@ SYNTH_SYSTEM = (
     "(it is added separately). Keep any figures exactly as given.")
 
 
+READING_NOTE = "_I took this as {}. If you meant something else, pick an option below or name the company or topic._"
+SCREEN_NOTE = ("_I took this as {}, since you switched from the {} tab. If you meant what we discussed before, "
+               "name it (for example “my portfolio” or the ticker)._")
+
+
 def synthesizer_node(state: FinanceState, config: RunnableConfig):
     """Writes the reply from `answered` outputs only. Follow-up questions and "couldn't find" messages are passed through
     word for word, never rewritten, so the model can't turn "I need more details" into an invented answer."""
@@ -1191,6 +1329,13 @@ def synthesizer_node(state: FinanceState, config: RunnableConfig):
             if reply:
                 text, mode = reply, "llm"
         text = "\n\n".join(t for t in [text] + [o["content"] for o in exact] if t)
+        readings = [o for o in answered if o.get("reading")]       # answered on a guess: say how it was read, never left to the LLM
+        if readings:
+            text += "\n\n" + "\n".join(READING_NOTE.format(o["reading"]) for o in readings)
+            choices = choices or list(dict.fromkeys(c for o in readings for c in o.get("alternatives") or []))[:3]
+        on_screen = state.get("screen") or {}
+        if on_screen.get("switched"):                               # the tab, not the earlier answer, decided what "this" meant: say so
+            text += "\n\n" + SCREEN_NOTE.format(on_screen["label"], on_screen["switched"])
         if asks:
             text += "\n\n" + "\n\n".join(o["content"] for o in asks)
     elif asks:

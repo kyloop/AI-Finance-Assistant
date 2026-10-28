@@ -15,6 +15,7 @@ from src.db.models import Holding, MarketCache, Portfolio, Session as UserSessio
 from src.db.session import make_engine
 from src.rag import news as news_index
 from src.workflow import news as NEWS
+from src.workflow import nodes as NODES
 from src.workflow import router as R
 from src.workflow.graph import run_chat
 from src.workflow.nodes import route_after_router
@@ -103,6 +104,31 @@ def test_market_news_uses_the_market_feed(db, monkeypatch):
     assert calls == ["MARKET"] and "Stocks rally" in s["final_response"] and "headlines for the market" in s["final_response"]
 
 
+def test_summarize_the_news_reads_as_market_headlines_and_offers_other_readings(db, monkeypatch):
+    calls = fake_feed(monkeypatch, {"MARKET": [story(1, "Stocks rally on Fed hopes")]})
+    set_news_searcher(lambda *a: pytest.fail("'summarize' is phrasing, not a topic to search for"))
+    s = ask("summarize the news today. or the latest?", db)
+    assert calls == ["MARKET"] and "Stocks rally on Fed hopes" in s["final_response"]
+    assert "I took this as the latest market-wide headlines" in s["final_response"] and s["final_response"].endswith(DISCLAIMER)
+    assert s["choices"] == NODES.NEWS_MARKET_ALTERNATIVES and s["answered"] is True
+
+
+def test_named_ticker_is_answered_without_a_reading_note(db, monkeypatch):
+    fake_feed(monkeypatch, {"NVDA": [story(1, "Nvidia earnings beat")]})
+    s = ask("What's the latest news on NVDA?", db)
+    assert "I took this as" not in s["final_response"] and s["choices"] == []
+
+
+def test_selected_stock_is_not_assumed_from_it_or_that(db, monkeypatch):
+    calls = fake_feed(monkeypatch, {"MARKET": [story(1, "Stocks rally")], "NVDA": [story(2, "Nvidia earnings beat")]})
+    view = {"tab": "Live", "selected": "NVDA"}
+    for q in ("What's the latest on that?", "Any news about it today?"):
+        ask(q, db, view=view)
+    assert "NVDA" not in calls and "MARKET" in calls
+    ask("Any news on this one?", db, view=view)
+    assert calls[-1] == "NVDA"
+
+
 def test_topic_question_searches_the_index_with_filters(db):
     seen = {}
 
@@ -166,7 +192,14 @@ def test_ingest_dedupes_and_merges_tickers(index):
     assert news_index.ingest("MARKET", [a, story(2, "Fed holds rates steady")], client=index) == 2
     assert news_index.ingest("NVDA", [a], client=index) == 0                       # same story: not added again
     got = {h["story_id"]: h for h in news_index.search(index, "export curbs", days=7, k=5)}
-    assert set(got) == {"s1", "s2"} and got["s1"]["tickers"] == ["NVDA"] and got["s2"]["tickers"] == []
+    assert set(got) == {"s1", "s2"} and got["s1"]["tickers"] == ["NVDA", "market:us_indices"] and got["s2"]["tickers"] == ["market:us_indices"]
+
+
+def test_market_stories_are_tagged_with_their_term_and_group(index):
+    assert news_index.ingest("JPY=X", [story(1, "Yen slides as BOJ holds")], client=index) == 1
+    assert news_index.ingest("DXY", [story(1, "Yen slides as BOJ holds")], client=index) == 0
+    got = news_index.search(index, "yen", tickers=["market:forex"], days=7, k=5)
+    assert [h["story_id"] for h in got] == ["s1"] and got[0]["tickers"] == ["DXY", "JPY=X", "market:forex"]
 
 
 def test_search_filters_by_ticker_and_date_and_ranks_by_meaning(index):
@@ -207,11 +240,12 @@ def test_tracked_symbols_cover_market_holdings_and_recent_views(db):
     db.add(UserSession(id="u1"))
     db.add(Portfolio(id=1, session_id="u1"))
     db.add(Holding(portfolio_id=1, ticker="VTI", shares=1))
-    for sym, ep, age in (("AAPL", "quote", 1), ("TSLA", "news", 2), ("OLD", "quote", 30), ("^GSPC", "quote", 0), ("MSFT", "history", 0)):
+    for sym, ep, age in (("AAPL", "quote", 1), ("TSLA", "news", 2), ("OLD", "quote", 30), ("^GSPC", "quote", 0), ("MSFT", "history", 0),
+                         ("DX-Y.NYB", "quote", 3), ("EURGBP=X", "quote", 3), ("^TNX", "quote", 4)):
         db.add(MarketCache(key=f"{sym}{ep}", provider="yfinance", symbol=sym, endpoint=ep, payload={}, fetched_at=now - timedelta(days=age),
                            expires_at=now))
     db.commit()
-    assert news_index.tracked_symbols(db) == ["MARKET", "VTI", "AAPL", "TSLA"]
+    assert news_index.tracked_symbols(db) == ["MARKET", "VTI", "AAPL", "TSLA", "DXY", "^TNX"]      # markets by news term; EUR/GBP has none
 
 
 # ---- finding companies and tickers with tools ---------------------------------------------------------------
@@ -281,7 +315,7 @@ def test_nothing_anywhere_says_what_was_tried(db, monkeypatch):
     set_news_searcher(lambda *a: [])
     s = ask("what has been said about lunar mining this week", db)
     assert "found no news matching that" in s["final_response"] and "searched the indexed stories" in s["final_response"]
-    assert "name a company or ticker" in s["final_response"] and s["answered"] is False
+    assert "name a company, ticker or market" in s["final_response"] and s["answered"] is False
     s = ask("latest news on ZZZZ", db)                                           # a ticker with no feed: the fetch is reported too
     assert "Yahoo returned no headlines for ZZZZ" in s["final_response"]
 
@@ -368,6 +402,20 @@ def test_news_falls_back_to_yahoo_search_when_the_ticker_feed_is_empty(monkeypat
     assert out[0]["published"].endswith("Z") and out[0]["url"] == "https://x.test/u1" and out[0]["thumbnail"] == "https://img/1"
 
 
+def test_news_asks_yahoo_search_first_and_skips_the_ticker_feed_when_it_answers(monkeypatch):
+    import yfinance
+
+    class Ticker:
+        def get_news(self, count): pytest.fail("the ticker feed is only a fallback")
+
+    class FakeSearch:
+        def __init__(self, query, **kw):
+            self.news = [{"uuid": f"{query}-1", "title": f"{query} story", "link": f"https://x.test/{query}", "providerPublishTime": 1_790_000_000}]
+    monkeypatch.setattr(ms, "_yf_ticker", lambda sym: Ticker())
+    monkeypatch.setattr(yfinance, "Search", FakeSearch)
+    assert [i["title"] for i in ms._yf_news("EURUSD=X")["items"]] == ["EURUSD=X story"]
+
+
 def test_resolved_names_are_saved_and_reused(monkeypatch):
     store = {}
     monkeypatch.setattr(ms, "alias_store", (store.get, store.__setitem__))
@@ -379,3 +427,23 @@ def test_resolved_names_are_saved_and_reused(monkeypatch):
     ms._resolved.clear()                                                            # a restart: only the saved names remain
     assert ms.resolve_symbol("palantir")["symbol"] == "PLTR"
     T.set_directory(None)
+
+
+def test_time_words_are_not_companies():
+    assert SYM.keyword_mentions("summary for earlier news of the day.") == []         # "day" once resolved to DHSB
+    assert SYM.keyword_mentions("latest news of the morning") == []
+
+
+def test_a_company_the_user_rules_out_is_not_looked_up():
+    assert SYM.excluded("I am not looking for DHSB news. I just want earlier news of today") == {"dhsb"}
+    assert SYM.excluded("I don't want Tesla, other than Apple") == {"tesla", "apple"}
+    assert SYM.excluded("Is there no Apple news?") == set()                           # asks for it
+    seen = resolver({"dhsb": {"symbol": "DHSB", "name": "Day Hagan Smart Buffer ETF"}})
+    assert SYM.resolve("I am not looking for DHSB news. I just want earlier news of today") == [] and seen == []
+
+
+def test_ruled_out_ticker_gives_the_market_headlines(db, monkeypatch):
+    calls = fake_feed(monkeypatch, {"MARKET": [story(1, "Stocks rally")], "DHSB": []})
+    set_news_searcher(lambda *a: pytest.fail("'earlier news of today' is not a topic"))
+    s = ask("I am not looking for DHSB news. I just want earlier news of today", db)
+    assert calls == ["MARKET"] and "Stocks rally" in s["final_response"]

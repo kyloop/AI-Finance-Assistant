@@ -14,6 +14,7 @@ import type { ChatView, Message, Profile } from "./types";
 
 const TABS = ["Portfolio", "Market", "Research", "Live", "Goals"] as const;
 type Tab = (typeof TABS)[number];
+const SYMBOL_TABS: readonly Tab[] = ["Market", "Research", "Live"];     // tabs that show one symbol the chat can call "this"
 const DEFAULT_PROFILE: Profile = { knowledge_level: "beginner", risk_tolerance: "moderate", horizon_years: 10 };
 const CHAT_W_KEY = "finnie_chat_w", CHAT_MIN_W = 320, CHAT_DEFAULT_W = 400;
 const chatMaxW = () => Math.max(CHAT_MIN_W, Math.min(1000, window.innerWidth - 480));
@@ -44,7 +45,7 @@ export default function App() {
   const [profileCollapsed, setProfileCollapsed] = useState(() => localStorage.getItem("finnie_profile_collapsed") === "1");
   const [chatW, setChatW] = useState(() => { const n = Number(localStorage.getItem(CHAT_W_KEY)); return n ? clampChatW(n) : CHAT_DEFAULT_W; });
   const drag = useRef<{ x: number; w: number } | null>(null);
-  const [liveSelected, setLiveSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);         // the symbol open on the Market, Research or Live tab
   const [pendingQ, setPendingQ] = useState<string | null>(null);
   const timer = useRef<number>();
   const [flow, flowState] = useFlowRunner();
@@ -75,7 +76,8 @@ export default function App() {
     localStorage.setItem("finnie_conversation", String(id));
   }
   async function startConversation() { if (sid) await openConversation((await api.newConversation(sid)).id); }
-  const getView = (): ChatView => ({ tab, selected: tab === "Live" ? liveSelected : null, watchlist: loadWatchlist() });
+  const shownSymbol = SYMBOL_TABS.includes(tab) ? selected : null;
+  const getView = (): ChatView => ({ tab, selected: shownSymbol, watchlist: loadWatchlist() });
   function toggleChat() {
     setChatOpen((o) => { localStorage.setItem("finnie_chat_open", o ? "0" : "1"); return !o; });
   }
@@ -109,9 +111,9 @@ export default function App() {
         </header>
         <ErrorBanner message={error} />
         {tab === "Portfolio" && <PortfolioTab sid={sid} onAsk={askInChat} />}
-        {tab === "Market" && <MarketTab />}
-        {tab === "Research" && <ResearchTab onAsk={askInChat} />}
-        {tab === "Live" && <LiveTab onSelect={setLiveSelected} />}
+        {tab === "Market" && <MarketTab onSelect={setSelected} />}
+        {tab === "Research" && <ResearchTab onAsk={askInChat} onSelect={setSelected} />}
+        {tab === "Live" && <LiveTab onSelect={setSelected} />}
         {tab === "Goals" && <GoalsTab sid={sid} profile={profile} />}
         <footer className="muted small">{DISCLAIMER}</footer>
       </main>
@@ -120,7 +122,7 @@ export default function App() {
           <div className="chat-resize" role="separator" aria-orientation="vertical" aria-label="Resize chat: drag, or use the left and right arrow keys; double-click to reset"
             aria-valuemin={CHAT_MIN_W} aria-valuemax={chatMaxW()} aria-valuenow={chatW} tabIndex={0} title="Drag to resize · double-click to reset"
             onPointerDown={onDragStart} onPointerMove={onDragMove} onPointerUp={onDragEnd} onPointerCancel={onDragEnd} onKeyDown={onDragKey} onDoubleClick={() => saveChatW(CHAT_DEFAULT_W)}><span /></div>
-          <ChatTab flow={flow} sid={sid} cid={cid} onNew={startConversation} onOpen={openConversation} getView={getView} messages={messages} setMessages={setMessages} initialQuestion={pendingQ} onConsumed={() => setPendingQ(null)} />
+          <ChatTab flow={flow} sid={sid} cid={cid} onNew={startConversation} onOpen={openConversation} getView={getView} screen={shownSymbol ? `${tab} · ${shownSymbol}` : `${tab} tab`} messages={messages} setMessages={setMessages} initialQuestion={pendingQ} onConsumed={() => setPendingQ(null)} />
         </aside>
       )}
     </div>

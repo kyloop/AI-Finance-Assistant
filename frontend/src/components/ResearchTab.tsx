@@ -21,7 +21,7 @@ type SubTab = (typeof SUBTABS)[number];
 const SUBTAB_KEY = "finnie_research_tab";
 
 /** Research: look inside a fund (Fund research) or a company (Stock research). The chosen sub-tab is remembered. */
-export default function ResearchTab({ onAsk }: { onAsk: (q: string) => void }) {
+export default function ResearchTab({ onAsk, onSelect }: { onAsk: (q: string) => void; onSelect?: (symbol: string | null) => void }) {
   const [sub, setSub] = useState<SubTab>(() => {
     try { return (SUBTABS as readonly string[]).includes(localStorage.getItem(SUBTAB_KEY) ?? "") ? localStorage.getItem(SUBTAB_KEY) as SubTab : "Fund research"; }
     catch { return "Fund research"; }
@@ -32,19 +32,20 @@ export default function ResearchTab({ onAsk }: { onAsk: (q: string) => void }) {
       <nav className="subtabs" aria-label="Research">
         {SUBTABS.map((t) => <button key={t} className={t === sub ? "tab active" : "tab"} aria-pressed={t === sub} onClick={() => pick(t)}>{t}</button>)}
       </nav>
-      {sub === "Fund research" ? <FundResearch onAsk={onAsk} /> : <StockResearch onAsk={onAsk} />}
+      {sub === "Fund research" ? <FundResearch onAsk={onAsk} onSelect={onSelect} /> : <StockResearch onAsk={onAsk} onSelect={onSelect} />}
     </section>
   );
 }
 
 /** ETF and mutual-fund research: what a fund holds, what it costs and how it compares with its category (yfinance `funds_data`). */
-function FundResearch({ onAsk }: { onAsk: (q: string) => void }) {
+function FundResearch({ onAsk, onSelect }: { onAsk: (q: string) => void; onSelect?: (symbol: string | null) => void }) {
   const [symbol, setSymbol] = useState("VOO");
   const [input, setInput] = useState("VOO");
   const [env, setEnv] = useState<Envelope<FundProfile> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  useEffect(() => { onSelect?.(symbol || null); }, [symbol, onSelect]);
   useEffect(() => {
     if (!symbol) return;
     let alive = true;

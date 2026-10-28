@@ -1,10 +1,12 @@
 """Conversation context: what a turn worked out, saved with its answer and carried into the next turn.
 
-Each answer stores `{question, intents, companies, period, facts}` (see `build`): the corrected question, the companies
+Each answer stores `{question, intents, companies, markets, tab, period, facts}` (see `build`): the corrected question, the companies
+and markets
 and period the agents used, and the figures they reported. The next turn starts from it instead of re-reading old
 messages: the proofread node rewrites a follow-up ("compare to starbucks") into a complete question with it, and the
 router, market agent and calculator fill what the new message leaves out (`carried`). A message that isn't a
-follow-up starts afresh, so companies and periods don't leak into unrelated questions."""
+follow-up starts afresh, so companies and periods don't leak into unrelated questions. A message that points at the screen
+("what about this?") after the user switched tabs is about the tab they are on, not the earlier answer (`screen`)."""
 from __future__ import annotations
 
 import re
@@ -30,6 +32,44 @@ def carried(state: dict) -> dict:
     return (state.get("context_in") or {}) if state.get("follow_up") else {}
 
 
+# A message that points at what is on screen: "what about this?", "explain this", "how is this stock doing?", "how am I doing?".
+# "that", "it" and "they" are left out: they usually point back at the conversation, not the page.
+_SCREEN_NOUN = r"(stock|share|fund|etf|company|ticker|plan|goal|portfolio|holding|chart|graph|table|page|tab|screen|one|data|number|figure)s?"
+POINTS_AT_SCREEN = re.compile(
+    rf"\b(this|these|current|selected)\s+{_SCREEN_NOUN}\b|"
+    r"\b(this|these)\b(?=\s*([?.!,]|$|\s+(mean|means|say|says|show|shows|tell|is|are|look|looks|doing|going|work|works|"
+    r"good|bad|ok|okay|right|normal|high|low)\b))|"
+    r"\b(here|on screen|how am i doing|am i on track)\b", re.I)
+SCREEN_SHORT_WORDS = 6        # a message this short that points at the screen is only about the screen ("what about this?")
+
+
+def screen_subject(state: dict) -> dict | None:
+    """What the tab the user is on shows, as {intents, label, symbol}; None when it shows nothing the agents can read."""
+    view = state.get("view") or {}
+    tab, symbol = view.get("tab") or "", view.get("selected")
+    if tab == "Portfolio" and state.get("holdings"):
+        return {"intents": ["portfolio"], "label": "your portfolio on the Portfolio tab", "symbol": None}
+    if tab == "Goals" and state.get("saved_goal"):
+        return {"intents": ["goal"], "label": "your saved plan on the Goals tab", "symbol": None}
+    if tab in ("Market", "Research", "Live") and symbol:
+        return {"intents": ["market"], "label": f"{symbol} on the {tab} tab", "symbol": symbol}
+    return None
+
+
+def screen(state: dict, text: str) -> dict | None:
+    """The screen subject when this message is about what is on screen rather than the conversation: it points at the screen and
+    either the user has switched tabs since the last answer or there is no earlier answer to follow on from. A follow-up on the
+    same tab keeps the conversation's context. `switched` is the tab the last answer was given on, when it differs."""
+    if not POINTS_AT_SCREEN.search(text):
+        return None
+    subject = screen_subject(state)
+    prev_tab, tab = (state.get("context_in") or {}).get("tab"), (state.get("view") or {}).get("tab")
+    switched = prev_tab if prev_tab and tab and prev_tab != tab else None
+    if subject is None or not (switched or not state.get("context_in")):
+        return None
+    return {**subject, "switched": switched}
+
+
 def period_of(ctx: dict) -> tuple[date, str] | None:
     p = ctx.get("period") or {}
     try:
@@ -51,6 +91,8 @@ def describe(ctx: dict | None) -> str:
         lines.append(f"Previous question: {ctx['question']}")
     if ctx.get("companies"):
         lines.append("Companies: " + ", ".join(f"{c.get('name') or c['symbol']} ({c['symbol']})" for c in ctx["companies"]))
+    if ctx.get("markets"):
+        lines.append("Markets: " + ", ".join(m["name"] for m in ctx["markets"]))
     if ctx.get("period"):
         lines.append(f"Period: {ctx['period']['label']} (from {ctx['period']['start']})")
     for sym, f in (ctx.get("facts") or {}).items():
@@ -71,6 +113,9 @@ def merge_turn(a: dict | None, b: dict | None) -> dict:
         if k == "companies":
             seen = {c["symbol"] for c in out.get("companies", [])}
             out["companies"] = [*out.get("companies", []), *(c for c in v if c["symbol"] not in seen)]
+        elif k == "markets":
+            seen = {m["key"] for m in out.get("markets", [])}
+            out["markets"] = [*out.get("markets", []), *(m for m in v if m["key"] not in seen)]
         elif k == "facts":
             facts = dict(out.get("facts") or {})
             for sym, f in v.items():
@@ -90,9 +135,14 @@ def build(state: dict) -> dict:
     e = state.get("entities") or {}
     named = [{"symbol": c["symbol"], "name": c.get("name") or c["symbol"]} for c in e.get("companies") or []]
     named += [{"symbol": t, "name": t} for t in e.get("tickers") or [] if all(t != c["symbol"] for c in named)]
-    companies = (turn.get("companies") or named or prev.get("companies") or [])[:MAX_COMPANIES]
+    companies = turn.get("companies") or named
+    markets = turn.get("markets") or [{"key": m["key"], "name": m["name"]} for m in e.get("markets") or []]
+    if not companies and not markets:                                         # nothing named this turn: keep the subject
+        companies, markets = prev.get("companies") or [], prev.get("markets") or []
+    companies, markets = companies[:MAX_COMPANIES], markets[:MAX_COMPANIES]
     symbols = {c["symbol"] for c in companies}
     facts = merge_turn({"facts": prev.get("facts") or {}}, {"facts": turn.get("facts") or {}})["facts"]
-    return {"question": state.get("question", ""), "intents": state.get("intent") or [], "companies": companies,
+    return {"question": state.get("question", ""), "intents": state.get("intent") or [], "companies": companies, "markets": markets,
+            "tab": (state.get("view") or {}).get("tab") or None,              # so the next turn can tell the user switched tabs
             "period": turn.get("period") or prev.get("period"),
             "facts": {s: f for s, f in facts.items() if s in symbols}}

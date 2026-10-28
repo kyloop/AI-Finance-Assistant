@@ -4,7 +4,7 @@ import { api } from "../api";
 import type { Envelope, HistoryPoint, NewsItem, Quote } from "../types";
 import { COLORS, ErrorBanner, FreshnessBadge } from "./common";
 
-export default function MarketTab() {
+export default function MarketTab({ onSelect }: { onSelect?: (symbol: string | null) => void }) {
   const [symbol, setSymbol] = useState("AAPL");
   const [input, setInput] = useState("AAPL");
   const [quote, setQuote] = useState<Envelope<Quote> | null>(null);
@@ -12,6 +12,7 @@ export default function MarketTab() {
   const [indices, setIndices] = useState<Envelope<Quote>[]>([]);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => { onSelect?.(symbol || null); }, [symbol, onSelect]);
   useEffect(() => { api.indices().then(setIndices).catch((e) => setError(e.message)); }, []);
   useEffect(() => {
     setError(null);

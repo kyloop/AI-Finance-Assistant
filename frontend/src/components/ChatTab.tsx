@@ -7,9 +7,9 @@ import RichText from "./RichText";
 
 const STARTERS = ["What is an ETF?", "How is that different from a mutual fund?", "What does diversification mean?", "How does a Roth IRA work?"];
 
-interface Props { flow: FlowRunner; sid: string; cid: number; onNew: () => Promise<void>; onOpen: (id: number) => Promise<void>; getView: () => ChatView; messages: Message[]; setMessages: (m: Message[]) => void; initialQuestion: string | null; onConsumed: () => void }
+interface Props { flow: FlowRunner; sid: string; cid: number; onNew: () => Promise<void>; onOpen: (id: number) => Promise<void>; getView: () => ChatView; screen: string; messages: Message[]; setMessages: (m: Message[]) => void; initialQuestion: string | null; onConsumed: () => void }
 
-export default function ChatTab({ flow, sid, cid, onNew, onOpen, getView, messages, setMessages, initialQuestion, onConsumed }: Props) {
+export default function ChatTab({ flow, sid, cid, onNew, onOpen, getView, screen, messages, setMessages, initialQuestion, onConsumed }: Props) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -123,6 +123,7 @@ export default function ChatTab({ flow, sid, cid, onNew, onOpen, getView, messag
         <div ref={end} />
       </div>
       <ErrorBanner message={error} />
+      <div className="chat-screen muted small" title="“this” and “here” in your next question mean what this tab shows">On screen: <strong>{screen}</strong></div>
       <form className="composer" onSubmit={(e) => { e.preventDefault(); send(text); }}>
         <input value={text} onChange={(e) => setText(e.target.value)} maxLength={4000} placeholder="Ask a question…" aria-label="Message" />
         <button disabled={busy || !text.trim()}>Send</button>
