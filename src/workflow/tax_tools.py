@@ -26,9 +26,12 @@ def get_tax_rules(year: int | None = None) -> tuple[int, dict]:
     return T.rules(year)
 
 
-def estimate_income_tax(question: str, context: str = "") -> tuple[str | None, str]:
-    """(step-by-step answer, trace) for "I earn $X ... how much tax?"; (None, why) when the amounts can't be read."""
-    return TC.answer(question, context)
+def estimate_income_tax(question: str, context: str = "", profile: dict | None = None,
+                        typed: str = "") -> tuple[TC.Estimate | None, str]:
+    """(estimate, trace) for "I earn $X ... how much tax?"; with `profile` (the last estimate's figures, carried in the
+    conversation) for a message that changes them: "what if I'm married?", "the stocks were short-term".
+    (None, why) when the amounts can't be read or nothing changed."""
+    return TC.follow_up(question, profile, typed) if profile else TC.answer(question, context)
 
 
 def tax_on_plan(goal: dict, projection: dict) -> tuple[str, str]:

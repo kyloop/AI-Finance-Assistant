@@ -123,6 +123,12 @@ def describe(ctx: dict | None) -> str:
         lines.append("Level: " + ", ".join(ctx["levels"]))
     if ctx.get("period"):
         lines.append(f"Period: {ctx['period']['label']} (from {ctx['period']['start']})")
+    if ctx.get("tax"):                                # in full digits, so a rewritten follow-up keeps the user's amounts
+        t = ctx["tax"]
+        status = {"single": "single", "married_joint": "married filing jointly"}.get(t.get("filing_status") or "", "not given")
+        lines.append(f"Tax estimate ({t.get('year')}, filing status {status}): "
+                     + "; ".join(f"{i['text']} ({i['amount']:.0f}, {i['kind']})" for i in t.get("items") or [])
+                     + (f"; federal total {t['total_federal']:.0f}" if t.get("total_federal") is not None else ""))
     for sym, f in (ctx.get("facts") or {}).items():
         bits = []
         if "price" in f:
@@ -188,6 +194,9 @@ def build(state: dict) -> dict:
             "tab": (state.get("view") or {}).get("tab") or None,              # so the next turn can tell the user switched tabs
             "symbol": (state.get("view") or {}).get("selected") or None,      # ... or picked another symbol on the same tab
             "period": turn.get("period") or prev.get("period"),
+            # the tax agent's last estimate, for "what if I'm married?" (tax_calc): kept until a new estimate replaces it,
+            # also through a question about something else; it is only used when a message may change it
+            "tax": turn.get("tax") or prev.get("tax") or (state.get("context_in") or {}).get("tax"),
             "facts": {s: f for s, f in facts.items() if s in symbols},
             # topic memory (mds/topic-memory.md): the topic node's choice when it ran, else only a follow-up stays in the
             # previous turn's topic. A calculation that doesn't point back ("how much will $10,000 grow at 7%?" after "what

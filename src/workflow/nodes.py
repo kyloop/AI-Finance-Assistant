@@ -429,7 +429,8 @@ _FIGURE_ASKED = re.compile(r"\b(how much|how many dollars|estimate|work out|calc
 def _with_income_tax(intents: list[str], state: FinanceState) -> list[str]:
     """"I earn $200,000 ... how much tax do I pay?" is the tax agent's: it works out the figure with its tools and explains
     each step, so the calculator and Q&A would only repeat it."""
-    if not TAXC.asks_income_tax(state["question"]):
+    follows_estimate = bool(_last_estimate(state)) and set(intents) <= {"qa", "tax", "calc", "goal", "clarify"}
+    if not TAXC.asks_income_tax(state["question"]) and not follows_estimate:
         return intents
     rest = [i for i in intents if i not in ("tax", "calc", "qa")]
     return ["tax", *rest]
@@ -637,16 +638,23 @@ def tax_node(state: FinanceState, config: RunnableConfig):
     q = state["entities"]["wiki_query"]
     q = q if "tax" in q.lower() or "ira" in q.lower() or "401" in q else f"{q} tax"
     question = state["question"]
-    if TAXC.asks_income_tax(question) and current_llm() is not None:      # "I earn $200k ... how much tax?"
-        recent = H.transcript(state.get("history")) if state.get("follow_up") else ""
-        text, note = TT.estimate_income_tax(question, f"Recent conversation:\n{recent}" if recent else "")
-        if text:
-            pages = _tax_pages(question)
-            return _out("tax", text, verbatim=True, explains_itself=True, origin="tax_tools", sources=TAXC.SOURCES + pages,
-                        trace=f"tax tool estimate_income_tax: {note.removeprefix('income_tax.')}")
-        trace_first = [f"tax tool estimate_income_tax: {note}"]
-    else:
-        trace_first = []
+    profile = _last_estimate(state)                  # the last estimate's figures, for "what if I'm married?"
+    trace_first = []
+    if current_llm() is not None and (profile or TAXC.asks_income_tax(question)):
+        est, note = None, ""
+        if profile:
+            est, note = TT.estimate_income_tax(question, profile=profile, typed=state.get("original_question") or "")
+            trace_first.append(f"tax tool estimate_income_tax {note}")
+        if est is None and TAXC.asks_income_tax(question):        # new figures, or the follow-up couldn't be read
+            recent = H.transcript(state.get("history")) if state.get("follow_up") else ""
+            est, note = TT.estimate_income_tax(question, f"Recent conversation:\n{recent}" if recent else "")
+            trace_first.append(f"tax tool estimate_income_tax: {note}")
+        if est is not None:
+            res = _out("tax", est.text, verbatim=True, explains_itself=True, origin="tax_tools",
+                       sources=TAXC.SOURCES + _tax_pages(question), choices=est.choices, asks_user=bool(est.choices))
+            res["turn_context"] = {"tax": est.profile}
+            res["trace"] = trace_first
+            return res
     g = state.get("saved_goal")
     if not (g and saved_plan_figures(state)):
         res = _kb_answer("tax", state, q, TAX_PREFIX, categories=TT.TAX_CATEGORIES)
@@ -665,6 +673,16 @@ def tax_node(state: FinanceState, config: RunnableConfig):
     res["trace"] = [*trace_first, f"tax: saved {g.get('goal_type')} plan → tools search_tax_pages + tax_on_plan ({note})",
                     *res["trace"]]
     return res
+
+
+def _last_estimate(state: FinanceState) -> dict | None:
+    """The previous answer's tax figures when this message may change them: a follow-up, an answer button ("I held the
+    shares a year or less") or a "what if" about them. The proofreader doesn't always mark a short answer as a follow-up."""
+    prof = (state.get("context_in") or {}).get("tax")
+    if not prof:
+        return None
+    return prof if CTX.carried(state).get("tax") or TAXC.changes_estimate(state.get("original_question") or state["question"], prof) \
+        or TAXC.changes_estimate(state["question"], prof) else None
 
 
 def _tax_pages(question: str, most: int = 3) -> list[dict]:
@@ -2013,7 +2031,8 @@ def synthesizer_node(state: FinanceState, config: RunnableConfig):
     # (the tax rules, then the calculator's question about the missing rate)
     partial = [] if answered else [o["fallback"] for o in outputs if o.get("fallback")]
     answered = answered or partial                  # nothing better turned up: write from the research the verifier found incomplete
-    choices = list(dict.fromkeys(c for o in asks for c in o.get("choices") or []))[:3]
+    choices = list(dict.fromkeys(c for o in [*asks, *(o for o in answered if o.get("asks_user"))]
+                                 for c in o.get("choices") or []))[:3]          # the tax agent's one question, as buttons
     if answered:
         exact = [o for o in answered if o.get("verbatim")]          # calculator results: never reworded
         sector_lines = _sector_lines(state)

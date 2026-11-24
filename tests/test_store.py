@@ -20,3 +20,11 @@ def test_the_section_lookup_has_every_field_it_filters_on_indexed(monkeypatch):
     assert {f for _, f in client.indexes} >= {"doc_id", "section"}
     store.ensure_indexes(client, "finnie_kb")                      # once per collection per process
     assert len(client.indexes) == len(store.KB_INDEXES)
+
+
+def test_a_search_without_a_category_has_no_filter():
+    """The tax agent's category filter once built MatchValue(None) for every other search, which failed them all."""
+    from qdrant_client import models
+    assert store.category_filter(None) is None
+    assert isinstance(store.category_filter("bonds").must[0].match, models.MatchValue)
+    assert store.category_filter(["taxes-and-accounts", "retirement"]).must[0].match.any == ["taxes-and-accounts", "retirement"]

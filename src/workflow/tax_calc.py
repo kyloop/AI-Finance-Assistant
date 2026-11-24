@@ -15,12 +15,12 @@ from src.core.llm import ask_llm
 from .jsonreply import first_json
 
 KINDS = {
-    "wages": "pay from a job (salary, wages, a W-2 part-time job)",
+    "wages": "pay from a job (salary, wages, an employer's bonus, a W-2 part-time job)",
     "self_employment": "freelance, contractor, 1099 or own-business profit (only when the message says so)",
     "job_unspecified": "pay from a side or part-time job without saying whether it is W-2 or freelance",
     "interest_dividends": "interest, or dividends not said to be qualified",
     "qualified_dividends": "dividends the message says are qualified",
-    "other_income": "other taxable income (rent received, a bonus not part of the salary, ...)",
+    "other_income": "other taxable income that isn't pay from a job (rent received, prizes, ...)",
     "short_term_gains": "profit from selling investments held a year or less",
     "long_term_gains": "profit from selling investments held more than a year",
     "stock_unspecified": "stock or investment earnings/profit/gains without saying how long they were held",
@@ -41,8 +41,10 @@ SYSTEM = (
     "\"single\" if it says single, otherwise null. year: a tax year the message names, otherwise null.\n"
     "Reply with ONLY JSON: {\"items\": [...], \"filing_status\": null, \"year\": null}")
 
-ASKS = re.compile(r"\b(how much|what|estimate|calculate|work out|figure out|total|owe|pay)\b.{0,80}\btax(es)?\b|"
-                  r"\btax(es)?\b.{0,40}\b(owe|pay|due|bill)\b", re.I | re.S)
+# "tax", and its common typos ("tsx", "tex", "tx"): the proofreader doesn't always get to fix them
+_TAX = r"\b(?:tax(?:es)?|tsx|tex|txa?)\b"
+ASKS = re.compile(rf"\b(how much|what|estimate|calculate|work out|figure out|total|owe|pay)\b.{{0,80}}{_TAX}|"
+                  rf"{_TAX}.{{0,40}}\b(owe|pay|due|bill)\b", re.I | re.S)
 INCOME = re.compile(r"\b(earn\w*|salary|income|wages?|make|made|paid|job|dividends?|gains?|profit|bonus)\b", re.I)
 # the user's amounts: 200000, 200,000, $200k, 1.5 million (not years like 2026, nor percentages)
 AMOUNT = re.compile(r"\$?\b(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s*(k|thousand|m|million)?\b(?!\s*%)", re.I)
@@ -72,9 +74,11 @@ class Reading:
     inputs: T.TaxInputs
     year: int | None = None
     assumed: list[str] = field(default_factory=list)      # what we assumed, in words
-    alternatives: list[tuple[str, dict]] = field(default_factory=list)    # (what if, field changes to the inputs)
+    alternatives: list[tuple[str, str, dict]] = field(default_factory=list)   # (key, what if, changes to the inputs)
     ignored: list[str] = field(default_factory=list)
     rows: list[tuple[str, float, str, str]] = field(default_factory=list)   # (the user's words, amount, how it is treated, kind)
+    items: list[dict] = field(default_factory=list)       # the checked figures {text, amount, kind, loss}, for the next turn
+    status_given: bool = False
 
 
 INCOME_KINDS = {"wages", "self_employment", "job_unspecified", "interest_dividends", "qualified_dividends", "other_income",
@@ -88,59 +92,92 @@ TREATED = {"wages": "wages (job pay)", "self_employment": "self-employment incom
            "charity": "charitable gift (itemized deduction)", "not_tax_input": "not used: doesn't change federal tax"}
 
 
+def _items(raw: list, allowed: list[float], must_use: list[float], base: list[dict] | None = None) -> tuple[list[dict] | None, str]:
+    """The LLM's items, checked: each a known kind, each amount one the user gave (in the message, or kept from `base`,
+    the figures carried from the last estimate), and every amount in the message used. Normalised to
+    {text, amount, kind, loss}."""
+    out, used = [], []
+    for it in raw:
+        if not isinstance(it, dict):
+            return None, f"unreadable item {it!r}"
+        src = base[it["from"]] if base and isinstance(it.get("from"), int) and 0 <= it["from"] < len(base) else None
+        if src is None and it.get("amount") in (0, 0.0, "0"):
+            continue                                # "$0 of gains": nothing to tax
+        if it.get("amount") in (None, "") and it.get("kind") in (None, ""):
+            if src is None:
+                continue                        # an empty placeholder the model sometimes appends
+            it = {**src, **{k: v for k, v in it.items() if v not in (None, "")}}    # a carried figure copied by number only
+        try:
+            amount = abs(float(it["amount"] if it.get("amount") not in (None, "") else src["amount"]))
+            kind = str(it.get("kind") or (src or {}).get("kind"))
+        except (KeyError, TypeError, ValueError):
+            return None, f"unreadable item {it!r}"
+        if kind not in KINDS:
+            return None, f"unknown kind {kind}"
+        # a carried figure may be kept, or changed by an amount the message gives ("$10,000 more" on top of $200,000)
+        step = [g for g in must_use if src and abs(abs(amount - src["amount"]) - g) < 0.5]
+        if not any(abs(amount - g) < 0.5 for g in allowed) and not (src and abs(amount - src["amount"]) < 0.5) and not step:
+            return None, f"{amount:,.0f} is not an amount you gave"
+        used.append(step[0] if step else amount)
+        text = " ".join(str(it.get("text") or (src or {}).get("text") or "").split()) or f"{amount:,.0f}"
+        out.append({"text": text, "amount": amount, "kind": kind,
+                    "loss": bool(it.get("loss")) and kind in ("short_term_gains", "long_term_gains"),
+                    "from": it["from"] if src else None})
+    missing = [g for g in must_use if not any(abs(g - u) < 0.5 for u in used)]
+    if missing:
+        return None, "left out " + ", ".join(f"{m:,.0f}" for m in missing)
+    if not out:
+        return None, "no amounts sorted"
+    return out, ""
+
+
 def read(question: str, reply: dict | None) -> tuple[Reading | None, str]:
     """(reading, "") or (None, why it was rejected). Every amount must be one of the user's, and every amount of theirs used."""
     if not reply or not isinstance(reply.get("items"), list) or not reply["items"]:
         return None, "no amounts sorted"
     given = amounts(question)
-    used: list[float] = []
+    items, why = _items(reply["items"], given, given)
+    if items is None:
+        return None, why
+    return reading_from(items, reply.get("filing_status"), reply.get("year"))
+
+
+def reading_from(items: list[dict], status: str | None, year=None) -> tuple[Reading | None, str]:
+    """The estimate's inputs from checked items: what is unknown (filing status, holding period, W-2 or 1099) is assumed,
+    said, and kept as an alternative to work out too."""
     inp, r = T.TaxInputs(), Reading(T.TaxInputs())
+    r.items = [{k: it[k] for k in ("text", "amount", "kind", "loss")} for it in items]
+    r.status_given = status in T.STATUSES
     unspecified_stock = unspecified_job = 0.0
-    for it in reply["items"]:
-        try:
-            amount, kind = abs(float(it["amount"])), str(it["kind"])
-        except (KeyError, TypeError, ValueError):
-            return None, f"unreadable item {it!r}"
-        if kind not in KINDS:
-            return None, f"unknown kind {kind}"
-        if not any(abs(amount - g) < 0.5 for g in given):
-            return None, f"{amount:,.0f} is not an amount in the question"
-        used.append(amount)
-        loss = it.get("loss") and kind in ("short_term_gains", "long_term_gains")
-        r.rows.append((" ".join(str(it.get("text") or "").split()) or f"{amount:,.0f}", -amount if loss else amount,
-                       TREATED[kind] + (" (loss)" if loss else ""), kind))
+    for it in items:
+        amount, kind, loss = it["amount"], it["kind"], it["loss"]
+        r.rows.append((it["text"], -amount if loss else amount, TREATED[kind] + (" (loss)" if loss else ""), kind))
         if kind == "not_tax_input":
-            r.ignored.append(f"{it.get('text') or amount:}")
-            continue
-        if kind == "stock_unspecified":
+            r.ignored.append(it["text"])
+        elif kind == "stock_unspecified":
             unspecified_stock += amount
-            continue
-        if kind == "job_unspecified":
+        elif kind == "job_unspecified":
             unspecified_job += amount
-            continue
-        sign = -1 if it.get("loss") and kind in ("short_term_gains", "long_term_gains") else 1
-        setattr(inp, kind, getattr(inp, kind) + sign * amount)
-    missing = [g for g in given if not any(abs(g - u) < 0.5 for u in used)]
-    if missing:
-        return None, "left out " + ", ".join(f"{m:,.0f}" for m in missing)
-    status = reply.get("filing_status")
+        else:
+            setattr(inp, kind, getattr(inp, kind) + (-amount if loss else amount))
     inp.filing_status = status if status in T.STATUSES else "single"
-    if status not in T.STATUSES:
+    if not r.status_given:
         r.assumed.append("you file as **single** (married couples filing jointly get wider brackets and a $32,200 standard deduction)")
+        r.alternatives.append(("status", "you file jointly with a spouse", {"filing_status": "married_joint"}))
     if unspecified_job:
         inp.wages += unspecified_job
         r.assumed.append(f"the ${unspecified_job:,.0f} job pays a W-2 wage (if it is freelance or 1099 work, self-employment tax applies instead)")
-        r.alternatives.append((f"the ${unspecified_job:,.0f} job is freelance (1099) work",
+        r.alternatives.append(("job", f"the ${unspecified_job:,.0f} job is freelance (1099) work",
                                {"wages": -unspecified_job, "self_employment": unspecified_job}))
     if unspecified_stock:
         inp.long_term_gains += unspecified_stock
         r.assumed.append(f"the ${unspecified_stock:,.0f} from stocks is profit on shares sold after holding them **more than a year** "
                          "(long-term capital gains)")
-        r.alternatives.append((f"the ${unspecified_stock:,.0f} came from shares held a year or less (short-term gains)",
+        r.alternatives.append(("stock", f"the ${unspecified_stock:,.0f} came from shares held a year or less (short-term gains)",
                                {"long_term_gains": -unspecified_stock, "short_term_gains": unspecified_stock}))
     r.inputs = inp
     try:
-        r.year = int(reply["year"]) if reply.get("year") else None
+        r.year = int(year) if year else None
     except (TypeError, ValueError):
         r.year = None
     income = (inp.wages + inp.self_employment + inp.interest_dividends + inp.other_income + inp.short_term_gains
@@ -152,7 +189,7 @@ def read(question: str, reply: dict | None) -> tuple[Reading | None, str]:
 
 def changed(inp: T.TaxInputs, deltas: dict) -> T.TaxInputs:
     """The inputs with one assumption turned the other way (each alternative changes only its own amounts)."""
-    return T.TaxInputs(**{**vars(inp), **{k: getattr(inp, k) + v for k, v in deltas.items()}})
+    return T.TaxInputs(**{**vars(inp), **{k: v if isinstance(v, str) else getattr(inp, k) + v for k, v in deltas.items()}})
 
 
 def money(x: float) -> str:
@@ -325,25 +362,158 @@ def render(r: Reading, est: dict, alts: list[tuple[str, dict]]) -> str:
     return "\n".join(L)
 
 
-def answer(question: str, context: str = "") -> tuple[str | None, str]:
-    """(answer text, trace) for an income-tax question; (None, why) when it isn't one this path can work out."""
+# ---------------------------------------------------------------- one estimate, its question, and the follow-ups
+# The open point that changes the total most is asked about (with the answers as buttons) when it is worth asking:
+# at least ASK_MIN_DOLLARS and ASK_MIN_SHARE of the federal total. The others stay stated assumptions.
+ASK_MIN_DOLLARS, ASK_MIN_SHARE = 500, 0.01
+QUESTIONS = {
+    "stock": ("Did you hold the shares more than a year before selling them?",
+              ["I held the shares more than a year", "I held the shares a year or less"]),
+    "job": ("Is the side job regular W-2 pay, or freelance (1099) work?",
+            ["The side job is W-2 pay", "The side job is freelance (1099) work"]),
+    "status": ("Do you file as single, or married filing jointly?", ["I file as single", "We're married filing jointly"]),
+}
+
+
+@dataclass
+class Estimate:
+    text: str
+    note: str                               # for the trace
+    profile: dict                           # carried to the next turn (context["tax"])
+    choices: list[str] = field(default_factory=list)
+
+
+def profile_of(r: Reading, est: dict) -> dict:
+    """What the next turn needs to redo the estimate: the user's figures as sorted, and what they said or we assumed."""
+    return {"year": est["year"], "filing_status": est["filing_status"] if r.status_given else None, "items": r.items,
+            "total_federal": round(est["total_federal"], 2), "income_tax": round(est["income_tax"], 2), "choices": []}
+
+
+def estimate(r: Reading, change: str = "", before: dict | None = None) -> Estimate:
+    try:
+        est = T.estimate(r.inputs, r.year)
+    except ValueError as e:                  # a year without rules: use the latest
+        est = T.estimate(r.inputs)
+        r.assumed.append(f"the {est['year']} rules ({e})")
+    alts = [(key, label, T.estimate(changed(r.inputs, d), est["year"])) for key, label, d in r.alternatives]
+    worth = [(abs(a["total_federal"] - est["total_federal"]), key, label, a) for key, label, a in alts]
+    worth = [w for w in worth if w[0] >= max(ASK_MIN_DOLLARS, ASK_MIN_SHARE * est["total_federal"])]
+    ask = max(worth, key=lambda w: w[0]) if worth else None
+    text = render(r, est, [(label, a) for _, label, a in alts])
+    if change and before:
+        diff = est["total_federal"] - before.get("total_federal", est["total_federal"])
+        text = (f"**Updated:** {change}. Federal taxes go from {money(before['total_federal'])} to "
+                f"**{money(est['total_federal'])}** ({'+' if diff >= 0 else '−'}{money(abs(diff))}).\n\n" + text)
+    choices = []
+    if ask:
+        question, choices = QUESTIONS[ask[1]]
+        text = text.replace("\n\n_Not included:", f"\n\n**One question:** {question} It changes your federal taxes by about "
+                                                  f"{money(ask[0])}; tap an answer below and I'll redo it.\n\n_Not included:", 1)
+    i = est["inputs"]
+    shown = ", ".join(f"{k}={i[k]:,.0f}" for k in i if k != "filing_status" and i[k])
+    note = (f"estimate({est['year']}, {est['filing_status']}, {shown}) → income tax {money(est['income_tax'])}, federal total "
+            f"{money(est['total_federal'])}" + (f"; asks about {ask[1]} ({money(ask[0])})" if ask else ""))
+    return Estimate(text, note, {**profile_of(r, est), "choices": choices}, choices)
+
+
+def answer(question: str, context: str = "") -> tuple[Estimate | None, str]:
+    """(estimate, trace) for an income-tax question; (None, why) when it isn't one this path can work out."""
     reply = first_json(ask_llm(SYSTEM, f"{context}\n\nMessage: {question}" if context else f"Message: {question}"))
     reading, why = read(question, reply)
     if reading is None:
-        return None, f"income tax: {why} → general calculator"
-    try:
-        est = T.estimate(reading.inputs, reading.year)
-    except ValueError as e:
-        try:
-            est = T.estimate(reading.inputs)
-        except ValueError:
-            return None, f"income tax: {e} → general calculator"
-        reading.assumed.append(f"the {est['year']} rules ({e})")
-    alts = [(label, T.estimate(changed(reading.inputs, d), est["year"])) for label, d in reading.alternatives]
-    i = est["inputs"]
-    shown = ", ".join(f"{k}={i[k]:,.0f}" for k in i if k != "filing_status" and i[k])
-    return render(reading, est, alts), (f"income_tax.estimate({est['year']}, {est['filing_status']}, {shown}) → "
-                                        f"income tax {money(est['income_tax'])}, federal total {money(est['total_federal'])}")
+        return None, f"income tax: {why}"
+    out = estimate(reading)
+    return out, out.note
+
+
+UPDATE_SYSTEM = (
+    "You update a US income-tax estimate after the user's latest message; you never compute tax. CURRENT FIGURES are "
+    "numbered. Reply with the full new list: copy each current figure the message doesn't remove, with \"from\": its "
+    "number; change its kind when the message says what it is (\"the stocks were short-term\" -> short_term_gains, \"the "
+    "side job is freelance\" -> self_employment, \"I held them over a year\" -> long_term_gains); change its amount only "
+    "to an amount the message gives; add a figure the message adds with \"from\": null. Each figure: {\"from\", "
+    "\"amount\", \"kind\", \"loss\", \"text\"}. Kinds:\n" + "\n".join(f"- {k}: {v}" for k, v in KINDS.items())
+    + "\nfiling_status: what the message says (\"married_joint\" for married filing jointly, \"single\"), otherwise the "
+    "current one. A message about something else: copy everything unchanged.\n"
+    "Reply with ONLY JSON: {\"items\": [...], \"filing_status\": null}")
+
+
+# A message that may change the last estimate: an answer button, or a "what if" about the figures it used
+_CHANGES = re.compile(r"\b(what if|instead|also|more|less|extra|another|bonus|raise|married|single|jointly|spouse|wife|husband|"
+                      r"held|hold|short[- ]term|long[- ]term|freelance|1099|w-?2|side job|charity|donat\w*|mortgage|deduct\w*|"
+                      r"401\(?k\)?|ira|filing)\b", re.I)
+
+
+def changes_estimate(text: str, profile: dict | None) -> bool:
+    """Whether a message may change the last estimate (so the tax agent redoes it rather than explaining)."""
+    if not profile:
+        return False
+    said = " ".join(text.lower().strip(" .!?").split())
+    return any(said == " ".join(c.lower().split()) for c in profile.get("choices") or []) or bool(_CHANGES.search(text))
+
+
+def describe_profile(p: dict) -> str:
+    status = {"single": "single", "married_joint": "married filing jointly"}.get(p.get("filing_status") or "", "not given")
+    figures = "\n".join(f"{n}. {it['amount']:.0f} {it['kind']}{' (loss)' if it['loss'] else ''}: \"{it['text']}\""
+                        for n, it in enumerate(p.get("items") or []))
+    return f"Filing status: {status}\nCURRENT FIGURES:\n{figures}"
+
+
+def follow_up(question: str, profile: dict, typed: str = "") -> tuple[Estimate | None, str]:
+    """(estimate, trace) for a message that changes the last estimate ("what if I'm married?", "the stocks were
+    short-term", "and if I earn $10,000 more?"); (None, why) when it changes nothing or can't be read. `typed` is the
+    message as the user wrote it, when the proofreader reworded it (a rewrite once lost "tax" and "what if")."""
+    said = f"Message: {typed}\n(Reworded: {question})" if typed and typed.strip() != question.strip() else f"Message: {question}"
+    reply = first_json(ask_llm(UPDATE_SYSTEM, f"{describe_profile(profile)}\n\n{said}"))
+    if not reply or not isinstance(reply.get("items"), list):
+        return None, "tax follow-up: no usable reply"
+    status = reply.get("filing_status") if reply.get("filing_status") in T.STATUSES else profile.get("filing_status")
+    base = profile.get("items") or []
+    # every amount the user typed must be used; the proofreader's rewrite may add some (a total it summed), which are
+    # allowed but not required
+    given = list(dict.fromkeys(amounts(question) + amounts(typed)))
+    items, why = _items(reply["items"], given + [b["amount"] for b in base], amounts(typed) if typed else amounts(question), base)
+    if items is None:
+        return None, f"tax follow-up: {why}"
+    taken = {it["from"] for it in items if it.get("from") is not None}
+    for it in items:                    # a carried figure re-listed without its number: match it by amount
+        if it.get("from") is None:
+            n = next((n for n, b in enumerate(base) if n not in taken and abs(b["amount"] - it["amount"]) < 0.5), None)
+            if n is not None:
+                it["from"] = n
+                taken.add(n)
+                it["text"] = base[n]["text"]
+    same = (status == profile.get("filing_status") and
+            [(i["amount"], i["kind"], i["loss"]) for i in items] == [(b["amount"], b["kind"], b["loss"]) for b in base])
+    if same:
+        return None, "tax follow-up: nothing changed"
+    reading, why = reading_from(items, status, profile.get("year"))
+    if reading is None:
+        return None, f"tax follow-up: {why}"
+    change = what_changed(base, items, profile.get("filing_status"), status)
+    out = estimate(reading, change, profile)
+    return out, f"follow-up ({change}): " + out.note
+
+
+STATUS_WORDS = {"single": "single", "married_joint": "married filing jointly", None: "not given"}
+
+
+def what_changed(base: list[dict], items: list[dict], old_status, new_status) -> str:
+    """The follow-up's changes in words, worked out from the figures (not the model's summary)."""
+    bits = [f"filing status is now {STATUS_WORDS[new_status]}"] if new_status != old_status else []
+    kept = set()
+    for it in items:
+        b = base[it["from"]] if it.get("from") is not None else None
+        if b is None:
+            bits.append(f"added {money(it['amount'])} of {TREATED[it['kind']].split(' (')[0]}")
+            continue
+        kept.add(it["from"])
+        if abs(b["amount"] - it["amount"]) >= 0.5:
+            bits.append(f"“{b['text']}” {money(b['amount'])} → {money(it['amount'])}")
+        if b["kind"] != it["kind"] or b["loss"] != it["loss"]:
+            bits.append(f"“{b['text']}” is now {TREATED[it['kind']].split(' (')[0]}")
+    bits += [f"removed “{b['text']}”" for n, b in enumerate(base) if n not in kept]
+    return "; ".join(bits) or "your figures changed"
 
 
 # ---------------------------------------------------------------- tax on a saved Goals plan, by account type
