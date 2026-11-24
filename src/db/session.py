@@ -1,13 +1,14 @@
 import os
 from collections.abc import Iterator
+from contextlib import contextmanager
 
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session as DBSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.dialects import registry
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import NullPool, StaticPool
 
-from src.core.config import database_url
+from src.core.config import database_url, market_cache_url
 
 from .base import Base
 from . import models  # noqa: F401  (register tables)
@@ -24,18 +25,35 @@ def _turso_engine(url: str):
     return create_engine(url, connect_args={"auth_token": token}, pool_pre_ping=True)
 
 
-def make_engine(url: str | None = None):
+def make_engine(url: str | None = None, pool=None):
     url = url or database_url()
     if url.startswith("sqlite+turso"):
         return _turso_engine(url)
     kwargs = {"connect_args": {"check_same_thread": False}} if url.startswith("sqlite") else {}
     if url in ("sqlite://", "sqlite:///:memory:"):
         kwargs["poolclass"] = StaticPool
+    elif pool is not None:
+        kwargs["poolclass"] = pool
     return create_engine(url, **kwargs)
 
 
 engine = make_engine()
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+_cache_url = market_cache_url()
+# the market cache's own local database, when the main one is remote. NullPool: a local SQLite connection is cheap to open,
+# and a pool's 15-connection cap made the Live Market tab's ~25 parallel fetches queue for connections
+cache_engine = make_engine(_cache_url, pool=NullPool) if _cache_url else None
+CacheSessionLocal = sessionmaker(bind=cache_engine, autoflush=False, expire_on_commit=False) if cache_engine else None
+
+
+@contextmanager
+def market_cache_session(db: DBSession) -> Iterator[DBSession]:
+    """The session the market cache is read and written through: a local one when the main database is remote, else `db` itself."""
+    if CacheSessionLocal is None:
+        yield db
+        return
+    with CacheSessionLocal() as local:
+        yield local
 
 
 def _add_missing_columns(bind) -> None:
@@ -56,6 +74,8 @@ def init_db(bind=None) -> None:
     bind = bind or engine
     Base.metadata.create_all(bind=bind)
     _add_missing_columns(bind)
+    if cache_engine is not None and bind is engine:
+        Base.metadata.create_all(bind=cache_engine, tables=[models.MarketCache.__table__])
 
 
 def get_db() -> Iterator[DBSession]:

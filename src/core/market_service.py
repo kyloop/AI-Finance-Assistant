@@ -8,12 +8,15 @@ import logging
 import random
 import re
 import threading
+import weakref
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
 
 from src.db.models import MarketCache
+from src.db.session import market_cache_session
 
 from .config import DATA_DIR, get_config
 
@@ -662,17 +665,38 @@ def _notify_news(symbol: str, payload: dict) -> None:
 
 # Agents answering one question run in parallel threads and may share the request's database session (market and portfolio
 # both do); the cache reads and writes are serialised so they never use it at the same moment. Provider calls stay outside.
-_cache_lock = threading.Lock()
+# The lock is per session, not global: with one global lock a thread holding it could wait for a pooled connection while
+# every connection belonged to sessions queued behind the lock (the Live Market boards fan out ~25 fetches), and the whole
+# market API hung.
+# An in-memory SQLite database (StaticPool: every session shares its one connection) keeps one lock for the engine.
+_session_locks: "weakref.WeakKeyDictionary[object, threading.Lock]" = weakref.WeakKeyDictionary()
+_session_locks_guard = threading.Lock()
+
+
+def _cache_lock(db: Session) -> threading.Lock:
+    bind = db.get_bind()
+    key = bind if isinstance(getattr(bind, "pool", None), StaticPool) else db
+    with _session_locks_guard:
+        lock = _session_locks.get(key)
+        if lock is None:
+            lock = _session_locks[key] = threading.Lock()
+        return lock
 
 
 def get_market_data(db: Session, endpoint: str, symbol: str, refresh: bool = False, **params) -> dict:
-    """Returns {data, provider, fetched_at, freshness: live|cached|stale|sample}."""
+    """Returns {data, provider, fetched_at, freshness: live|cached|stale|sample}. The cache lives in `db`, or in its own local
+    database when the main one is remote (`market_cache_session`)."""
+    with market_cache_session(db) as cache:
+        return _cached_market_data(cache, endpoint, symbol, refresh, **params)
+
+
+def _cached_market_data(db: Session, endpoint: str, symbol: str, refresh: bool, **params) -> dict:
     symbol = symbol.upper()
     market_cfg = get_config()["market"]
     ttl = market_cfg.get(f"{endpoint}_cache_ttl_seconds", market_cfg["cache_ttl_seconds"])     # e.g. news refreshes faster than quotes' default
     for provider, endpoints in PROVIDERS.items():
         key = hashlib.sha1(f"{provider}|{symbol}|{endpoint}|{json.dumps(params, sort_keys=True)}".encode()).hexdigest()
-        with _cache_lock:
+        with _cache_lock(db):
             row = db.get(MarketCache, key)
         if row and not refresh and _aware(row.expires_at) > _now():
             return _envelope(row.payload, provider, row.fetched_at, "cached", provider)
@@ -685,7 +709,7 @@ def get_market_data(db: Session, endpoint: str, symbol: str, refresh: bool = Fal
                 return _envelope(row.payload, provider, row.fetched_at, "stale", provider)
             continue
         now = _now()
-        with _cache_lock:
+        with _cache_lock(db):
             if row:
                 row.payload, row.fetched_at, row.expires_at = payload, now, now + timedelta(seconds=ttl)
             else:

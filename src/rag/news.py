@@ -143,12 +143,14 @@ def tracked_symbols(db) -> list[str]:
     from sqlalchemy import select
 
     from src.db.models import Holding, MarketCache
+    from src.db.session import market_cache_session
     cfg = _cfg()
     since = datetime.now(timezone.utc) - timedelta(days=cfg["recent_view_days"])
     held = [t for (t,) in db.execute(select(Holding.ticker).distinct())]
-    viewed = [s for (s,) in db.execute(select(MarketCache.symbol).where(MarketCache.endpoint.in_(("quote", "news")),
-                                                                         MarketCache.fetched_at >= since)
-                                       .order_by(MarketCache.fetched_at.desc()))]
+    with market_cache_session(db) as cache:
+        viewed = [s for (s,) in cache.execute(select(MarketCache.symbol).where(MarketCache.endpoint.in_(("quote", "news")),
+                                                                                MarketCache.fetched_at >= since)
+                                              .order_by(MarketCache.fetched_at.desc()))]
     from src.core.market_service import _MARKET_NEWS_SOURCES
     feed = {markets.MARKET_FEED, *_MARKET_NEWS_SOURCES}                   # already covered by the market feed
     terms = [markets.news_term_for(s) for s in held + viewed if s]

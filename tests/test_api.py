@@ -171,6 +171,33 @@ def test_market_cache_survives_a_concurrent_writer(tmp_path, monkeypatch):
     assert env["data"] == {"price": 1.0} and env["freshness"] == "cached"
 
 
+def test_market_cache_uses_its_own_database_when_the_main_one_is_remote(tmp_path, monkeypatch):
+    """With Turso as the main database, quotes, charts and news are cached in a local database instead (one HTTPS round trip per
+    statement on the hottest path otherwise), and the news poll's recently-viewed symbols are read from there too."""
+    from sqlalchemy import inspect
+    from sqlalchemy.orm import sessionmaker
+
+    from src.core import market_service as ms
+    from src.db import session as S
+    from src.db.base import Base
+    from src.db.models import MarketCache
+    from src.rag import news as news_index
+    main, local = (S.make_engine(f"sqlite:///{tmp_path / n}") for n in ("main.db", "cache.db"))
+    Base.metadata.create_all(main)
+    Base.metadata.create_all(local, tables=[MarketCache.__table__])
+    monkeypatch.setattr(S, "CacheSessionLocal", sessionmaker(bind=local, autoflush=False, expire_on_commit=False))
+    calls = []
+    monkeypatch.setattr(ms, "PROVIDERS", {"fake": {"quote": lambda symbol, **_: calls.append(symbol) or {"price": 2.0}}})
+    with sessionmaker(bind=main)() as db:
+        assert ms.get_market_data(db, "quote", "ZZ")["freshness"] == "live"
+        assert ms.get_market_data(db, "quote", "ZZ")["freshness"] == "cached" and calls == ["ZZ"]
+        assert db.query(MarketCache).count() == 0
+        assert "ZZ" in news_index.tracked_symbols(db)
+    with sessionmaker(bind=local)() as cache:
+        assert [r.symbol for r in cache.query(MarketCache)] == ["ZZ"]
+    assert inspect(local).get_table_names() == ["market_cache"]
+
+
 def test_chat_cannot_change_portfolio_goals_or_profile(client, sid):
     client.put(f"/api/sessions/{sid}/portfolio", json={"holdings": [{"ticker": "VTI", "shares": 10}]})
     client.post(f"/api/sessions/{sid}/goals/project", json={"goal_type": "retirement", "target_amount": 500000, "horizon_years": 30,
