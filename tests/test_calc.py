@@ -22,6 +22,12 @@ MORTGAGE_PLAN = ('{"label": "monthly mortgage payment", "inputs": {"P": {"value"
                  '"unit": "money"}], "checks": [{"when": {"t": 0.08333333333333333}, "of": "M", "expect": "P*(1+r/12)"}]}')
 
 
+GROWTH_PLAN = ('{"label": "how your savings grow", "inputs": {"P": {"value": 10000, "from": "user", "means": "amount saved", '
+               '"unit": "money"}, "r": {"value": 0.06, "from": "user", "means": "yearly return", "unit": "rate"}, "t": {"value": 10, '
+               '"from": "user", "means": "number of years", "unit": "years"}}, "steps": [{"name": "A", "label": "balance", '
+               '"expr": "P*(1+r)^t", "unit": "money"}], "checks": [{"when": {"r": 0}, "of": "A", "expect": "P"}]}')
+
+
 class RoleLLM:
     """Replies by role (recognised from the system prompt) and records the roles used."""
     model = "role"
@@ -32,7 +38,7 @@ class RoleLLM:
                         "followups": '{"calculation": "How much would $5,000 grow to at 5% over 20 years?", '
                                      '"example": "What would a $250,000 mortgage at 7% cost each month?", '
                                      '"related": "What is the difference between APR and APY?"}',
-                        "example": '{"function": null}', "check": '{"answers": true}', "synth": "Prose answer.",
+                        "example": '{"question": null}', "check": '{"answers": true}', "synth": "Prose answer.",
                         "step": "{}", **replies}                       # calculator steps 1-4: no reply → the plan path
         self.calls, self.prompts = [], {}
 
@@ -136,22 +142,34 @@ def _kb_answer(monkeypatch_target=None):
 
 def test_conceptual_answer_gets_an_exact_worked_example():
     _kb_answer()
-    llm = RoleLLM(router='{"intents": ["qa"], "confidence": 0.9}',
-                  example='{"function": "future_value", "args": {"annual_rate": 6, "years": 10, "principal": 10000}}')
+    llm = RoleLLM(router='{"intents": ["qa"], "confidence": 0.9}', calc=GROWTH_PLAN,
+                  example='{"question": "How much does $10,000 grow to at 6% a year over 10 years?"}')
     llm_module.set_llm(llm)
     s = ask("What is compound interest?")
     text = s["final_response"]
-    assert text.startswith("Prose answer.") and CALC.EXAMPLE_HEADING in text and "**Result: about $17,908.48**" in text
+    assert text.startswith("Prose answer.") and "**Worked example: how your savings grow**" in text and "$17,908.48" in text
     assert s["agents"] == ["Finance Q&A", "Calculator"]
     assert "worked calculation is shown separately" in llm.prompts["synth"]       # the writer won't claim it's missing
-    assert "illustrate: future_value(annual_rate=6, years=10, principal=10000)" in s["trace"]
+    assert "illustrate: Show a worked example: How much does $10,000 grow to at 6% a year over 10 years?" in s["trace"]
+    assert "calc" in llm.calls                                                     # worked out by the calculator, not a built-in
+
+
+def test_a_worked_example_is_given_the_turns_real_figures():
+    from src.workflow.nodes import illustrate_node
+    llm = RoleLLM()
+    llm_module.set_llm(llm)
+    illustrate_node({"question": "How does NVIDIA's share price affect its market cap?",
+                     "agent_outputs": {"qa": {"status": "answered", "content": "Market cap is price times shares."}},
+                     "market_data": {"NVDA": {"quote": {"price": 202.06, "as_of": "2026-11-03T01:00:00"},
+                                              "profile": {"market_cap": 4879142617088.0, "shares_outstanding": 24300000000}}}}, {})
+    assert "NVDA: price $202.06 on 2026-11-03; market cap $4,879,142,617,088; shares outstanding 24,300,000,000" in llm.prompts["example"]
 
 
 def test_no_example_when_no_calculation_fits():
     _kb_answer()
     llm_module.set_llm(RoleLLM(router='{"intents": ["qa"], "confidence": 0.9}'))       # example → {"function": null}
     s = ask("What is a green bond?")
-    assert CALC.EXAMPLE_HEADING not in s["final_response"] and "illustrate: no calculation fits this topic" in s["trace"]
+    assert "Worked example" not in s["final_response"] and "illustrate: no calculation fits this topic" in s["trace"]
 
 
 def test_calculation_questions_are_not_illustrated_twice():

@@ -200,7 +200,7 @@ flowchart LR
     replan -. picked agents run,<br/>then back to the verifier .-> qa_agent & tax_agent & market_agent & news_agent & portfolio_agent & goal_agent & calc_agent
     replan -- no agent can help --> illustrate
     verifier -- otherwise --> illustrate
-    illustrate[illustrate<br/>worked example with sample numbers<br/>for numeric concepts] --> synthesizer
+    illustrate[illustrate<br/>worked example by the calculator<br/>for numeric concepts] --> synthesizer
 
     synthesizer[synthesizer<br/>writes only from answered outputs;<br/>calculations + follow-ups passed through] --> followups[followups<br/>suggest a calculation, an example,<br/>a related question]
     followups --> compliance[compliance<br/>strip advice + add disclaimer]

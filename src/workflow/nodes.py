@@ -1415,7 +1415,14 @@ _json = first_json
 SUFFICIENCY_SYSTEM = (
     "You check whether retrieved SOURCES contain the information needed to answer a QUESTION from a personal-finance "
     "learner. Reply with ONLY JSON: {\"answers\": true} if the sources answer it fully or mostly, otherwise "
-    "{\"answers\": false, \"missing\": \"<what the question asks for that the sources lack, under 15 words>\"}.")
+    "{\"answers\": false, \"missing\": \"<what the question asks for that the sources lack, under 15 words>\"}. When ANSWERED BY "
+    "OTHER AGENTS is given and it already supplies everything the sources lack, reply {\"answers\": false, \"covered\": true}. "
+    "When the note says a calculator works out the figure, a number computed from the user's own figures is not the "
+    "sources' job: judge only whether they explain the rules or ideas the question needs (how the gains are taxed, say).")
+CALC_NOTE = "\n\nNOTE: a calculator agent works out the figure the question asks for from the user's numbers."
+CALC_QUESTION = ("{} (A calculator works out the figure itself. Judge only whether the sources explain the rules or ideas "
+                 "behind it, such as how and when this is taxed.)")
+OTHERS_CHARS = 1500                       # of each other agent's answer shown to the sufficiency check
 CHOICES_SYSTEM = (
     "A personal-finance education assistant needs more details before it can help. Write 2 or 3 short messages the USER "
     "could send next, each covering a likely thing they mean (for example learning the concepts versus planning the "
@@ -1438,15 +1445,29 @@ def verifier_node(state: FinanceState, config: RunnableConfig):
       - a researched (Wikipedia) answer that doesn't answer it either becomes not_found and is kept as a `fallback`
         (→ web search, then replan looks for another agent; the fallback is used only if none answers);
       - a web answer that doesn't answer it becomes not_found too, but is never kept as the fallback;
+      - any of those whose gap another agent's answer already fills (the market figures for "how is the tech sector doing?")
+        is dropped as `covered`: no research, web search or replan for something already answered;
       - follow-up questions get choices the user can click."""
     llm_on = current_llm() is not None
     updates, trace = {}, []
-    for agent, o in (state.get("agent_outputs") or {}).items():
+    outputs = state.get("agent_outputs") or {}
+    for agent, o in outputs.items():
         if o.get("verified"):
             continue
         status = o.get("status", "answered")
         if status == "answered" and o.get("origin") in ("kb", "wikipedia", "web") and llm_on:
-            verdict = _json(ask_llm(SUFFICIENCY_SYSTEM, f"QUESTION: {state['question']}\n\nSOURCES:\n{o['content'][:6000]}"))
+            others = _answered_by_others(outputs, agent)
+            shown = "".join(f"\n[{a}]\n{c[:OTHERS_CHARS]}\n" for a, c in others.items())
+            calc_too = agent != "calc" and ("calc" in outputs or "calc" in (state.get("intent") or []))
+            question = CALC_QUESTION.format(state["question"]) if calc_too else state["question"]
+            verdict = _json(ask_llm(SUFFICIENCY_SYSTEM, f"QUESTION: {question}\n\nSOURCES:\n{o['content'][:6000]}"
+                                                        + (f"\n\nANSWERED BY OTHER AGENTS:{shown}" if others else "")
+                                                        + (CALC_NOTE if calc_too else "")))
+            if verdict is not None and verdict.get("answers") is False and verdict.get("covered") is True and others:
+                updates[agent] = {**o, "status": "not_found", "content": "", "sources": [], "fallback": None, "covered": True,
+                                  "verified": True, "researched": True, "web_searched": True, "handed_off": True}
+                trace.append(f"verifier: {agent} not needed, {', '.join(others)} already answer{'s' if len(others) == 1 else ''} the question")
+                continue
             if verdict is not None and verdict.get("answers") is False:
                 missing = str(verdict.get("missing") or "").strip()
                 if o["origin"] == "kb":
@@ -1476,6 +1497,13 @@ def verifier_node(state: FinanceState, config: RunnableConfig):
         elif status == "answered":
             updates[agent] = {**o, "verified": True}
     return {"agent_outputs": updates, "trace": trace or ["verifier: all agent outputs usable"]}
+
+
+def _answered_by_others(outputs: dict, agent: str) -> dict[str, str]:
+    """{agent: content} of the other agents that answered from their own data (market figures, news, a calculation): not
+    retrieved text, which is still being checked itself."""
+    return {a: o["content"] for a, o in outputs.items() if a != agent and o.get("status", "answered") == "answered"
+            and o.get("content") and o.get("origin") not in ("kb", "wikipedia", "web")}
 
 
 def _unresolved(o: AgentOutput) -> bool:
@@ -1592,6 +1620,7 @@ RULES
 - Choose only from the agents listed as AVAILABLE. Never choose an agent that was already tried.
 - goal, portfolio and tax only if the user explicitly asked for a savings plan, an analysis of their own holdings, or tax treatment; never because the question mentions retirement, saving or an amount.
 - Choose an agent only if its job directly supplies what is missing. If none can, return an empty list: an honest "not found" is better than an unrelated answer.
+- What the agents that already answered supplied (listed under ANSWERED) is not missing: never choose an agent to repeat it.
 - Usually 0-2 agents.
 
 Reply with ONLY JSON: {"intents": ["market"], "reason": "<one short sentence>"}."""
@@ -1610,10 +1639,12 @@ def replan_node(state: FinanceState, config: RunnableConfig):
     intents, reason = [], ""
     if available:
         missing = "\n".join(f"- {a}: {o.get('missing') or 'found nothing relevant'}" for a, o in unresolved.items())
+        done = {a: o["content"] for a, o in outputs.items() if o.get("status", "answered") == "answered" and o.get("content")}
+        answered = "".join(f"\n[{a}]\n{c[:OTHERS_CHARS]}\n" for a, c in done.items()) or " (none)"
         recent = H.transcript(state.get("history"))
         reply = _json(ask_llm(REPLAN_SYSTEM, f"Recent conversation:\n{recent or '(none)'}\n\nQuestion: {state['question']}\n\n"
                                              f"Already tried: {', '.join(tried)}\nWhat is missing:\n{missing}\n\n"
-                                             f"AVAILABLE: {', '.join(available)}"))
+                                             f"ANSWERED:{answered}\n\nAVAILABLE: {', '.join(available)}"))
         intents = list(dict.fromkeys(i for i in (reply or {}).get("intents", []) if i in available))
         reason = str((reply or {}).get("reason") or "").strip()
     res = {"replans": n, "replan_intents": intents, "tried_agents": tried + intents,
@@ -1637,26 +1668,32 @@ def route_after_replan(state: FinanceState) -> list[str]:
 
 
 def illustrate_node(state: FinanceState, config: RunnableConfig):
-    """Add a worked example to conceptual answers: when a Q&A or tax answer is about something numeric, the LLM picks a
-    calculation with sample numbers and Python computes it exactly. Skipped for calculations, non-numeric topics and
-    basic mode (no LLM). Follow-up suggestions then let the user vary the numbers."""
+    """Add a worked example to conceptual answers: when a Q&A or tax answer is about something numeric, the LLM writes the
+    calculation that makes it concrete (with this turn's real figures where they fit, else sample numbers) and the
+    calculator works it out like any other question: equation from the knowledge base or the web, computed in Python.
+    Skipped for calculations, non-numeric topics and basic mode (no LLM). Follow-up suggestions then let the user vary the
+    numbers."""
     outputs = state.get("agent_outputs") or {}
     concept = [o for k, o in outputs.items() if k in ("qa", "tax") and o.get("status", "answered") == "answered" and o.get("content")]
     if not concept or "calc" in outputs or current_llm() is None:
         return {"trace": []}
-    reply = _json(ask_llm(CALC.EXAMPLE_SYSTEM, f"Question: {state['question']}\n\nAnswer so far:\n{concept[0]['content'][:2500]}"))
-    name, args = (reply or {}).get("function"), (reply or {}).get("args") or {}
-    if name not in CALC.CATALOG:
+    figures = CTX.describe({"facts": {**(CTX.carried(state).get("facts") or {}), **_key_facts(state.get("market_data") or {})}})
+    reply = _json(ask_llm(CALC.EXAMPLE_SYSTEM, f"Question: {state['question']}\n\nAnswer so far:\n{concept[0]['content'][:2500]}"
+                          + (f"\n\nFigures:\n{figures}" if figures else "")))
+    asked = (reply or {}).get("question")
+    if not isinstance(asked, str) or not asked.strip():
         return {"trace": ["illustrate: no calculation fits this topic"]}
-    try:
-        text = CALC.run(name, args)
-    except (TypeError, ValueError) as e:
-        return {"trace": [f"illustrate: {name} rejected sample inputs ({e})"]}
-    shown = ", ".join(f"{k}={v:g}" for k, v in args.items() if isinstance(v, (int, float)) and v)
-    return {"agent_outputs": {"example": {"agent": "example", "content": f"{CALC.EXAMPLE_HEADING}\n\n{text}", "sources": [],
+    asked = f"Show a worked example: {asked.strip()}"                   # the calculator's worked-example mode: samples allowed
+    out = calculate(asked, (f"Figures from this answer:\n{figures}\n\n" if figures else "") + f"Message: {asked}", f"{asked}\n{figures}")
+    steps = [f"illustrate: {asked}", *(f"illustrate calc step {line}" for line in out.trace)]
+    if out.kind != "answer":
+        return {"trace": [*steps, "illustrate: the calculator couldn't work it out → no example"]}
+    sources = [{"id": f"calc:{s['url']}", "title": s["title"], "url": s["url"]}
+               for q in out.result.get("quotes", []) for s in q["sources"] if s.get("url")]
+    return {"agent_outputs": {"example": {"agent": "example", "content": CALC.plan_text({**out.result, "example": True}), "sources": sources,
                                           "data_info": None, "confidence": "high", "error": None, "status": "answered",
                                           "verbatim": True}},
-            "trace": [f"illustrate: {name}({shown})"]}
+            "trace": [*steps, out.note or "illustrate calc: " + out.trace[-1]]}
 
 
 # ---------------------------------------------------------------- synthesizer + compliance
@@ -1746,20 +1783,26 @@ def synthesizer_node(state: FinanceState, config: RunnableConfig):
     answered = [o for o in outputs if o.get("status", "answered") == "answered" and o.get("content")]
     asks = [o for o in outputs if o.get("status") == "need_info" and o.get("content")]
     missing = [o for o in outputs if o.get("status") == "not_found" and o.get("content")]
-    partial = [] if answered or asks else [o["fallback"] for o in outputs if o.get("fallback")]
+    # nothing answered: write from the research the verifier found incomplete, also when another agent asks for details
+    # (the tax rules, then the calculator's question about the missing rate)
+    partial = [] if answered else [o["fallback"] for o in outputs if o.get("fallback")]
     answered = answered or partial                  # nothing better turned up: write from the research the verifier found incomplete
     choices = list(dict.fromkeys(c for o in asks for c in o.get("choices") or []))[:3]
     if answered:
         exact = [o for o in answered if o.get("verbatim")]          # calculator results: never reworded
-        prose = [o for o in answered if not o.get("verbatim")]
+        sector_lines = _sector_lines(state)
+        prose = [o for o in answered if not o.get("verbatim") and not (sector_lines and o["agent"] == "market")]
         text, mode = "\n\n".join(o["content"] for o in prose), "extractive" if prose else "verbatim"
         if prose and current_llm() is not None:
-            history = H.transcript(state.get("history"))
+            history = H.transcript(state.get("history")) if state.get("follow_up") else ""     # a new question can only be misled by it
             context = "\n\n".join(f"[{o['agent']}]\n{o['content']}" for o in prose)
             level = state.get("profile", {}).get("knowledge_level", "beginner")
-            shown_after = ("\n\nA worked calculation is shown separately right after your answer; don't do arithmetic and "
-                           "don't say that calculations or examples are missing." if exact else "")
-            data = MT.data_block(state.get("market_data") or {})        # exact figures the market tools fetched (volume, P/E...)
+            shown_after = ("\n\nA worked calculation is shown separately right after your answer and gives the figure the "
+                           "question asks for: don't do arithmetic, and never say that the figure, calculations, examples "
+                           "or details are missing from the context. Explain the ideas behind it (for a tax figure: what "
+                           "is taxed and when, and what changes the amount) and say the calculation below works it out."
+                           if exact else "")
+            data = "" if sector_lines else MT.data_block(state.get("market_data") or {})        # exact figures the market tools fetched (volume, P/E...)
             figures = (f"\n\nData (exact figures from the market tools; use only those the question needs, and keep them "
                        f"exactly as given):\n{data}" if data else "")
             style = LENGTH_BY_LEVEL.get(level, LENGTH_BY_LEVEL["beginner"])
@@ -1768,7 +1811,7 @@ def synthesizer_node(state: FinanceState, config: RunnableConfig):
             if reply:
                 text, mode = drop_unknown_headlines(reply, [x for o in prose for x in o.get("sources", [])]), "llm"
         text = link_sources(text, [s for o in prose for s in o.get("sources", [])])
-        text = "\n\n".join(t for t in [text] + [o["content"] for o in exact] if t)
+        text = "\n\n".join(t for t in [sector_lines, text] + [o["content"] for o in exact] if t)
         readings = [o for o in answered if o.get("reading")]       # answered on a guess: say how it was read, never left to the LLM
         if readings:
             text += "\n\n" + "\n".join(READING_NOTE.format(o["reading"]) for o in readings)
