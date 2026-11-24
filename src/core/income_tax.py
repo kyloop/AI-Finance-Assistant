@@ -149,3 +149,51 @@ def estimate(inp: TaxInputs, year: int | None = None) -> dict:
         "marginal_rate": marginal,
         "effective_rate": income_tax / gross if gross > 0 else 0.0,
     }
+
+
+# ---------------------------------------------------------------- what-ifs on top of an estimate (the tax agent's tools)
+def marginal_effect(inp: TaxInputs, changes: dict, year: int | None = None) -> dict:
+    """What a change to the inputs does: the estimate before and after, and how much of the change goes to tax.
+    `changes` adds to the input fields ({"wages": 10000} for a raise, {"charity": 5000} for a gift)."""
+    after_inp = TaxInputs(**{**asdict(inp), **{k: getattr(inp, k) + v for k, v in changes.items()}})
+    before, after = estimate(inp, year), estimate(after_inp, year)
+    amount = sum(changes.values())
+    diff = {k: after[k] - before[k] for k in ("income_tax", "total_federal", "taxable_income")}
+    diff["payroll"] = after["payroll"]["total"] - before["payroll"]["total"]
+    return {"before": before, "after": after, "amount": amount, "diff": diff,
+            "share": diff["total_federal"] / amount if amount else 0.0}
+
+
+def compare_accounts(inp: TaxInputs, contribution: float, years: int, annual_return: float,
+                     retirement_rates: tuple[float, ...] = (0.10, 0.12, 0.22, 0.24, 0.32), year: int | None = None) -> dict:
+    """Traditional vs Roth for `contribution` dollars of pre-tax pay this year. Traditional: deducted now (the tax saved is
+    worked out from the user's own estimate), grows untaxed, every dollar taxed as income when withdrawn. Roth: taxed now,
+    so only the pay left after that tax goes in; qualified withdrawals are tax-free. With the same cost to you today, the
+    one taxed at the lower rate wins: today's rate on that slice of pay vs the rate in retirement."""
+    effect = marginal_effect(inp, {"pre_tax_retirement": contribution}, year)
+    saved = -effect["diff"]["income_tax"]                        # payroll tax isn't saved by a 401(k)/IRA contribution
+    rate_now = saved / contribution if contribution else 0.0
+    growth = (1 + annual_return) ** years
+    trad_balance = contribution * growth
+    roth_in = contribution - saved                               # the same pre-tax pay, after the tax on it
+    roth_balance = roth_in * growth
+    rows = [{"rate": t, "traditional": trad_balance * (1 - t), "roth": roth_balance} for t in retirement_rates]
+    return {"contribution": contribution, "years": years, "annual_return": annual_return, "tax_saved_now": saved,
+            "rate_now": rate_now, "take_home_cost": contribution - saved, "traditional_balance": trad_balance,
+            "roth_contribution": roth_in, "roth_balance": roth_balance, "rows": rows, "growth": growth,
+            "before": effect["before"], "after": effect["after"]}
+
+
+def capital_gain(proceeds: float, cost_basis: float, held_more_than_a_year: bool, rebought_within_30_days: bool = False,
+                 inp: TaxInputs | None = None, year: int | None = None) -> dict:
+    """A sale's gain or loss and its tax. A loss with substantially identical shares bought within 30 days before or after
+    is a wash sale: not deductible now, added to the new shares' basis. With the user's other income (`inp`), the tax is
+    the change in their estimate; without it, only the rates that apply are given."""
+    gain = proceeds - cost_basis
+    wash = gain < 0 and rebought_within_30_days
+    out = {"proceeds": proceeds, "cost_basis": cost_basis, "gain": gain, "long_term": held_more_than_a_year,
+           "wash_sale": wash, "effect": None}
+    if inp is not None and not wash and gain:
+        field = "long_term_gains" if held_more_than_a_year else "short_term_gains"
+        out["effect"] = marginal_effect(inp, {field: gain}, year)
+    return out

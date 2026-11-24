@@ -33,6 +33,7 @@ from . import router as R
 from . import symbols as SYM
 from . import tax_calc as TAXC
 from . import tax_tools as TT
+from . import tax_whatif as TW
 from . import topics as TOP
 from .jsonreply import first_json
 from .safety import finalize
@@ -431,6 +432,8 @@ def _with_income_tax(intents: list[str], state: FinanceState) -> list[str]:
     each step, so the calculator and Q&A would only repeat it."""
     follows_estimate = bool(_last_estimate(state)) and set(intents) <= {"qa", "tax", "calc", "goal", "clarify"}
     if not TAXC.asks_income_tax(state["question"]) and not follows_estimate:
+        if "tax" in intents and TW.TAX_FIGURE.search(state["question"]) and TAXC.amounts(state["question"]):
+            return [i for i in intents if i not in ("calc", "qa")]  # Roth vs traditional for $10k, a sale's gain: the tax tools
         return intents
     rest = [i for i in intents if i not in ("tax", "calc", "qa")]
     return ["tax", *rest]
@@ -640,6 +643,23 @@ def tax_node(state: FinanceState, config: RunnableConfig):
     question = state["question"]
     profile = _last_estimate(state)                  # the last estimate's figures, for "what if I'm married?"
     trace_first = []
+    picked = _pick_tax_tool(state)                   # the model picks a tool and its arguments; Python runs it
+    if picked:
+        name, args, note = picked
+        trace_first.append(note)
+        if name in TW.WHATIFS:
+            typed = state.get("original_question") or ""
+            try:
+                text, did = TW.WHATIFS[name](args, f"{question}\n{typed}", (state.get("context_in") or {}).get("tax"),
+                                             **({"goal": state.get("saved_goal")} if name == "compare_accounts" else {}))
+                return _out("tax", text, verbatim=True, explains_itself=True, origin="tax_tools",
+                            sources=TAXC.SOURCES + _tax_pages(question), trace=f"tax tool {did}") | {"trace": [*trace_first, f"tax tool {did}"]}
+            except TW.Refused as e:
+                trace_first.append(f"tax tool {name} refused ({e}) → the usual path")
+        elif name == "update_estimate" and not profile:
+            profile = (state.get("context_in") or {}).get("tax")
+        elif name == "explain_rules" and not (state.get("saved_goal") and saved_plan_figures(state)):
+            profile = None if not CTX.carried(state).get("tax") else profile
     if current_llm() is not None and (profile or TAXC.asks_income_tax(question)):
         est, note = None, ""
         if profile:
@@ -673,6 +693,33 @@ def tax_node(state: FinanceState, config: RunnableConfig):
     res["trace"] = [*trace_first, f"tax: saved {g.get('goal_type')} plan → tools search_tax_pages + tax_on_plan ({note})",
                     *res["trace"]]
     return res
+
+
+def _pick_tax_tool(state: FinanceState) -> tuple[str, dict, str] | None:
+    """(tool, arguments, trace) the model picks for the message (tax_whatif.TOOL_SPECS), or None without a tool-calling
+    model, when it picks none, or when it fails: the agent then takes its usual path (estimate, follow-up, plan, pages)."""
+    llm = current_llm()
+    if llm is None or not hasattr(llm, "bind_tools"):
+        return None
+    last = (state.get("context_in") or {}).get("tax")
+    about = [f"LAST ESTIMATE:\n{TAXC.describe_profile(last)}\nFederal total {last.get('total_federal', 0):.0f}" if last else
+             "LAST ESTIMATE: none"]
+    if state.get("saved_goal") and saved_plan_figures(state):
+        about.append("The message is about the user's saved Goals plan.")
+    typed = state.get("original_question") or ""
+    said = f"Message: {typed}\n(Reworded: {state['question']})" if typed and typed != state["question"] else f"Message: {state['question']}"
+    try:
+        from langchain_core.messages import HumanMessage, SystemMessage
+        reply = llm.bind_tools(TW.TOOL_SPECS).invoke([SystemMessage(TW.CHOOSER_SYSTEM), HumanMessage("\n".join(about) + "\n\n" + said)])
+    except Exception as e:  # noqa: BLE001 — the usual path still answers
+        log.warning("tax tool choice failed: %s", e)
+        return None
+    calls = getattr(reply, "tool_calls", None) or []
+    if not calls:
+        return None
+    name, args = calls[0]["name"], calls[0].get("args") or {}
+    shown = ", ".join(f"{k}={v}" for k, v in args.items())
+    return name, args, f"tax: model picked {name}({shown})"
 
 
 def _last_estimate(state: FinanceState) -> dict | None:
@@ -1919,7 +1966,7 @@ def illustrate_node(state: FinanceState, config: RunnableConfig):
     outputs = state.get("agent_outputs") or {}
     concept = [o for k, o in outputs.items() if k in ("qa", "tax") and o.get("status", "answered") == "answered" and o.get("content")
                and o.get("origin") != "tax_tools" and not o.get("verbatim_tail")]    # the tax agent's own figures need no example
-    if not concept or "calc" in outputs or current_llm() is None:
+    if not concept or "calc" in outputs or current_llm() is None or any(o.get("origin") == "tax_tools" for o in outputs.values()):
         return {"trace": []}
     figures = CTX.describe({"facts": {**(CTX.carried(state).get("facts") or {}), **_key_facts(state.get("market_data") or {})}})
     reply = _json(ask_llm(CALC.EXAMPLE_SYSTEM, f"Question: {state['question']}\n\nAnswer so far:\n{concept[0]['content'][:2500]}"

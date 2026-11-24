@@ -2,9 +2,9 @@
 
 | | |
 |---|---|
-| Status | Steps 1 and 2 of 4 built (2026-11-24): four tools, every tax figure, the estimate carried across the chat and one question asked when it matters. |
+| Status | Steps 1–3 of 4 built (2026-11-24): seven tools, picked by the model; every tax figure; the estimate carried across the chat; one question asked when it matters. |
 | Code | `tax_node` in [src/workflow/nodes.py](../src/workflow/nodes.py), tools in [src/workflow/tax_tools.py](../src/workflow/tax_tools.py), the income-tax reading and rendering in [src/workflow/tax_calc.py](../src/workflow/tax_calc.py), the maths in [src/core/income_tax.py](../src/core/income_tax.py), the rules in [src/data/tax_rules.yaml](../src/data/tax_rules.yaml) |
-| Tests | `tests/test_income_tax.py`, `tests/test_saved_plan.py` |
+| Tests | `tests/test_income_tax.py`, `tests/test_tax_whatif.py`, `tests/test_saved_plan.py` |
 
 ## Why it exists
 
@@ -28,7 +28,7 @@ sample rate and subtracted property tax in full. A tax expert does five things, 
 | 2 | `get_tax_rules` | a year's figures from `tax_rules.yaml` | step 1 |
 | 3 | `estimate_income_tax` | the step-by-step federal estimate from the user's income and deductions | step 1 (moved from the calculator) |
 | 4 | `tax_on_plan` | the saved Goals plan's tax in a brokerage account, a traditional 401(k)/IRA and a Roth | step 1 (moved from the calculator) |
-| 5 | `compare_accounts` | Roth vs traditional; a 401(k) contribution vs salary | step 3 |
+| 5 | `compare_accounts` | Roth vs traditional; what a 401(k)/IRA contribution saves today | step 3 |
 | 6 | `marginal_effect` | what an extra amount of income, a sale or a deduction changes | step 3 |
 | 7 | `capital_gain` | gain or loss on a sale from cost basis, short vs long term, wash sales | step 3 |
 
@@ -63,7 +63,27 @@ sample rate and subtracted property tax in full. A tax expert does five things, 
   worked out both ways. The one that moves the federal total most is asked when it is worth asking (at least $500 and
   1% of the total), with its two answers as reply buttons; the others stay stated assumptions with their alternative.
 
+## Step 3: what-if tools, picked by the model
+
+- **Picking.** With a tool-calling model, `_pick_tax_tool` binds `tax_whatif.TOOL_SPECS` (estimate_income_tax,
+  update_estimate, marginal_effect, compare_accounts, capital_gain, explain_rules) and takes the one call the model
+  makes, with the last estimate in the prompt. Python runs it: every amount in its arguments must be the user's (in the
+  message, as typed or reworded, or in the last estimate), prices and share counts must appear in the message, and years
+  or a return rate are used only when the message gives them (else the Goals plan's horizon or 20 years, and the risk
+  profile's return, stated). An argument that isn't the user's raises `Refused` and the agent takes its usual path.
+  Without a tool-calling model, or when the model picks nothing, the step-1/2 paths run as before.
+- **marginal_effect** (raise, bonus, extra freelance or investment income, a contribution, a gift or other deduction):
+  the estimate before and after, step by step, and how much of the extra goes to tax; a deduction notes whether
+  itemizing now beats the standard deduction.
+- **compare_accounts**: today's tax saved by a traditional contribution (from the user's own estimate, so NIIT and
+  bracket edges count), the same take-home cost put in a Roth, growth, and the result at common retirement tax rates;
+  the rule: below today's rate traditional wins, above it Roth.
+- **capital_gain**: gain or loss from shares × prices or basis and proceeds; short vs long term (said, or from dates;
+  else long-term, stated); a loss with the same shares bought back within 30 days is a wash sale (not deducted, added to
+  the new basis); the tax on it from the last estimate or the income the message gives, else the rates.
+- Routing: a tax question with amounts and a what-if cue (Roth, traditional, 401(k), sold, shares, raise, bonus,
+  deduction, contribution) goes to the tax agent alone; `illustrate` skips answers the tax tools worked out.
+
 ## Next
 
-3. Tools 5–7, and the LLM picking tools like the Market agent (`market_tools.py`).
 4. A tax eval set (about 20 cases with hand-checked answers), run after any prompt or rules change.
