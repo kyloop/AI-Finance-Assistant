@@ -1,0 +1,290 @@
+<title>__TITLE__</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: a review sheet. Summary scoreboard first, then each conversation as a column of turn cards, scores in a fixed strip. */
+:root {
+  --bg: #f5f6f8; --surface: #ffffff; --sunk: #eceff3; --fg: #1b2330; --muted: #5d6878; --line: #d9dee6;
+  --accent: #2f5d8a; --accent-soft: #e3ecf5;
+  --good: #1f7a4d; --good-soft: #e1f2e8; --warn: #9a6a00; --warn-soft: #fbf0d6; --bad: #b3362d; --bad-soft: #f8e2df;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #12161c; --surface: #1a2029; --sunk: #222a35; --fg: #e3e8ef; --muted: #98a3b3; --line: #2e3744;
+  --accent: #8fb6de; --accent-soft: #233447;
+  --good: #6fcf9b; --good-soft: #1b3326; --warn: #e6bb55; --warn-soft: #362c14; --bad: #f08a80; --bad-soft: #3d1f1c; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #12161c; --surface: #1a2029; --sunk: #222a35; --fg: #e3e8ef; --muted: #98a3b3; --line: #2e3744;
+  --accent: #8fb6de; --accent-soft: #233447;
+  --good: #6fcf9b; --good-soft: #1b3326; --warn: #e6bb55; --warn-soft: #362c14; --bad: #f08a80; --bad-soft: #3d1f1c; color-scheme: dark }
+
+* { box-sizing: border-box }
+body { background: var(--bg); color: var(--fg); font: 15px/1.55 var(--sans);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 28px 64px }
+.wrap { max-width: 980px; margin: 0 auto; display: grid; gap: 28px }
+h1, h2, h3 { text-wrap: balance; margin: 0 }
+h1 { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.01em }
+h2 { font-size: 1.3rem; font-weight: 600 }
+.lede { color: var(--muted); margin: 6px 0 0; max-width: 70ch }
+.label { font: 600 0.72rem/1 var(--sans); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted) }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums }
+
+.tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: grid; gap: 6px }
+.tile .v { font: 600 1.7rem/1 var(--mono) }
+.tile .s { color: var(--muted); font-size: 0.82rem }
+@media (max-width: 640px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)) } }
+
+.table-box { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px }
+table { border-collapse: collapse; width: 100%; font-size: 0.9rem }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap }
+th { font-weight: 600; color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em }
+tr:last-child td { border-bottom: 0 }
+td a { color: var(--accent); text-decoration: none; font-weight: 500 }
+
+.controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5;
+  background: var(--bg); padding-block: 10px; border-bottom: 1px solid var(--line) }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg) }
+select, input[type="search"], textarea { font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px }
+input[type="search"] { flex: 1 1 180px; min-width: 0 }
+label.chk { display: flex; gap: 6px; align-items: center; font-size: 0.9rem; color: var(--muted) }
+button { font: 500 0.88rem var(--sans); color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; cursor: pointer }
+button:hover { border-color: var(--accent) }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+.progress { font-size: 0.85rem; color: var(--muted); margin-left: auto }
+
+.conv { display: grid; gap: 14px }
+.conv-head { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline }
+.conv-head .meta { color: var(--muted); font-size: 0.88rem }
+
+.turn { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow: hidden }
+.turn.flag { border-left: 4px solid var(--warn) }
+.turn.agree { box-shadow: inset 0 0 0 1px var(--good) }
+.turn.disagree { box-shadow: inset 0 0 0 1px var(--bad) }
+.t-top { padding: 14px 16px 12px; display: grid; gap: 8px }
+.q { display: flex; gap: 10px; align-items: baseline }
+.q .n { font: 600 0.8rem var(--mono); color: var(--muted); flex: none }
+.q .text { font-weight: 600; font-size: 1.05rem; min-width: 0 }
+.facts { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 0.84rem; color: var(--muted) }
+.facts b { color: var(--fg); font-weight: 500 }
+
+.scores { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line) }
+.score { padding: 10px 16px; display: grid; gap: 2px; border-right: 1px solid var(--line) }
+.score:last-child { border-right: 0 }
+.score .v { font: 600 1.15rem var(--mono) }
+.score.good { background: var(--good-soft) } .score.good .v { color: var(--good) }
+.score.warn { background: var(--warn-soft) } .score.warn .v { color: var(--warn) }
+.score.bad { background: var(--bad-soft) } .score.bad .v { color: var(--bad) }
+.score.na .v { color: var(--muted) }
+@media (max-width: 560px) { .scores { grid-template-columns: repeat(2, minmax(0, 1fr)) } .score:nth-child(2) { border-right: 0 } .score:nth-child(-n+2) { border-bottom: 1px solid var(--line) } }
+
+.t-body { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr) }
+@media (max-width: 760px) { .t-body { grid-template-columns: minmax(0, 1fr) } .judge { border-left: 0 !important; border-top: 1px solid var(--line) } }
+.answer { padding: 14px 16px; min-width: 0; overflow-wrap: anywhere }
+.answer > :first-child { margin-top: 0 } .answer > :last-child { margin-bottom: 0 }
+.answer table { font-size: 0.85rem; display: block; overflow-x: auto }
+.answer th, .answer td { white-space: normal; padding: 5px 8px; border: 1px solid var(--line) }
+.answer blockquote { margin: 8px 0; padding-left: 12px; border-left: 3px solid var(--line); color: var(--muted) }
+.answer code { font: 0.86em var(--mono); background: var(--sunk); padding: 1px 4px; border-radius: 3px }
+.answer a { color: var(--accent) }
+.judge { padding: 14px 16px; border-left: 1px solid var(--line); background: var(--sunk); display: grid; gap: 12px; align-content: start; font-size: 0.88rem; min-width: 0 }
+.judge p { margin: 0 }
+.kp { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 4px }
+.kp li { display: grid; grid-template-columns: 18px 1fr; gap: 4px }
+.kp .ok { color: var(--good); font-weight: 700 } .kp .no { color: var(--bad); font-weight: 700 }
+.claims { margin: 4px 0 0; padding-left: 18px; color: var(--bad) }
+
+details { border-top: 1px solid var(--line) }
+summary { cursor: pointer; padding: 9px 16px; font-size: 0.85rem; color: var(--muted); font-weight: 500 }
+details pre { margin: 0; padding: 10px 16px 14px; font: 0.8rem/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--fg); max-height: 420px; overflow-y: auto }
+
+.verdict { border-top: 1px solid var(--line); padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center }
+.verdict button[aria-pressed="true"].a { background: var(--good-soft); border-color: var(--good); color: var(--good) }
+.verdict button[aria-pressed="true"].d { background: var(--bad-soft); border-color: var(--bad); color: var(--bad) }
+.verdict textarea { flex: 1 1 240px; min-width: 0; min-height: 34px; resize: vertical; font-size: 0.88rem }
+.empty { color: var(--muted); padding: 24px; text-align: center; background: var(--surface); border: 1px dashed var(--line); border-radius: 8px }
+.export { display: grid; gap: 8px }
+.export textarea { width: 100%; min-height: 120px; font: 0.8rem var(--mono) }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="label">Finnie · multi-turn chat eval</div>
+    <h1>Conversation eval</h1>
+    <p class="lede" id="lede"></p>
+  </header>
+
+  <section class="tiles" id="tiles" aria-label="Average scores"></section>
+
+  <section style="display:grid;gap:10px">
+    <h2>By conversation</h2>
+    <div class="table-box"><table id="convTable"></table></div>
+  </section>
+
+  <div class="controls">
+    <select id="fConv" aria-label="Conversation"></select>
+    <input type="search" id="fText" placeholder="Search questions and answers" aria-label="Search">
+    <label class="chk"><input type="checkbox" id="fFlag"> Below full marks only</label>
+    <label class="chk"><input type="checkbox" id="fTodo"> Not yet verified</label>
+    <span class="progress" id="progress"></span>
+  </div>
+
+  <main id="list" style="display:grid;gap:32px"></main>
+
+  <section class="export">
+    <h2>Your verdicts</h2>
+    <p class="lede">Agree or disagree with each turn's scores above, add a note, then copy this and paste it into the chat.</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button id="copyBtn" type="button">Copy verdicts</button><button id="clearBtn" type="button">Clear all verdicts</button><span id="copyMsg" class="progress" style="margin-left:0"></span></div>
+    <textarea id="exportBox" readonly aria-label="Verdicts as text"></textarea>
+  </section>
+</div>
+
+<script type="application/json" id="eval-data">__DATA__</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+<script>
+(function () {
+  const D = JSON.parse(document.getElementById("eval-data").textContent);
+  const convs = D.conversations;
+  const KEY = "finnie-conv-eval:" + D.run;
+  let verdicts = {};
+  try { verdicts = JSON.parse(localStorage.getItem(KEY) || "{}") } catch (e) { verdicts = {} }
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(verdicts)) } catch (e) {} };
+
+  const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const md = s => {
+    try { return DOMPurify.sanitize(marked.parse(s || ""), { ADD_ATTR: ["target"] }) }
+    catch (e) { return "<pre>" + esc(s) + "</pre>" }
+  };
+  const fmt = (x, d = 2) => x === null || x === undefined ? "n/a" : (typeof x === "number" && !Number.isInteger(x) ? x.toFixed(d) : String(x));
+  const fmt01 = x => x === null || x === undefined ? "n/a" : Number(x).toFixed(2);
+  const band5 = v => v >= 5 ? "good" : v >= 4 ? "warn" : "bad";
+  const band1 = v => v === null || v === undefined ? "na" : v >= 1 ? "good" : v >= 0.67 ? "warn" : "bad";
+  const flagged = t => t.relevance < 5 || t.correctness < 5 || (t.faithfulness !== null && t.faithfulness < 1) || t.completeness < 1;
+  const tid = (c, t) => c.id + "-" + t.n;
+  const mean = xs => { const v = xs.filter(x => x !== null && x !== undefined); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null };
+  const all = convs.flatMap(c => c.turns);
+
+  document.getElementById("lede").innerHTML =
+    `Run ${esc(D.run)}: ${convs.length} conversations, ${all.length} turns. Answers by <span class="num">${esc(D.model)}</span>, graded by <span class="num">${esc(D.judge)}</span> on the knowledge-base test's four metrics. Read each answer against its reference and the sources it was written from, then mark whether you agree with the scores.`;
+
+  const tiles = [
+    ["Relevance", fmt(mean(all.map(t => t.relevance))), "1–5 · answers the question as meant in the conversation"],
+    ["Faithfulness", fmt01(mean(all.map(t => t.faithfulness))), `0–1 · ${all.filter(t => t.faithfulness === 1).length} of ${all.filter(t => t.faithfulness !== null).length} answers fully supported by their sources`],
+    ["Correctness", fmt(mean(all.map(t => t.correctness))), "1–5 · agrees with the reference"],
+    ["Completeness", fmt01(mean(all.map(t => t.completeness))), "0–1 · share of key points covered"],
+  ];
+  document.getElementById("tiles").innerHTML = tiles.map(([k, v, s]) =>
+    `<div class="tile"><div class="label">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join("");
+
+  const secs = all.map(t => t.seconds).sort((a, b) => a - b);
+  const med = xs => xs.length ? xs[Math.floor((xs.length - 1) / 2)] : 0;
+  document.getElementById("convTable").innerHTML =
+    "<thead><tr><th>Conversation</th><th>Turns</th><th>Relevance</th><th>Faithfulness</th><th>Correctness</th><th>Completeness</th><th>Below full</th><th>Median s</th><th>Langfuse session</th></tr></thead><tbody>" +
+    convs.map(c => { const ts = c.turns, s = ts.map(t => t.seconds).sort((a, b) => a - b);
+      return `<tr><td><a href="#${esc(c.id)}">${esc(c.id)}</a></td><td class="num">${ts.length}</td><td class="num">${fmt(mean(ts.map(t => t.relevance)))}</td><td class="num">${fmt01(mean(ts.map(t => t.faithfulness)))}</td><td class="num">${fmt(mean(ts.map(t => t.correctness)))}</td><td class="num">${fmt01(mean(ts.map(t => t.completeness)))}</td><td class="num">${ts.filter(flagged).length}</td><td class="num">${med(s).toFixed(1)}</td><td class="num">${esc(c.langfuse_session)}</td></tr>` }).join("") +
+    `<tr><td><b>All</b></td><td class="num">${all.length}</td><td class="num">${fmt(mean(all.map(t => t.relevance)))}</td><td class="num">${fmt01(mean(all.map(t => t.faithfulness)))}</td><td class="num">${fmt(mean(all.map(t => t.correctness)))}</td><td class="num">${fmt01(mean(all.map(t => t.completeness)))}</td><td class="num">${all.filter(flagged).length}</td><td class="num">${med(secs).toFixed(1)}</td><td></td></tr></tbody>`;
+
+  const fConv = document.getElementById("fConv");
+  fConv.innerHTML = `<option value="">All conversations</option>` + convs.map(c => `<option value="${esc(c.id)}">${esc(c.id)}</option>`).join("");
+
+  function scoreCell(name, v, band, sub) {
+    return `<div class="score ${band}"><div class="label">${name}</div><div class="v">${v}</div>${sub ? `<div class="label" style="text-transform:none;letter-spacing:0">${sub}</div>` : ""}</div>`;
+  }
+
+  function turnCard(c, t) {
+    const id = tid(c, t), v = verdicts[id] || {};
+    const missed = new Set(t.missed || []);
+    const kp = (t.key_points || []).map(p => `<li><span class="${missed.has(p) ? "no" : "ok"}">${missed.has(p) ? "✗" : "✓"}</span><span>${esc(p)}</span></li>`).join("");
+    const slow = [...(t.nodes || [])].filter(x => x.ms != null).sort((a, b) => b.ms - a.ms).slice(0, 3).map(x => `${x.node} ${(x.ms / 1000).toFixed(1)}s`).join(", ");
+    return `<article class="turn ${flagged(t) ? "flag" : ""} ${v.verdict || ""}" id="turn-${esc(id)}" data-id="${esc(id)}">
+      <div class="t-top">
+        <div class="q"><span class="n">#${t.n}</span><span class="text">${esc(t.q)}</span></div>
+        <div class="facts">
+          <span>Read as <b>${esc(t.read_as || "—")}</b></span>
+          <span>Agents <b>${esc((t.agents || []).join(", ") || "—")}</b></span>
+          <span><b class="num">${t.seconds.toFixed(1)}s</b>${slow ? ` (slowest: ${esc(slow)})` : ""}</span>
+        </div>
+      </div>
+      <div class="scores">
+        ${scoreCell("Relevance", t.relevance + "/5", band5(t.relevance))}
+        ${scoreCell("Faithfulness", fmt01(t.faithfulness), band1(t.faithfulness), t.faithfulness === null ? "declined" : `${t.claims} claims`)}
+        ${scoreCell("Correctness", t.correctness + "/5", band5(t.correctness))}
+        ${scoreCell("Completeness", fmt01(t.completeness), band1(t.completeness), `${(t.key_points || []).length - missed.size} of ${(t.key_points || []).length} points`)}
+      </div>
+      <div class="t-body">
+        <div class="answer">${md(t.answer)}</div>
+        <div class="judge">
+          <div><div class="label">Judge's reason</div><p>${esc(t.reason)}</p></div>
+          <div><div class="label">Reference</div><p>${esc(t.reference)}</p></div>
+          <div><div class="label">Key points</div><ul class="kp">${kp}</ul></div>
+          ${(t.unsupported || []).length ? `<div><div class="label">Unsupported claims</div><ul class="claims">${t.unsupported.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>` : ""}
+        </div>
+      </div>
+      <details><summary>Sources given to the synthesizer</summary><pre>${esc(t.sources_given)}</pre></details>
+      <details><summary>Trace</summary><pre>${esc((t.trace || []).join("\n"))}</pre></details>
+      <div class="verdict">
+        <span class="label">Scores right?</span>
+        <button type="button" class="a" data-v="agree" aria-pressed="${v.verdict === "agree"}">Agree</button>
+        <button type="button" class="d" data-v="disagree" aria-pressed="${v.verdict === "disagree"}">Disagree</button>
+        <textarea id="note-${esc(id)}" placeholder="Note (what's wrong with the answer or the score)" aria-label="Note for turn ${t.n}">${esc(v.note || "")}</textarea>
+      </div>
+    </article>`;
+  }
+
+  const list = document.getElementById("list");
+  function render() {
+    const cv = fConv.value, q = document.getElementById("fText").value.trim().toLowerCase();
+    const onlyFlag = document.getElementById("fFlag").checked, onlyTodo = document.getElementById("fTodo").checked;
+    let shown = 0;
+    list.innerHTML = convs.filter(c => !cv || c.id === cv).map(c => {
+      const ts = c.turns.filter(t => (!onlyFlag || flagged(t)) && (!onlyTodo || !(verdicts[tid(c, t)] || {}).verdict) &&
+        (!q || (t.q + " " + t.answer).toLowerCase().includes(q)));
+      shown += ts.length;
+      if (!ts.length) return "";
+      return `<section class="conv" id="${esc(c.id)}"><div class="conv-head"><h2>${esc(c.id)}</h2><span class="meta">${esc(c.title)} · Langfuse session <span class="num">${esc(c.langfuse_session)}</span></span></div>${ts.map(t => turnCard(c, t)).join("")}</section>`;
+    }).join("") || `<div class="empty">No turns match these filters.</div>`;
+    progress();
+  }
+  function progress() {
+    const done = Object.values(verdicts).filter(v => v.verdict).length;
+    document.getElementById("progress").textContent = `${done} of ${all.length} verified`;
+    const rows = convs.flatMap(c => c.turns.map(t => ({ c, t, v: verdicts[tid(c, t)] }))).filter(x => x.v && (x.v.verdict || x.v.note));
+    document.getElementById("exportBox").value = rows.length
+      ? `Conversation eval ${D.run}: my verdicts\n` + rows.map(({ c, t, v }) =>
+          `${c.id} #${t.n} "${t.q}" (rel ${t.relevance}, faith ${fmt01(t.faithfulness)}, corr ${t.correctness}, compl ${fmt01(t.completeness)}): ${v.verdict || "no verdict"}${v.note ? " — " + v.note : ""}`).join("\n")
+      : "No verdicts yet.";
+  }
+
+  list.addEventListener("click", e => {
+    const b = e.target.closest(".verdict button"); if (!b) return;
+    const card = b.closest(".turn"), id = card.dataset.id, cur = verdicts[id] || {};
+    cur.verdict = cur.verdict === b.dataset.v ? "" : b.dataset.v;
+    verdicts[id] = cur; save();
+    card.classList.remove("agree", "disagree"); if (cur.verdict) card.classList.add(cur.verdict);
+    card.querySelectorAll(".verdict button").forEach(x => x.setAttribute("aria-pressed", String(x.dataset.v === cur.verdict)));
+    progress();
+  });
+  list.addEventListener("input", e => {
+    if (e.target.tagName !== "TEXTAREA") return;
+    const id = e.target.closest(".turn").dataset.id;
+    verdicts[id] = { ...(verdicts[id] || {}), note: e.target.value }; save(); progress();
+  });
+  ["fConv", "fText", "fFlag", "fTodo"].forEach(i => document.getElementById(i).addEventListener("input", render));
+  document.getElementById("copyBtn").addEventListener("click", () => {
+    const box = document.getElementById("exportBox"), msg = document.getElementById("copyMsg");
+    const done = () => { msg.textContent = "Copied"; setTimeout(() => msg.textContent = "", 2000) };
+    try { navigator.clipboard.writeText(box.value).then(done, () => { box.select(); msg.textContent = "Selected: press Ctrl/⌘+C" }) }
+    catch (e) { box.select(); msg.textContent = "Selected: press Ctrl/⌘+C" }
+  });
+  let armed = false;
+  document.getElementById("clearBtn").addEventListener("click", e => {
+    if (!armed) { armed = true; e.target.textContent = "Click again to clear"; setTimeout(() => { armed = false; e.target.textContent = "Clear all verdicts" }, 3000); return }
+    verdicts = {}; save(); armed = false; e.target.textContent = "Clear all verdicts"; render();
+  });
+  render();
+})();
+</script>
