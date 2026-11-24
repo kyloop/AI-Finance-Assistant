@@ -510,3 +510,27 @@ def test_two_real_equations_that_differ_still_ask(sources):
     verdict = {"reasoning": "B is an annuity, A a lump sum.", "match": False, "misread": None}
     s, out = ask(StepLLM(web=(annuity,), match=(verdict,)))
     assert out["status"] == "need_info" and "two different equations" in out["content"]
+
+
+def test_a_derived_value_that_restates_the_target_is_not_shown_as_a_second_step():
+    # step 4 gave "total value" both as a derived value and as target A: the answer showed the same step twice
+    targets = [{"name": "A", "label": "total value of NVDA shares", "unit": "money", "kind": "arithmetic",
+                "expr": "number_of_shares * price_per_share",
+                "variables": {"number_of_shares": "shares owned", "price_per_share": "price per share"}}]
+    filled = {"inputs": {"number_of_shares": {"value": 50, "from": "user", "unit": "number", "means": "shares owned"},
+                         "price_per_share": {"value": 164.49, "from": "user", "unit": "money", "means": "price"}},
+              "derived": {"total_value_NVDA_shares": {"expr": "number_of_shares * price_per_share", "unit": "money"}}}
+    plan = CP.build_plan(targets, {}, filled, [])
+    assert [s["name"] for s in plan["steps"]] == ["A"]
+    q = "If you own 50 shares of NVDA at $164.49 each, what is the total value?"
+    result = PLAN.run(plan, q, q, require_checks=False, example=True)
+    assert result["values"]["A"] == pytest.approx(8224.5)
+
+
+def test_a_derived_value_a_target_uses_is_kept():
+    targets = [{"name": "A", "label": "total", "unit": "money", "kind": "arithmetic", "expr": "n * p",
+                "variables": {"n": "shares", "p": "price"}}]
+    filled = {"inputs": {"n": {"value": 50, "from": "user", "unit": "number", "means": "shares"},
+                         "cents": {"value": 16449, "from": "user", "unit": "number", "means": "price in cents"}},
+              "derived": {"p": {"expr": "cents / 100", "unit": "money"}}}
+    assert [s["name"] for s in CP.build_plan(targets, {}, filled, [])["steps"]] == ["p", "A"]

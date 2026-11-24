@@ -591,6 +591,20 @@ def build_plan(targets: list[dict], eqs: dict[str, dict], filled: dict | None, a
         text = " ".join(str(s.get(k) or "") for k in ("expr", "satisfies", "solve"))
         return set(re.findall(r"[A-Za-z][A-Za-z0-9_]*", text)) - set(EQ.FUNCS) - set(EQ.FUNCS2) - {s["name"]}
 
+    # a derived value no target needs is a dead step: step 4 often restates a target as a derived value
+    # ("total_value = shares * price" beside target A = shares * price), which would show the same step twice.
+    # Drop it unless it is the only step using one of the inputs (then the plan's own "input not used" check decides)
+    by_name = {s["name"]: s for s in steps}
+    live, todo = set(), [t["name"] for t in targets]
+    while todo:
+        if (n := todo.pop()) in live or n not in by_name:
+            continue
+        live.add(n)
+        todo += deps(by_name[n])
+    live_steps = [s for s in steps if s["name"] in live]
+    if len(live_steps) < len(steps) and set(inputs) <= set().union(*(deps(s) for s in live_steps)):
+        steps = live_steps
+
     ordered, defined, pending = [], set(inputs), steps
     while pending:
         ready = next((s for s in pending if deps(s) <= defined | {s["name"]}), None)
