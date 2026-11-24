@@ -114,18 +114,20 @@ def set_kb_searcher(fn) -> None:
     _kb_searcher = fn
 
 
-def kb_search(query: str, k: int | None = None) -> list[dict]:
-    """Top-k knowledge-base chunks for the question (mds/rag-data-design.md), each a payload dict with `score`.
-    Returns [] when the index hasn't been built; raises if Qdrant itself fails."""
+def kb_search(query: str, k: int | None = None, categories: tuple[str, ...] | None = None) -> list[dict]:
+    """Top-k knowledge-base chunks for the question (mds/rag-data-design.md), each a payload dict with `score`; only from
+    `categories` when given (the tax agent searches the tax and retirement pages). Returns [] when the index hasn't been
+    built; raises if Qdrant itself fails."""
     if _kb_searcher is not None:
-        return _kb_searcher(query, k)
+        hits = _kb_searcher(query, k)
+        return [h for h in hits if not categories or h.get("category") in (None, *categories)]
     from src.core.config import get_config
     from src.rag.store import search
     cfg = get_config()["rag"]
     client = _kb_client()
     if not client.collection_exists(cfg["collection"]):
         return []
-    return search(client, cfg["collection"], query, k=k or cfg["top_k"])
+    return search(client, cfg["collection"], query, k=k or cfg["top_k"], category=list(categories) if categories else None)
 
 
 _kb_fetcher = None          # tests inject `fn(query, source_ids) -> list[hit]`; None = Qdrant (or nothing while a fake searcher is set)

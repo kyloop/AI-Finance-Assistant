@@ -32,6 +32,7 @@ from . import portfolio_report as PR
 from . import router as R
 from . import symbols as SYM
 from . import tax_calc as TAXC
+from . import tax_tools as TT
 from . import topics as TOP
 from .jsonreply import first_json
 from .safety import finalize
@@ -425,12 +426,13 @@ _FIGURE_ASKED = re.compile(r"\b(how much|how many dollars|estimate|work out|calc
                            r"(do|will|would|must|should) i (need to |have to )?pay)\b", re.I)
 
 
-def _with_income_tax_calc(intents: list[str], state: FinanceState) -> list[str]:
-    """"I earn $200,000 ... how much tax do I pay?" needs the calculator's income-tax path as well as the tax agent's
-    explanation; the router LLM sometimes picks tax alone."""
-    if "calc" in intents or not TAXC.asks_income_tax(state["question"]):
+def _with_income_tax(intents: list[str], state: FinanceState) -> list[str]:
+    """"I earn $200,000 ... how much tax do I pay?" is the tax agent's: it works out the figure with its tools and explains
+    each step, so the calculator and Q&A would only repeat it."""
+    if not TAXC.asks_income_tax(state["question"]):
         return intents
-    return [*[i for i in intents if i != "qa"], "calc"] if set(intents) - {"qa"} else ["tax", "calc"]
+    rest = [i for i in intents if i not in ("tax", "calc", "qa")]
+    return ["tax", *rest]
 
 
 def _without_stray_goal(intents: list[str], state: FinanceState) -> list[str]:
@@ -451,8 +453,10 @@ def _with_saved_plan(intents: list[str], state: FinanceState) -> list[str]:
         return intents
     if "goal" not in intents:
         intents = ["goal"] if intents == ["qa"] else [*intents, "goal"]   # Q&A alone can't add anything about their plan
-    if "tax" in intents and "calc" not in intents and _FIGURE_ASKED.search(q):   # the tax agent explains, it never computes
-        intents = [*intents, "calc"]
+    if "calc" not in intents and "tax" not in intents and _FIGURE_ASKED.search(q) and re.search(r"\btax", q, re.I):
+        intents = [*intents, "tax"]                  # a tax figure on the plan: the tax agent works it out per account
+    elif "tax" in intents:
+        intents = [i for i in intents if i != "calc"]    # the tax agent's tools give the plan's tax figures
     return intents
 
 
@@ -490,10 +494,10 @@ def _route(state: FinanceState) -> dict:
                 return {"intent": ["off_topic"], "entities": entities, "router_mode": "llm",
                         "trace": ["router (LLM): not about finance → off_topic guard"]}
             intents = [i for i in intents if i != "off_topic"] or ["qa"]       # a finance part is answered; the rest is left out
-            intents = _with_income_tax_calc(_with_saved_plan(_with_screen(_without_stray_goal(_without_stray_portfolio(_with_listed_tickers(intents, text), state), state), state), state), state)
+            intents = _with_income_tax(_with_saved_plan(_with_screen(_without_stray_goal(_without_stray_portfolio(_with_listed_tickers(intents, text), state), state), state), state), state)
             return _routed({"intent": intents, "entities": entities, "router_mode": "llm", "trace": [f"router (LLM): {', '.join(intents)}"]}, state)
         log.warning("router LLM reply unusable; falling back to keywords")
-    intents = _with_income_tax_calc(_with_saved_plan(_with_screen(_with_listed_tickers(_with_market_words(R.classify(text), text), text), state), state), state)
+    intents = _with_income_tax(_with_saved_plan(_with_screen(_with_listed_tickers(_with_market_words(R.classify(text), text), text), state), state), state)
     if intents == ["qa"] and CTX.carried(state).get("companies"):                 # "which did better?" after a market answer
         intents = ["market"]
     return _routed({"intent": intents, "entities": entities, "router_mode": "keywords", "trace": [f"router (keywords): {', '.join(intents)}"]}, state)
@@ -551,8 +555,6 @@ NOT_FOUND_MESSAGE = ("I couldn't find a reliable article on that, so I'd rather 
                      "specific term (for example “index fund” or “compound interest”)?")
 UNAVAILABLE_MESSAGE = "I couldn't reach my knowledge source just now, so I can't look that up. Please try again shortly."
 TAX_PREFIX = "_I can explain how this works in general, not what you personally should do._\n\n"
-TAX_CALC_PREFIX = ("_The calculator below works out the figures from the year's tax rules; this explains the rules behind "
-                   "them, not what you personally should do._\n\n")
 GOAL_ASK = ("To sketch a savings plan I need a target amount and a time horizon, for example "
             "“I want $500,000 in 30 years, saving $500 a month”. You can also use the **Goals** tab.")
 GOAL_CHOICES = ["What should I consider before making a big purchase like a house?",
@@ -580,14 +582,15 @@ def _reranked(fresh: list[dict], earlier: list[dict], k: int) -> list[dict]:
     return out[:k]
 
 
-def _kb_answer(agent: str, state: FinanceState, query: str, prefix: str = "", searches: list[str] | None = None) -> dict:
+def _kb_answer(agent: str, state: FinanceState, query: str, prefix: str = "", searches: list[str] | None = None,
+               categories: tuple[str, ...] | None = None) -> dict:
     """Answer from the knowledge base (Qdrant). not_found (→ research on Wikipedia) when the index is missing or failing,
     or the best match is below rag.min_score (the topic probably isn't indexed yet). `searches` replace the question as
     the search text (the tax agent's searches for a saved plan); their hits are merged by score."""
     cfg = get_config()["rag"]
     try:
-        hits = kb_search(state["question"]) if not searches else \
-            _reranked([h for s in searches for h in kb_search(s)], [], cfg["top_k"])
+        hits = kb_search(state["question"], categories=categories) if not searches else \
+            _reranked([h for s in searches for h in kb_search(s, categories=categories)], [], cfg["top_k"])
         earlier = [i for i in CTX.carried(state).get("source_ids") or [] if i.startswith("kb:")]
         if earlier:                     # a follow-up: the sections that answered the topic before, scored against this question
             try:
@@ -629,18 +632,56 @@ def qa_node(state: FinanceState, config: RunnableConfig):
 
 @safe("tax")
 def tax_node(state: FinanceState, config: RunnableConfig):
+    """The tax expert (mds/agent-tax-agent.md): works out the user's own tax with its tools when they give amounts or ask
+    about their saved Goals plan, and explains the rules from the tax and retirement pages only."""
     q = state["entities"]["wiki_query"]
     q = q if "tax" in q.lower() or "ira" in q.lower() or "401" in q else f"{q} tax"
+    question = state["question"]
+    if TAXC.asks_income_tax(question) and current_llm() is not None:      # "I earn $200k ... how much tax?"
+        recent = H.transcript(state.get("history")) if state.get("follow_up") else ""
+        text, note = TT.estimate_income_tax(question, f"Recent conversation:\n{recent}" if recent else "")
+        if text:
+            pages = _tax_pages(question)
+            return _out("tax", text, verbatim=True, explains_itself=True, origin="tax_tools", sources=TAXC.SOURCES + pages,
+                        trace=f"tax tool estimate_income_tax: {note.removeprefix('income_tax.')}")
+        trace_first = [f"tax tool estimate_income_tax: {note}"]
+    else:
+        trace_first = []
     g = state.get("saved_goal")
-    prefix = TAX_CALC_PREFIX if "calc" in (state.get("intent") or []) else TAX_PREFIX
     if not (g and saved_plan_figures(state)):
-        return _kb_answer("tax", state, q, prefix)
-    # "how does my plan cost me on tax?": the question alone finds pages about financial planning; search for how the
-    # plan's kind of savings is taxed, and give the synthesizer the plan's figures so the rules are tied to their numbers
+        res = _kb_answer("tax", state, q, TAX_PREFIX, categories=TT.TAX_CATEGORIES)
+        res["trace"] = trace_first + ["tax tool search_tax_pages"] + res["trace"]
+        return res
+    # "how does my plan cost me on the tax?": the question alone finds pages about financial planning; search for how the
+    # plan's kind of savings is taxed, give the synthesizer the plan's figures, and work out the tax per account
     searches = PLAN_TAX_SEARCHES.get(g.get("goal_type"), PLAN_TAX_SEARCHES["other"])
-    res = _kb_answer("tax", state, q, prefix + _plan_tax_facts(state, g), searches=searches)
-    res["trace"] = [f"tax: saved {g.get('goal_type')} plan → searched how its savings are taxed", *res["trace"]]
+    res = _kb_answer("tax", state, q, TAX_PREFIX + _plan_tax_facts(state, g), searches=searches, categories=TT.TAX_CATEGORIES)
+    table, note = TT.tax_on_plan(g, _saved_projection(state, g)[1])
+    out = res["agent_outputs"]["tax"]
+    if out.get("status") == "answered":
+        out["verbatim_tail"] = table                 # the figures go after the written explanation, never reworded
+    else:                                            # no pages: the figures still answer "how much"
+        res = _out("tax", table, verbatim=True, origin="tax_tools", sources=TAXC.SOURCES, trace="")
+    res["trace"] = [*trace_first, f"tax: saved {g.get('goal_type')} plan → tools search_tax_pages + tax_on_plan ({note})",
+                    *res["trace"]]
     return res
+
+
+def _tax_pages(question: str, most: int = 3) -> list[dict]:
+    """Links to the tax pages behind a worked estimate (read more), best first; none if the search fails."""
+    try:
+        hits = TT.search_tax_pages(question)
+    except Exception as e:  # noqa: BLE001 — the estimate stands without them
+        log.warning("tax page search failed: %s", e)
+        return []
+    out, seen = [], set()
+    for h in hits:
+        if h["doc_id"] in seen or h["score"] < get_config()["rag"]["min_score"]:
+            continue
+        seen.add(h["doc_id"])
+        anchor = "" if h["section"] == "(lead)" else "#" + h["section"].split(" > ")[-1].replace(" ", "_")
+        out.append({"id": f"kb:{h['doc_id']}#{h['section']}", "title": f"{h['doc_title']} (Wikipedia)", "url": h["source_url"] + anchor})
+    return out[:most]
 
 
 PLAN_TAX_SEARCHES = {
@@ -1458,17 +1499,6 @@ def calc_node(state: FinanceState, config: RunnableConfig):
         return _out("calc", text, verbatim=True, trace=f"calc (keywords): {name}({shown})")
     # a new topic starts clean: an earlier question's figures would otherwise become extra targets or "user" numbers
     recent = H.transcript(state.get("history")) if state.get("follow_up") else ""
-    if TAXC.asks_income_tax(q):                 # "I earn $200k ... how much tax?": the year's tax rules, in Python
-        text, note = TAXC.answer(q, f"Recent conversation:\n{recent}" if recent else "")
-        if text:
-            return _out("calc", text, verbatim=True, explains_itself=True, sources=TAXC.SOURCES, trace=note)
-        pre = [note]
-    elif re.search(r"\btax", q, re.I) and saved_plan_figures(state) and not TAXC.amounts(q):
-        # "how will my plan cost me on the tax?": the plan doesn't say the account, so work it out for each kind
-        text, note = TAXC.plan_tax_text(state["saved_goal"], _saved_projection(state, state["saved_goal"])[1])
-        return _out("calc", text, verbatim=True, sources=TAXC.SOURCES, trace=note)
-    else:
-        pre = []
     known = CTX.describe(CTX.carried(state))
     plan = saved_plan_figures(state)            # "how much tax if the plan runs as planned?": the Goals tab's numbers are theirs
     prompt = (f"Recent conversation:\n{recent or '(none)'}\n\n"
@@ -1492,7 +1522,7 @@ def calc_node(state: FinanceState, config: RunnableConfig):
                    for q_ in out.result.get("quotes", []) for s in q_["sources"] if s.get("url")]
         res = _out("calc", CALC.plan_text(out.result), verbatim=True, sources=sources,
                    trace=out.note or "calc (LLM steps): " + out.trace[-1])
-    res["trace"] = pre + steps + res["trace"]
+    res["trace"] = steps + res["trace"]
     return res
 
 
@@ -1869,7 +1899,8 @@ def illustrate_node(state: FinanceState, config: RunnableConfig):
     Skipped for calculations, non-numeric topics and basic mode (no LLM). Follow-up suggestions then let the user vary the
     numbers."""
     outputs = state.get("agent_outputs") or {}
-    concept = [o for k, o in outputs.items() if k in ("qa", "tax") and o.get("status", "answered") == "answered" and o.get("content")]
+    concept = [o for k, o in outputs.items() if k in ("qa", "tax") and o.get("status", "answered") == "answered" and o.get("content")
+               and o.get("origin") != "tax_tools" and not o.get("verbatim_tail")]    # the tax agent's own figures need no example
     if not concept or "calc" in outputs or current_llm() is None:
         return {"trace": []}
     figures = CTX.describe({"facts": {**(CTX.carried(state).get("facts") or {}), **_key_facts(state.get("market_data") or {})}})
@@ -1991,7 +2022,8 @@ def synthesizer_node(state: FinanceState, config: RunnableConfig):
         if any(o.get("explains_itself") for o in exact):
             # the income-tax steps explain each rule as they apply it: a written intro only repeated their arithmetic
             # (and did it itself); the explaining agents' pages are linked for further reading instead
-            links = list({x["url"]: x for o in prose for x in o.get("sources", []) if x.get("url")}.values())[:4]
+            links = list({x["url"]: x for o in [*prose, *exact] for x in o.get("sources", [])
+                          if x.get("url") and x.get("id", "").startswith("kb:")}.values())[:4]
             text = ("**Read more:** " + " · ".join(f"[{x['title'].removesuffix(' (Wikipedia)')}]({x['url']})" for x in links)
                     if links else "")
             prose, mode = [], "verbatim (steps explain themselves)"
@@ -2003,7 +2035,7 @@ def synthesizer_node(state: FinanceState, config: RunnableConfig):
                            "question asks for: don't do arithmetic, and never say that the figure, calculations, examples "
                            "or details are missing from the context. Explain the ideas behind it (for a tax figure: what "
                            "is taxed and when, and what changes the amount) and say the calculation below works it out."
-                           if exact else "")
+                           if exact or any(o.get("verbatim_tail") for o in prose) else "")
             data = "" if sector_lines else MT.data_block(state.get("market_data") or {})        # exact figures the market tools fetched (volume, P/E...)
             figures = (f"\n\nData (exact figures from the market tools; use only those the question needs, and keep them "
                        f"exactly as given):\n{data}" if data else "")
@@ -2022,7 +2054,9 @@ def synthesizer_node(state: FinanceState, config: RunnableConfig):
                 text, mode = drop_unknown_headlines(reply, [x for o in prose for x in o.get("sources", [])]), "llm"
         text = link_sources(text, [s for o in prose for s in o.get("sources", [])])
         read_more = text if mode.startswith("verbatim (steps") else ""
-        text = "\n\n".join(t for t in [sector_lines, "" if read_more else text] + [o["content"] for o in exact] + [read_more] if t)
+        tails = [o["verbatim_tail"] for o in answered if o.get("verbatim_tail") and not read_more]   # figures after the words
+        text = "\n\n".join(t for t in [sector_lines, "" if read_more else text] + tails + [o["content"] for o in exact]
+                           + [read_more] if t)
         readings = [o for o in answered if o.get("reading")]       # answered on a guess: say how it was read, never left to the LLM
         if readings:
             text += "\n\n" + "\n".join(READING_NOTE.format(o["reading"]) for o in readings)

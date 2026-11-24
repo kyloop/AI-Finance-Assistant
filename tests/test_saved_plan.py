@@ -36,9 +36,11 @@ def test_plan_reference_needs_a_saved_plan_and_a_reference():
     assert N._with_saved_plan(["qa", "market"], state("How does my plan compare with the S&P 500?")) == ["qa", "market", "goal"]
 
 
-def test_tax_figure_on_the_plan_adds_goal_and_calc():
+def test_tax_figure_on_the_plan_goes_to_goal_and_tax_not_the_calculator():
     q = "How much tax do I need to take care of if the plan runs as planned?"
-    assert N._with_saved_plan(["tax"], state(q)) == ["tax", "goal", "calc"]
+    assert N._with_saved_plan(["tax"], state(q)) == ["tax", "goal"]
+    assert N._with_saved_plan(["tax", "calc"], state(q)) == ["tax", "goal"]
+    assert N._with_saved_plan(["qa"], state(q)) == ["goal", "tax"]
     assert N._with_saved_plan(["tax"], state("How are gains in my plan taxed?")) == ["tax", "goal"]   # no figure asked
 
 
@@ -62,7 +64,7 @@ def test_researched_explanation_is_kept_when_calculator_only_asks():
 
 def test_cost_me_on_the_tax_asks_for_a_figure():
     q = "How does my goal planning cost me on the tax?"
-    assert N._with_saved_plan(["goal", "tax"], state(q)) == ["goal", "tax", "calc"]
+    assert N._with_saved_plan(["goal"], state(q)) == ["goal", "tax"]
 
 
 def test_tax_agent_searches_how_the_plans_savings_are_taxed_and_gets_its_figures():
@@ -94,12 +96,23 @@ def test_goal_agent_is_dropped_from_a_question_that_is_not_about_a_goal():
     assert N._without_stray_goal(["goal", "tax"], state("How is my goal planning cost me on the tax?")) == ["goal", "tax"]
 
 
-def test_tax_figure_on_the_plan_is_worked_out_per_account_in_python():
-    llm_module.set_llm(ScriptedLLM())
+def test_tax_figure_on_the_plan_is_worked_out_per_account_by_the_tax_agent():
+    from src.workflow import tools
+    tools.set_kb_searcher(lambda query, k=None: [{"score": 0.8, "doc_id": "roth-ira", "doc_title": "Roth IRA", "section": "(lead)",
+                                                   "text": "Roth growth is tax-free.", "source_url": "https://en.wikipedia.org/wiki/Roth_IRA",
+                                                   "category": "retirement", "piece": 0, "pieces": 1, "tokens": 5, "section_tokens": 5}])
     q = "How does my goal planning cost me on the tax?"
-    out = N.calc_node({**state(q, ["goal", "tax", "calc"]), "history": []}, {})["agent_outputs"]["calc"]
-    text = out["content"]
-    assert out["verbatim"] and "$70,000 paid in, projected $100,134 after 10 years, so $30,134 of growth" in text
-    assert "about **$4,520**: 15% of the $30,134 growth" in text           # long-term gains rate
-    assert "about **$22,029**" in text and "saving about $15,400" in text   # 22% sample bracket
-    assert "| Roth 401(k) / IRA | **$0**" in text
+    out = N.tax_node({**state(q, ["goal", "tax"]), "entities": {"wiki_query": q}, "history": []}, {})["agent_outputs"]["tax"]
+    table = out["verbatim_tail"]
+    assert "Roth growth is tax-free." in out["content"]                     # the explanation, for the synthesizer
+    assert "$70,000 paid in, projected $100,134 after 10 years, so $30,134 of growth" in table
+    assert "about **$4,520**: 15% of the $30,134 growth" in table            # long-term gains rate
+    assert "about **$22,029**" in table and "saving about $15,400" in table  # 22% sample bracket
+    assert "| Roth 401(k) / IRA | **$0**" in table
+
+
+def test_plan_tax_table_follows_the_written_explanation():
+    s = {"question": "How does my plan cost me on the tax?", "entities": {}, "profile": PROFILE, "trace": [], "agent_outputs": {
+        "tax": {"agent": "tax", "status": "answered", "content": "Rules.", "sources": [], "verbatim_tail": "| table |"}}}
+    out = N.synthesizer_node(s, {})["final_response"]
+    assert out.index("Rules.") < out.index("| table |")

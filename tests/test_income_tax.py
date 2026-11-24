@@ -113,11 +113,12 @@ class SortingLLM:
         return type("R", (), {"content": json.dumps(self.reply)})()
 
 
-def test_calculator_answers_kevins_case_step_by_step_from_the_rules():
+def test_tax_agent_answers_kevins_case_step_by_step_from_the_rules():
     llm_module.set_llm(SortingLLM(KEVIN_SORTED))
-    out = N.calc_node({"question": KEVIN, "history": [], "profile": {}}, {})["agent_outputs"]["calc"]
+    s = {"question": KEVIN, "history": [], "profile": {}, "entities": {"wiki_query": KEVIN}}
+    out = N.tax_node(s, {})["agent_outputs"]["tax"]
     text = out["content"]
-    assert out["status"] == "answered" and out["verbatim"] and out["explains_itself"]
+    assert out["status"] == "answered" and out["verbatim"] and out["explains_itself"] and out["origin"] == "tax_tools"
     assert "**Estimated 2026 federal taxes** (single), step by step" in text
     assert "| Stock earning 30000 | $30,000 | long-term capital gains (assumed) |" in text        # the user's own inputs
     assert "- $200,000 + $5,000 + $30,000 = **$235,000**" in text
@@ -145,11 +146,20 @@ def test_tsx_typed_for_tax_may_be_proofread():
     assert not N._proofread_ok("How is the TSX doing today?", "How is the tax doing today?")       # the index, in capitals
 
 
-def test_income_tax_question_gets_the_calculator_too():
+def test_income_tax_question_goes_to_the_tax_agent_alone():
     s = {"question": KEVIN.replace("i need", "do I need")}
-    assert N._with_income_tax_calc(["tax"], s) == ["tax", "calc"]
-    assert N._with_income_tax_calc(["qa"], s) == ["tax", "calc"]
-    assert N._with_income_tax_calc(["tax"], {"question": "How are capital gains taxed?"}) == ["tax"]
+    assert N._with_income_tax(["tax", "calc"], s) == ["tax"]
+    assert N._with_income_tax(["qa"], s) == ["tax"]
+    assert N._with_income_tax(["goal", "calc"], s) == ["tax", "goal"]
+    assert N._with_income_tax(["calc"], {"question": "How much will $10,000 grow to at 6% a year over 10 years?"}) == ["calc"]
+
+
+def test_tax_pages_search_only_the_tax_categories():
+    from src.workflow import tax_tools, tools
+    hits = [{"score": 0.9, "doc_id": "bond", "category": "bonds"}, {"score": 0.8, "doc_id": "tax-bracket", "category": "taxes-and-accounts"},
+            {"score": 0.7, "doc_id": "roth-ira", "category": "retirement"}]
+    tools.set_kb_searcher(lambda q, k=None: hits)
+    assert [h["doc_id"] for h in tax_tools.search_tax_pages("brackets")] == ["tax-bracket", "roth-ira"]
 
 
 def test_step_by_step_tax_is_not_rewritten_and_links_the_tax_pages():
@@ -163,9 +173,8 @@ def test_step_by_step_tax_is_not_rewritten_and_links_the_tax_pages():
             return type("R", (), {"content": "Total income is $235,000."})()
     llm_module.set_llm(LLM())
     s = {"question": KEVIN, "entities": {}, "profile": {}, "trace": [], "agent_outputs": {
-        "calc": {"agent": "calc", "status": "answered", "content": "**Step 1. Add up your income**", "verbatim": True,
-                 "explains_itself": True, "sources": []},
-        "tax": {"agent": "tax", "status": "answered", "content": "Brackets ...", "sources": [
+        "tax": {"agent": "tax", "status": "answered", "content": "**Step 1. Add up your income**", "verbatim": True,
+                "explains_itself": True, "sources": [
             {"id": "kb:tax-bracket#(lead)", "title": "Tax bracket (Wikipedia)", "url": "https://en.wikipedia.org/wiki/Tax_bracket"}]}}}
     out = N.synthesizer_node(s, {})["final_response"]
     assert out.startswith("**Step 1. Add up your income**") and "$235,000" not in out
