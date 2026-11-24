@@ -12,8 +12,8 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 const body = (b: unknown) => JSON.stringify(b);
 
 /** Send a chat message and read the NDJSON stream: graph progress goes to onEvent, the stored reply is returned. */
-async function chatStream(sid: string, cid: number, message: string, view: ChatView | undefined, onEvent: (e: FlowEvent) => void): Promise<Message> {
-  const res = await fetch(`/api/sessions/${sid}/chat/stream`, { method: "POST", headers: { "Content-Type": "application/json" }, body: body({ message, conversation_id: cid, view }) });
+async function chatStream(sid: string, cid: number, message: string, view: ChatView | undefined, onEvent: (e: FlowEvent) => void, noMemory = false): Promise<Message> {
+  const res = await fetch(`/api/sessions/${sid}/chat/stream`, { method: "POST", headers: { "Content-Type": "application/json" }, body: body({ message, conversation_id: cid, view, no_memory: noMemory }) });
   if (!res.ok || !res.body) {
     let detail = "Something went wrong. Please try again.";
     try { const j = await res.json(); if (typeof j.detail === "string") detail = j.detail; } catch { /* keep default */ }

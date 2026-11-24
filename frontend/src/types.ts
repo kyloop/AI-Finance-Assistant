@@ -5,9 +5,11 @@ export type Freshness = "live" | "cached" | "stale" | "sample";
 export interface Profile { knowledge_level: Knowledge; risk_tolerance: Risk; horizon_years: number }
 export interface Source { id: string; title: string; url?: string | null }
 export interface DataInfo { provider: string; fetched_at: string; freshness: Freshness }
+/** An earlier chat an answer drew on (topic memory, mds/topic-memory.md). */
+export interface LinkedChat { uid: string | null; date: string; label: string }
 export interface Message {
   id: number; role: "user" | "assistant"; content: string;
-  agents: string[]; sources: Source[]; data_info: DataInfo | null; trace: string[]; choices?: string[]; created_at: string;
+  agents: string[]; sources: Source[]; data_info: DataInfo | null; trace: string[]; choices?: string[]; linked?: LinkedChat[]; created_at: string;
 }
 export interface ChatStatus { llm: { enabled: boolean; provider: string | null; model: string | null; last_error?: string | null }; tools: string[] }
 export interface Holding { ticker: string; shares: number; cost_basis: number | null; purchase_date?: string | null }

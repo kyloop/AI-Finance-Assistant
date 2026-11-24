@@ -44,6 +44,7 @@ class ChatIn(BaseModel):
     message: str = Field(max_length=4000)
     view: ChatView | None = None
     conversation_id: int | None = None       # omitted -> the session's latest conversation
+    no_memory: bool = False                  # "Answer without them": leave earlier chats out (mds/topic-memory.md)
 
 
 class Source(BaseModel):
@@ -58,6 +59,12 @@ class DataInfo(BaseModel):
     freshness: Literal["live", "cached", "stale", "sample"]
 
 
+class LinkedChat(BaseModel):
+    uid: str | None = None
+    date: str = ""
+    label: str = ""
+
+
 class MessageOut(ORM):
     id: int
     role: str
@@ -67,9 +74,10 @@ class MessageOut(ORM):
     data_info: DataInfo | None = None
     trace: list[str] = []
     choices: list[str] = []
+    linked: list[LinkedChat] = []             # earlier chats this answer drew on (topic memory)
     created_at: datetime
 
-    @field_validator("trace", "agents", "sources", "choices", mode="before")
+    @field_validator("trace", "agents", "sources", "choices", "linked", mode="before")
     @classmethod
     def none_to_empty(cls, v):
         return [] if v is None else v            # older rows / rows saved without these fields

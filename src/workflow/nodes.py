@@ -31,10 +31,12 @@ from . import news as NEWS
 from . import portfolio_report as PR
 from . import router as R
 from . import symbols as SYM
+from . import topics as TOP
 from .jsonreply import first_json
 from .safety import finalize
 from .state import AgentOutput, FinanceState
-from .tools import industry_peers, is_finance, kb_search, news_index_now, news_latest, news_recent, news_search, story_articles, wiki_search, wiki_topic
+from .tools import (industry_peers, is_finance, kb_fetch, kb_search, news_index_now, news_latest, news_recent, news_search, story_articles, wiki_search,
+                    wiki_topic)
 
 log = logging.getLogger(__name__)
 
@@ -139,9 +141,16 @@ def _proofread_ok(original: str, fixed: str, ctx: dict | None = None, recent: st
     return difflib.SequenceMatcher(None, original.lower(), fixed.lower()).ratio() >= 0.5
 
 
-def _proofread_reply(q: str, ctx: dict | None, recent: str) -> tuple[str, bool] | None:
-    """(corrected question, follow-up?) from the LLM; None if it gave nothing usable. A plain-text reply counts as a correction."""
-    prompt = ((f"CONTEXT:\n{CTX.describe(ctx)}\n\n" if ctx else "")
+def _own_subject(q: str) -> bool:
+    """The message names a market and nothing in it leans on the conversation ("What's the latest technology sector news?"): a new question."""
+    return bool(MK.in_text(q)) and not CTX.points_back(q)
+
+
+def _proofread_reply(q: str, ctx: dict | None, recent: str, topic_summary: str = "") -> tuple[str, bool] | None:
+    """(corrected question, follow-up?) from the LLM; None if it gave nothing usable. A plain-text reply counts as a correction.
+    `topic_summary` is the current topic so far (mds/topic-memory.md), so a follow-up two turns from its subject still resolves."""
+    described = CTX.describe(ctx) + (f"\nTopic so far: {topic_summary}" if ctx and topic_summary else "") if ctx else ""
+    prompt = ((f"CONTEXT:\n{described}\n\n" if ctx else "")
               + (f"RECENT CONVERSATION:\n{recent}\n\n" if recent else "") + f"Message: {q}")
     reply = ask_llm(PROOFREAD_SYSTEM, prompt)
     if not reply:
@@ -152,6 +161,12 @@ def _proofread_reply(q: str, ctx: dict | None, recent: str) -> tuple[str, bool] 
         return (fixed, False) if fixed else None
     fixed = str(data.get("question") or "").strip()
     return (fixed, bool(data.get("follow_up")) and bool(ctx or recent)) if fixed else None
+
+
+def _topic_summary(state: FinanceState, ctx: dict | None) -> str:
+    """The summary of the topic the previous turn belongs to, when topic memory loaded it."""
+    tid = (ctx or {}).get("topic_id")
+    return next((t.get("summary") or "" for t in (state.get("topics_in") or {}).get("current") or [] if tid and t.get("topic_id") == tid), "")
 
 
 def proofread_node(state: FinanceState, config: RunnableConfig):
@@ -179,10 +194,11 @@ def proofread_node(state: FinanceState, config: RunnableConfig):
             return {**base, "trace": ["proofread: no changes" + note]}
         return {**base, "question": fixed, "trace": [f"proofread: “{q}” → “{fixed}”{note}"]}
     recent = H.transcript(state.get("history"))
-    got = _proofread_reply(q, ctx, recent)
+    got = _proofread_reply(q, ctx, recent, _topic_summary(state, ctx))
     if got is None:
         return {**base, "trace": ["proofread: no reply, left as typed" + note]}
     fixed, follow_up = got
+    follow_up = follow_up and not _own_subject(q)
     if not _proofread_ok(q, fixed, (ctx or {}) if follow_up else None, recent if follow_up else ""):
         log.info("proofread rewrite rejected: %r -> %r", q, fixed)
         return {**base, "trace": ["proofread: rewrite rejected, left as typed" + note]}
@@ -450,6 +466,41 @@ def _route(state: FinanceState) -> dict:
     return _routed({"intent": intents, "entities": entities, "router_mode": "keywords", "trace": [f"router (keywords): {', '.join(intents)}"]}, state)
 
 
+def _writes_from_notes() -> bool:
+    """Whether the reply can use earlier chats' notes: only the LLM synthesizer reads them."""
+    return current_llm() is not None
+
+
+def topic_node(state: FinanceState, config: RunnableConfig):
+    """Which topic the message belongs to (mds/topic-memory.md): the previous turn's for a follow-up or a message with no
+    subject of its own; an older topic of this chat it names again ("back to Tesla"), whose subject, period and figures then
+    fill in what the message leaves out; or a new topic, linked to earlier chats about the same thing, whose dated
+    summaries reach the synthesizer as background. Runs after the router so it matches on the router's resolved entities.
+    A no-op when the run has no topic memory (run_chat without topics)."""
+    pool = state.get("topics_in")
+    if pool is None:
+        return {"trace": ["topic: no topic memory for this run"]}
+    if (state.get("intent") or []) in (["read_only"], ["off_topic"], ["clarify"]):
+        return {"trace": ["topic: guard reply, no topic"]}
+    cfg = get_config().get("topics") or {}
+    try:
+        got = TOP.choose(state, pool, embed=TOP.embed, same_chat=float(cfg.get("same_chat_similarity", 0.8)),
+                         earlier_chat=float(cfg.get("earlier_chat_similarity", 0.86)), max_linked=int(cfg.get("max_linked", 3)))
+    except Exception as e:  # noqa: BLE001 — topic memory must never break a turn
+        log.warning("topic node failed: %s", e)
+        return {"trace": [f"topic: skipped ({type(e).__name__})"]}
+    out = {"topic": {k: got[k] for k in ("action", "topic_id", "related", "linked")}, "trace": [got["note"]]}
+    if got["action"] == "reopen":
+        out.update(context_in=got["context"], follow_up=True)
+    elif got["action"] == "continue" and not state.get("follow_up") and state.get("context_in"):
+        out["follow_up"] = bool(CTX.subjectless(state.get("original_question") or state["question"]))      # rule 2 only
+    if got.get("background") and _writes_from_notes():
+        out["topic_background"] = got["background"]
+    elif got["linked"]:                         # basic mode writes no reply from the notes: link the topics, don't claim to use them
+        out["topic"]["linked"] = []
+    return out
+
+
 def route_after_router(state: FinanceState) -> list[str]:
     intents = state.get("intent") or ["qa"]
     if intents in (["clarify"], ["read_only"], ["off_topic"]):
@@ -483,12 +534,29 @@ def _not_found(agent: str, query: str, trace: str, prefix: str = "") -> dict:
     return _out(agent, "", status="not_found", query=query, prefix=prefix, confidence="low", trace=trace)
 
 
+def _reranked(fresh: list[dict], earlier: list[dict], k: int) -> list[dict]:
+    """A fresh search and the topic's earlier sections in one list, by similarity to the question, each chunk once."""
+    seen, out = set(), []
+    for h in sorted([*fresh, *earlier], key=lambda h: h.get("score", 0), reverse=True):
+        key = (h.get("doc_id"), h.get("section"), h.get("piece"))
+        if key not in seen:
+            seen.add(key)
+            out.append(h)
+    return out[:k]
+
+
 def _kb_answer(agent: str, state: FinanceState, query: str, prefix: str = "") -> dict:
     """Answer from the knowledge base (Qdrant). not_found (→ research on Wikipedia) when the index is missing or failing,
     or the best match is below rag.min_score (the topic probably isn't indexed yet)."""
     cfg = get_config()["rag"]
     try:
         hits = kb_search(state["question"])
+        earlier = [i for i in CTX.carried(state).get("source_ids") or [] if i.startswith("kb:")]
+        if earlier:                     # a follow-up: the sections that answered the topic before, scored against this question
+            try:
+                hits = _reranked(hits, kb_fetch(state["question"], earlier), cfg["top_k"])
+            except Exception as e:  # noqa: BLE001 — the fresh search still answers
+                log.warning("re-fetching the topic's sources failed: %s", e)
     except Exception as e:  # noqa: BLE001 — a broken index must not break Q&A
         log.warning("knowledge-base search failed: %s", e)
         return _not_found(agent, query, f"kb_search → failed ({type(e).__name__})", prefix)
@@ -1851,8 +1919,16 @@ def synthesizer_node(state: FinanceState, config: RunnableConfig):
             figures = (f"\n\nData (exact figures from the market tools; use only those the question needs, and keep them "
                        f"exactly as given):\n{data}" if data else "")
             style = LENGTH_BY_LEVEL.get(level, LENGTH_BY_LEVEL["beginner"])
-            reply = ask_llm(SYNTH_SYSTEM, f"Knowledge level: {level} ({style})\nConversation so far:\n{history or '(none)'}\n\n"
-                                          f"Question: {state['question']}\n\nContext:\n{context}{figures}{shown_after}")
+            earlier = state.get("topic_background") or ""             # earlier chats (topic memory): what was discussed, dated
+            earlier = (f"\n\n{earlier}\nYou may mention that the user discussed this before, with its date. Take every current "
+                       "figure from the Context or Data above; a figure in these notes may only be quoted with its date, as "
+                       "what it was then." if earlier else "")
+            # The question is repeated last: after a long context the model once answered the conversation's previous message
+            # ("summary of my portfolio?") instead of the one asked ("how about nvda vs market trending today?").
+            reply = ask_llm(SYNTH_SYSTEM, f"Knowledge level: {level} ({style})\nConversation so far (already answered):\n"
+                                          f"{history or '(none)'}\n\nQuestion: {state['question']}\n\nContext:\n{context}{figures}"
+                                          f"{shown_after}{earlier}\n\nAnswer this question, the user's latest message, and only "
+                                          f"it: {state['question']}")
             if reply:
                 text, mode = drop_unknown_headlines(reply, [x for o in prose for x in o.get("sources", [])]), "llm"
         text = link_sources(text, [s for o in prose for s in o.get("sources", [])])

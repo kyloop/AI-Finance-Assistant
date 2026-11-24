@@ -20,7 +20,7 @@ export default function ChatTab({ flow, sid, cid, onNew, onOpen, getView, screen
   useEffect(() => { api.chatStatus().then(setStatus).catch(() => undefined); }, []);
   useEffect(() => { end.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, busy]);
 
-  async function send(q: string) {
+  async function send(q: string, noMemory = false) {
     const msg = q.trim();
     if (!msg || busy) return;
     setError(null); setBusy(true); setText("");
@@ -28,7 +28,7 @@ export default function ChatTab({ flow, sid, cid, onNew, onOpen, getView, screen
     setMessages([...messages, optimistic]);
     flow.begin(msg);
     try {
-      const reply = await api.chatStream(sid, cid, msg, getView(), (e) => flow.push(e));
+      const reply = await api.chatStream(sid, cid, msg, getView(), (e) => flow.push(e), noMemory);
       await flow.finish(true);                                      // let the flow panel catch up before the answer appears
       setMessages([...messages, optimistic, reply]);
       api.chatStatus().then(setStatus).catch(() => undefined);      // pick up "model failing" / "recovered"
@@ -75,6 +75,7 @@ export default function ChatTab({ flow, sid, cid, onNew, onOpen, getView, screen
         <button className="secondary" disabled={busy || messages.length === 0} onClick={() => guarded(onNew)}>+ New chat</button>
         <button className="secondary" disabled={busy} aria-expanded={historyOpen} onClick={toggleHistory}>History</button>
       </div>
+      <div className="chat-body">
       {historyOpen && (
         <div className="history-panel" role="list">
           {history.length === 0 && <p className="muted small">No previous chats yet.</p>}
@@ -96,12 +97,20 @@ export default function ChatTab({ flow, sid, cid, onNew, onOpen, getView, screen
             {STARTERS.map((s) => <button key={s} className="chip" onClick={() => send(s)}>{s}</button>)}
           </div>
         )}
-        {messages.map((m) => (
+        {messages.map((m, i) => (
           <div key={m.id} className={`bubble ${m.role}`}>
             {m.role === "assistant" && m.agents.length > 0 && (
               <div className="agents">{m.agents.map((a) => <span key={a} className="badge badge-agent">{a}</span>)}</div>
             )}
             {m.role === "assistant" ? <RichText text={m.content} /> : <p>{m.content}</p>}
+            {m.role === "assistant" && (m.linked?.length ?? 0) > 0 && (
+              <div className="linked muted small" title={m.linked!.map((l) => `${l.date}: ${l.label}`).join("\n")}>
+                Using {m.linked!.length} earlier chat{m.linked!.length > 1 ? "s" : ""}{" "}
+                ({m.linked!.map((l) => l.label).join(", ")}) ·{" "}
+                <button className="link" disabled={busy || i === 0 || messages[i - 1].role !== "user"}
+                  onClick={() => send(messages[i - 1].content, true)}>Answer without them</button>
+              </div>
+            )}
             {m.data_info && <FreshnessBadge freshness={m.data_info.freshness} provider={m.data_info.provider} fetchedAt={m.data_info.fetched_at} />}
             {m.role === "assistant" && m.trace?.length > 0 && (
               <details className="trace"><summary>How I answered</summary><ol>{m.trace.map((t, i) => <li key={i}>{t}</li>)}</ol></details>
@@ -121,6 +130,7 @@ export default function ChatTab({ flow, sid, cid, onNew, onOpen, getView, screen
         ))}
         {busy && <div className="bubble assistant muted">Thinking…</div>}
         <div ref={end} />
+      </div>
       </div>
       <ErrorBanner message={error} />
       <div className="chat-screen muted small" title="“this” and “here” in your next question mean what this tab shows">On screen: <strong>{screen}</strong></div>

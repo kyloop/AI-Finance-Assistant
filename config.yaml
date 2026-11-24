@@ -14,6 +14,12 @@ workflow:
   wiki_max_words: 150       # extract length per knowledge lookup (scaled by knowledge level: shorter for advanced readers)
   proofread: true           # fix spelling/grammar/abbreviations before routing (proofread node; needs an LLM)
   max_replans: 3            # times per question the graph may send an unanswered question to other agents (replan node)
+topics:                     # topic memory (mds/topic-memory.md, src/workflow/topics.py)
+  embeddings: true          # embed topic summaries (bge-small) for messages that name no company, market or concept (rule 4)
+  same_chat_similarity: 0.80      # provisional: cosine to continue a topic of this chat on wording alone
+  earlier_chat_similarity: 0.86   # provisional, stricter: a wrong link to an old chat is worse than none
+  max_linked: 3             # earlier chats' topics given to one answer as background
+  earlier_candidates: 50    # the session's most recently updated topics from other chats that a message is matched against
 wolfram:                    # Calculator fallback for calculations the Python calculators don't cover (src/core/wolfram.py)
   enabled: true             # also needs WOLFRAM_APP_ID in .env; without it the Calculator solves its equations numerically
   timeout_seconds: 10

@@ -1,6 +1,6 @@
 """The Finnie orchestrator (LangGraph).
 
-  START → proofread → router ─┬→ qa_agent ───────┐
+  START → proofread → router → topic ─┬→ qa_agent ───────┐
                               ├→ tax_agent ──────┤
                               ├→ market_agent ───┤
                               ├→ news_agent ─────┤
@@ -59,7 +59,9 @@ def get_graph():
     g.add_node("compliance", N.compliance_node)
     g.add_edge(START, "proofread")
     g.add_edge("proofread", "router")
-    g.add_conditional_edges("router", N.route_after_router, list(AGENT_NODES))
+    g.add_node("topic", N.topic_node)
+    g.add_edge("router", "topic")                                            # topic memory: matches on the router's entities
+    g.add_conditional_edges("topic", N.route_after_router, list(AGENT_NODES))
     g.add_conditional_edges("verifier", N.route_after_verifier, ["research", "replan", "illustrate"])
     g.add_edge("research", "verifier")                                       # what research finds is checked too
     g.add_conditional_edges("replan", N.route_after_replan, [*AGENT_NODES, "illustrate"])
@@ -75,23 +77,24 @@ def get_graph():
 FLOW_NODES = [
     ("proofread", "Proofread", 0, "Fixes spelling, grammar and abbreviations in your message (\"10 yrs\" → \"10 years\") before the Router reads it. Needs an LLM; otherwise your message goes through as typed."),
     ("router", "Router", 1, "Reads your question and decides which agents should handle it (several can run at once)."),
-    ("qa_agent", "Q&A", 2, "Answers finance concepts from the knowledge base."),
-    ("tax_agent", "Tax", 2, "Explains tax rules and accounts in general terms, from the knowledge base."),
-    ("market_agent", "Market", 2, "Looks up prices and index moves."),
-    ("news_agent", "News", 2, "Finds recent headlines for a company, its industry peers, or the market."),
-    ("portfolio_agent", "Portfolio", 2, "Analyses your holdings: allocation, diversification, risk."),
-    ("goal_agent", "Goals", 2, "Projects savings toward a target amount and date."),
-    ("calc_agent", "Calculator", 2, "Computes exact figures: growth, loan payments, doubling time and more."),
-    ("clarify", "Clarify", 2, "Asks you to rephrase when the message can't be understood."),
-    ("read_only", "Read-only guard", 2, "Flags a request to change something (edit your portfolio, goals or profile, place a trade, move money, alter the system): every agent can only read."),
-    ("off_topic", "Topic guard", 2, "Declines a question that isn't about finance (sport, recipes, trivia…) without looking it up; needs an LLM to judge."),
-    ("verifier", "Verifier", 3, "Rechecks every agent's output: do the sources really answer the question? Adds clickable choices when more details are needed."),
-    ("research", "Research", 4, "Fallback for when an agent found nothing: looks up the underlying concept on Wikipedia, and if that doesn't answer it, searches the web; each time it hands back to the Verifier. Skipped when every agent had an answer."),
-    ("replan", "Replan", 5, "When an agent and Research both came up empty: picks other agents that could supply what is missing and sends the question to them (at most 3 times)."),
-    ("illustrate", "Illustrate", 6, "Adds a worked example with sample numbers to conceptual answers about numeric topics."),
-    ("synthesizer", "Synthesizer", 7, "Writes the reply from the agents' results only, adding no facts of its own."),
-    ("followups", "Follow-ups", 8, "Suggests a few next questions you could ask."),
-    ("compliance", "Compliance", 9, "Removes advice-like sentences and adds the disclaimer."),
+    ("topic", "Topic", 2, "Decides which topic of the conversation the message belongs to: the one just discussed, an older one it names again (\"back to Tesla\") or a new one, linked to earlier chats about the same thing."),
+    ("qa_agent", "Q&A", 3, "Answers finance concepts from the knowledge base."),
+    ("tax_agent", "Tax", 3, "Explains tax rules and accounts in general terms, from the knowledge base."),
+    ("market_agent", "Market", 3, "Looks up prices and index moves."),
+    ("news_agent", "News", 3, "Finds recent headlines for a company, its industry peers, or the market."),
+    ("portfolio_agent", "Portfolio", 3, "Analyses your holdings: allocation, diversification, risk."),
+    ("goal_agent", "Goals", 3, "Projects savings toward a target amount and date."),
+    ("calc_agent", "Calculator", 3, "Computes exact figures: growth, loan payments, doubling time and more."),
+    ("clarify", "Clarify", 3, "Asks you to rephrase when the message can't be understood."),
+    ("read_only", "Read-only guard", 3, "Flags a request to change something (edit your portfolio, goals or profile, place a trade, move money, alter the system): every agent can only read."),
+    ("off_topic", "Topic guard", 3, "Declines a question that isn't about finance (sport, recipes, trivia…) without looking it up; needs an LLM to judge."),
+    ("verifier", "Verifier", 4, "Rechecks every agent's output: do the sources really answer the question? Adds clickable choices when more details are needed."),
+    ("research", "Research", 5, "Fallback for when an agent found nothing: looks up the underlying concept on Wikipedia, and if that doesn't answer it, searches the web; each time it hands back to the Verifier. Skipped when every agent had an answer."),
+    ("replan", "Replan", 6, "When an agent and Research both came up empty: picks other agents that could supply what is missing and sends the question to them (at most 3 times)."),
+    ("illustrate", "Illustrate", 7, "Adds a worked example, worked out by the calculator, to conceptual answers about numeric topics."),
+    ("synthesizer", "Synthesizer", 8, "Writes the reply from the agents' results only, adding no facts of its own."),
+    ("followups", "Follow-ups", 9, "Suggests a few next questions you could ask."),
+    ("compliance", "Compliance", 10, "Removes advice-like sentences and adds the disclaimer."),
 ]
 
 
@@ -105,9 +108,9 @@ def flow_edges() -> list[dict]:
     return [{"from": e.source, "to": e.target, "conditional": e.conditional} for e in get_graph().get_graph().edges]
 
 
-def _initial_state(question, history, profile, holdings, saved_goal, view, context=None) -> dict:
+def _initial_state(question, history, profile, holdings, saved_goal, view, context=None, topics=None) -> dict:
     return {"question": question, "history": history, "profile": profile, "holdings": holdings, "saved_goal": saved_goal, "view": view,
-            "context_in": context,
+            "context_in": context, "topics_in": topics,
             "agent_outputs": {}, "errors": [], "trace": []}
 
 
@@ -121,9 +124,10 @@ def _run_config(db, trace: dict | None) -> dict:
 
 
 def run_chat(question: str, *, history: list[dict], profile: dict, holdings: list[dict], db, saved_goal: dict | None = None, view: dict | None = None,
-             context: dict | None = None, trace: dict | None = None) -> dict:
-    """Invoke the graph for one user turn; returns the final state. `context` is the previous answer's saved context."""
-    return get_graph().invoke(_initial_state(question, history, profile, holdings, saved_goal, view, context), config=_run_config(db, trace))
+             context: dict | None = None, trace: dict | None = None, topics: dict | None = None) -> dict:
+    """Invoke the graph for one user turn; returns the final state. `context` is the previous answer's saved context;
+    `topics` the conversation's and session's topics (workflow.topics.candidates), None for no topic memory."""
+    return get_graph().invoke(_initial_state(question, history, profile, holdings, saved_goal, view, context, topics), config=_run_config(db, trace))
 
 
 def _detail(node: str, result: dict) -> tuple[str, str]:
@@ -138,7 +142,7 @@ def _detail(node: str, result: dict) -> tuple[str, str]:
 
 
 def stream_chat(question: str, *, history: list[dict], profile: dict, holdings: list[dict], db, saved_goal: dict | None = None,
-                view: dict | None = None, context: dict | None = None, trace: dict | None = None) -> Iterator[dict]:
+                view: dict | None = None, context: dict | None = None, trace: dict | None = None, topics: dict | None = None) -> Iterator[dict]:
     """Run the graph and yield one event as each node starts and finishes (parallel agents overlap), then the final state:
       {"type": "node_start", "node", "t"}                          t = seconds since the turn began
       {"type": "node_end", "node", "t", "ms", "status", "detail"}   status: ok | answered | not_found | need_info | error
@@ -148,7 +152,7 @@ def stream_chat(question: str, *, history: list[dict], profile: dict, holdings: 
     t0 = time.monotonic()
     running: dict[str, tuple[str, float]] = {}                # task id -> (node, start time)
     final: dict = {}
-    stream = get_graph().stream(_initial_state(question, history, profile, holdings, saved_goal, view, context),
+    stream = get_graph().stream(_initial_state(question, history, profile, holdings, saved_goal, view, context, topics),
                                 config=_run_config(db, trace), stream_mode=["tasks", "values"])
     try:
         for mode, ev in stream:

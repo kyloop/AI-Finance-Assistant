@@ -128,6 +128,33 @@ def kb_search(query: str, k: int | None = None) -> list[dict]:
     return search(client, cfg["collection"], query, k=k or cfg["top_k"])
 
 
+_kb_fetcher = None          # tests inject `fn(query, source_ids) -> list[hit]`; None = Qdrant (or nothing while a fake searcher is set)
+
+
+def set_kb_fetcher(fn) -> None:
+    global _kb_fetcher
+    _kb_fetcher = fn
+
+
+def kb_fetch(query: str, source_ids: list[str], k: int | None = None) -> list[dict]:
+    """The knowledge-base sections behind `kb:<doc_id>#<section>` source IDs, scored against the query (store.search_sections).
+    [] when there are none or the index hasn't been built; with a fake searcher injected (tests) and no fake fetcher, []."""
+    if _kb_fetcher is not None:
+        return _kb_fetcher(query, source_ids)
+    if _kb_searcher is not None:
+        return []
+    sections = list(dict.fromkeys(tuple(i[3:].split("#", 1)) for i in source_ids if i.startswith("kb:") and "#" in i))
+    if not sections:
+        return []
+    from src.core.config import get_config
+    from src.rag.store import search_sections
+    cfg = get_config()["rag"]
+    client = _kb_client()
+    if not client.collection_exists(cfg["collection"]):
+        return []
+    return search_sections(client, cfg["collection"], query, sections, k=k or cfg["top_k"])
+
+
 _qdrant = None
 
 
@@ -236,4 +263,4 @@ def market_quotes(db, symbols: list[str]) -> tuple[list[dict], list[str]]:
     return found, missing
 
 
-__all__ = ["wiki_search", "wiki_topic", "kb_search", "news_search", "news_latest", "news_index_now", "resolve_symbol", "industry_peers", "market_quotes", "set_wiki_client", "set_kb_searcher", "set_news_searcher", "set_news_indexer", "get_wiki_client", "WikiUnavailable"]
+__all__ = ["wiki_search", "wiki_topic", "kb_search", "news_search", "news_recent", "news_latest", "news_index_now", "story_articles", "resolve_symbol", "industry_peers", "market_quotes", "set_wiki_client", "set_kb_searcher", "set_news_searcher", "set_news_lister", "set_news_indexer", "set_article_reader", "get_wiki_client", "WikiUnavailable"]

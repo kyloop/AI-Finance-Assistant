@@ -34,6 +34,25 @@ class AgentOutput(TypedDict, total=False):
     fallback: dict               # a researched answer the verifier rejected; used only if nothing better turns up
 
 
+class TurnContext(TypedDict, total=False):
+    """What one answer saves in `messages.context` (context.build) and the next turn reads as `context_in`.
+    Rows written before topic memory lack the last three fields; read them with .get()."""
+    question: str                 # the corrected question
+    intents: list[str]
+    companies: list[dict]         # [{symbol, name}], at most 3
+    markets: list[dict]           # [{key, name}], at most 3
+    levels: list[str]             # company | sector | region | market | asset class
+    tab: str | None
+    symbol: str | None
+    period: dict | None           # {label, start}
+    facts: dict[str, dict]        # per symbol: price, return, start_price, end_price, as_of, period
+    topic_id: str | None          # "t1": carried from the previous turn, else assigned after the turn (topics.record_turn)
+    summary: str                  # one sentence on what was discussed, no figures; written after the reply
+    source_ids: list[str]         # kb:… | wikipedia:… | web:… | news:… (mds/topic-memory.md)
+    related: list[str]            # topics.uid of earlier chats' topics this turn was linked to (topic node)
+    linked: list[dict]            # the same, for the UI: [{uid, date, label}]
+
+
 class FinanceState(TypedDict, total=False):
     # inputs
     question: str                                          # after the proofread node: the corrected message
@@ -46,6 +65,11 @@ class FinanceState(TypedDict, total=False):
     view: dict | None                                      # {tab, selected, watchlist} from the UI
     screen: dict | None                                    # proofread: the message is about the tab on screen (context.screen)
     saved_goal: dict | None                                # the user's latest plan from the Goals tab
+    topics_in: dict | None                                 # {"current": [...], "earlier": [...]}: topics the message may belong to
+                                                           # (topics.candidates); None (run_chat without it) = no topic memory
+    # topic node output (mds/topic-memory.md)
+    topic: dict                                            # {action, topic_id, related, linked, note}
+    topic_background: str                                  # earlier chats' dated summaries for the synthesizer
     # router output
     intent: list[str]
     entities: dict
@@ -62,7 +86,7 @@ class FinanceState(TypedDict, total=False):
     market_data: Annotated[dict, merge_market]             # {"TSLA": {"quote": {...}, "period": {...}, "profile": {...}}}: every figure
                                                            # the market tools fetched this turn, for the synthesizer
     # final
-    context: dict                                          # saved with the answer; the next turn's context_in
+    context: TurnContext                                   # saved with the answer; the next turn's context_in
     final_response: str
     choices: list[str]                                     # clickable follow-ups; a pick is sent back through the router
     answered: bool                                         # the reply answers the question (so follow-ups can be offered)

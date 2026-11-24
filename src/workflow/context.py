@@ -24,8 +24,26 @@ FOLLOW_UP_MAX_WORDS = 12
 ADDS_TO = re.compile(r"\b(too|also|as well|and|plus|compare\w*|vs|versus|which|both|either|better|worse|outperform\w*)\b", re.I)
 
 
+# A message with no subject of its own ("show example", "tell me more", "why?") can only be about the conversation.
+# Narrower than _FOLLOW_UP on purpose: "can you give an example of compound interest?" names its subject.
+SUBJECTLESS = re.compile(
+    r"^\W*(please\s+)?(?:(?:can|could) you\s+)?(?:(?:show|give|walk)(?: me)?(?: through)?(?: an?| another| some| more| the)?\s*"
+    r"(?:example|examples|details?|more|steps?)|(?:explain|tell me)(?: it| that| this)?(?: more| further| again| in more detail)?"
+    r"|more(?: details?)?|go on|continue|elaborate|why|how so|in what way|like what|such as)\W*$", re.I)
+SUBJECTLESS_MAX_WORDS = 6
+
+
+def subjectless(text: str) -> bool:
+    return len((text or "").split()) <= SUBJECTLESS_MAX_WORDS and bool(SUBJECTLESS.match((text or "").strip()))
+
+
 def looks_like_follow_up(text: str) -> bool:
-    return len(text.split()) <= FOLLOW_UP_MAX_WORDS and bool(_FOLLOW_UP.search(text))
+    return subjectless(text) or (len(text.split()) <= FOLLOW_UP_MAX_WORDS and bool(_FOLLOW_UP.search(text)))
+
+
+def points_back(text: str) -> bool:
+    """Its wording leans on what came before, whatever its length."""
+    return bool(_FOLLOW_UP.search(text) or ADDS_TO.search(text))
 
 
 def carried(state: dict) -> dict:

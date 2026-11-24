@@ -19,6 +19,9 @@ Decision records and the measurements behind them.
 | [calc-plan-design.md](calc-plan-design.md) | Calculator: the LLM designs the calculation as a plan, Python validates and executes it; plan schema, guards, limits, costs |
 | [calc-eval.md](calc-eval.md) | Calculator eval: 20 questions with reference answers run against the live LLM (`python -m scripts.eval_calc`) |
 | [read-only-guardrail.md](read-only-guardrail.md) | Guardrail: every node only reads; how write requests (edit data, trade, change the system) are detected and flagged; per-node audit of reads and writes |
+| [news-topic-similarity.md](news-topic-similarity.md) | News agent: deciding "topic or just the latest" by embedding similarity to plain news requests, with the measured scores and threshold |
+| [topic-guardrail.md](topic-guardrail.md) | Guardrail: Finnie answers only finance questions; the router's `off_topic` route and the finance filter on Wikipedia and web results |
+| [topic-memory.md](topic-memory.md) | Design (not built yet): conversation topics across turns and chats — the `topics` and `topic_entities` tables, topic assignment rules, rebuilding a topic |
 | [agent-portfolio-agent.md](agent-portfolio-agent.md) | Portfolio agent: its responsibility and the data it needs (user portfolio data, live market data, knowledge base); the Portfolio tab report it shares, how each metric is computed and its limits |
 | [data/](data/) | CSVs behind the stats (`python -m scripts.kb_token_stats`), the retrieval test (`python -m scripts.eval_retrieval`) and the answer-quality test (`python -m scripts.eval_generation`, needs `OPENAI_API_KEY`) |
 
