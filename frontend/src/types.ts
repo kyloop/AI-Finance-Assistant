@@ -24,7 +24,9 @@ export interface Analysis {
   performance?: Performance; dividends?: Dividends; data_info?: DataInfo;
   holdings: {
     ticker: string; name: string; shares: number; price: number; value: number; weight: number; asset_class: string;
-    gain_loss: number | null; gain_loss_pct: number | null; day_change: number | null; day_change_pct: number | null;
+    gain_loss: number | null; gain_loss_pct: number | null;
+    /** "entered" by the user, or "purchase_close": none entered, so the close on cost_basis_date (the purchase date or the next trading day). */
+    cost_basis: number | null; cost_basis_source: "entered" | "purchase_close" | null; cost_basis_date: string | null; day_change: number | null; day_change_pct: number | null;
   }[];
 }
 export interface Mover { ticker: string; name: string; change_pct: number; change: number }

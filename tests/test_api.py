@@ -56,6 +56,39 @@ def test_portfolio_report_has_performance_cash_and_skips_unknown(client, sid):
     assert a["dividends"] == {"total": 0, "yield": 0, "by_month": [], "by_holding": []}      # the sample data has no dividend history
 
 
+def test_portfolio_rejects_future_purchase_dates(client, sid):
+    from datetime import date, timedelta
+    future = (date.today() + timedelta(days=3)).isoformat()
+    r = client.put(f"/api/sessions/{sid}/portfolio", json={"holdings": [{"ticker": "VTI", "shares": 1, "purchase_date": future}]})
+    assert r.status_code == 422 and "future" in r.text
+    assert client.get(f"/api/sessions/{sid}/portfolio").json()["holdings"] == []
+    today = date.today().isoformat()
+    assert client.put(f"/api/sessions/{sid}/portfolio", json={"holdings": [{"ticker": "VTI", "shares": 1, "purchase_date": today}]}).status_code == 200
+
+
+def test_gain_loss_runs_from_the_purchase_date_without_a_cost_basis(client, sid):
+    from datetime import date, timedelta
+    bought = (date.today() - timedelta(days=100)).isoformat()
+    client.put(f"/api/sessions/{sid}/portfolio", json={"holdings": [
+        {"ticker": "VTI", "shares": 10, "purchase_date": bought}, {"ticker": "BND", "shares": 20, "cost_basis": 70, "purchase_date": bought},
+        {"ticker": "QQQ", "shares": 5}, {"ticker": "CASH", "shares": 500, "purchase_date": bought}]})
+    a = client.get(f"/api/sessions/{sid}/portfolio/analysis").json()
+    h = {x["ticker"]: x for x in a["holdings"]}
+    closes = {p["date"]: p["close"] for p in client.get("/api/market/history/VTI").json()["data"]["points"]}
+    on = min(d for d in closes if d >= bought)                    # the purchase date or the next trading day
+    vti = h["VTI"]
+    assert vti["cost_basis_source"] == "purchase_close" and vti["cost_basis_date"] == on and vti["cost_basis"] == closes[on]
+    assert vti["gain_loss"] == pytest.approx((vti["price"] - closes[on]) * 10)
+    assert h["BND"]["cost_basis"] == 70 and h["BND"]["cost_basis_source"] == "entered"          # an entered cost basis wins
+    assert h["QQQ"]["cost_basis"] is None and h["QQQ"]["gain_loss"] is None                    # no date, no cost basis: unknown
+    assert h["CASH"]["cost_basis"] == 1 and h["CASH"]["gain_loss"] == 0                          # cash counts at cost, no gain
+    assert a["total_gain_loss"] == pytest.approx(vti["gain_loss"] + h["BND"]["gain_loss"], abs=0.02)
+    assert a["total_cost"] == pytest.approx(10 * closes[on] + 20 * 70 + 500, abs=0.02)
+    assert "VTI" not in a["performance"]["assumed"]
+    client.put(f"/api/sessions/{sid}/portfolio", json={"holdings": [{"ticker": "VTI", "shares": 10, "purchase_date": bought}]})
+    assert client.get(f"/api/sessions/{sid}/portfolio/analysis").json()["performance"]["start"] == on   # the chart starts there too
+
+
 def test_market_quote_cache_and_unknown(client):
     first = client.get("/api/market/quote/AAPL").json()
     second = client.get("/api/market/quote/AAPL").json()

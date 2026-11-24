@@ -17,7 +17,7 @@ from src.core.calculators import analyze_portfolio, project_goal
 from src.core.config import get_config
 from src.core.llm import ask_llm, current_llm
 from src.core.market_service import SymbolNotFound
-from src.core.portfolio_data import portfolio_history, portfolio_instruments
+from src.core.portfolio_data import portfolio_dividends, portfolio_history, portfolio_instruments, with_purchase_prices
 from src.core.tavily import WebSearchUnavailable, web_news, web_news_enabled, web_search, web_search_enabled
 from src.kb.wiki import WikiUnavailable
 from src.rag import markets as MK
@@ -28,6 +28,7 @@ from . import context as CTX
 from . import history as H
 from . import market_tools as MT
 from . import news as NEWS
+from . import portfolio_report as PR
 from . import router as R
 from . import symbols as SYM
 from .jsonreply import first_json
@@ -1178,52 +1179,67 @@ def _web_stories(query: str, days: int, feeds: list[str], have: list[dict], step
     return new
 
 
-def _signed_usd(n: float) -> str:
-    return f"{'+' if n >= 0 else '-'}${abs(n):,.0f}"
-
-
 @safe("portfolio")
 def portfolio_node(state: FinanceState, config: RunnableConfig):
+    """Sections chosen by the question (portfolio_report.focus); a general or 'analyse my portfolio' question gets the full
+    report, shown word for word so the synthesizer doesn't shorten it to a few headline numbers."""
     holdings = state.get("holdings") or []
     if not holdings:
         return _out("portfolio", "I don't see a portfolio yet. Add your holdings (or load a sample) on the **Portfolio** tab and ask me again.",
                     confidence="medium", trace="portfolio: no holdings")
     risk = state.get("profile", {}).get("risk_tolerance", "moderate")
     db = _db(config)                 # shared with the market agent's thread: every use goes through the market service, which serialises them
+    holdings = with_purchase_prices(db, holdings)
     instruments, info = portfolio_instruments(db, [h["ticker"] for h in holdings])
     a = analyze_portfolio(holdings, instruments, risk)
-    perf = portfolio_history(db, a["holdings"]) if db is not None and not a["empty"] else None
     if a["empty"]:
         return _out("portfolio", "None of your holdings could be priced, so I can't analyse them yet.", confidence="low", trace="portfolio: nothing priced")
-    lines = [f"Your portfolio is worth about **${a['total_value']:,.0f}** across {len(a['holdings'])} holdings."]
-    if a["total_gain_loss"] is not None:
-        lines.append(f"- Gain/loss against what you paid: **{_signed_usd(a['total_gain_loss'])}** ({a['total_return_pct']:+.1%}), for the holdings with a cost basis")
-    if a["day_change"] is not None:
-        lines.append(f"- Today: {_signed_usd(a['day_change'])} ({a['day_change_pct']:+.2%})")
-    lines += [f"- Diversification score: **{a['diversification_score']}/100** (about {a['effective_holdings']} effective holdings)",
-              f"- Risk level: **{a['risk_level']}/5** ({a['risk_label']}) against your stated {risk} tolerance",
-              f"- Fees: about ${a['annual_fee']:,.2f} a year ({a['weighted_expense_ratio'] * 100:.2f}% weighted)"]
-    if perf and perf["period_return"] is not None:
-        versus = f", against {perf['benchmark_return']:+.1%} for the {perf['benchmark']['name']}" if perf["benchmark_return"] is not None else ""
-        lines += [f"\nSince {perf['start']}, counting each holding from its purchase date:",
-                  f"- Return: **{perf['period_return']:+.1%}**{versus}",
-                  f"- Volatility: {perf['volatility']:.1%} a year; largest fall from a peak: {perf['max_drawdown']:.1%}",
-                  "_These figures assume each holding was bought in full on its purchase date"
-                  + (f" ({perf['default_start']} where none is set)._" if perf["assumed"] else "._")]
-    if a["warnings"]:
-        lines.append("\nThings worth a closer look:")
-        lines += [f"- {w}" for w in a["warnings"][:4]]
-        if any("of your portfolio" in w for w in a["warnings"]):
-            lines.append("\n_Concentration risk means a large share of your money depends on one holding or sector, so a bad stretch there "
-                         "hurts more. Diversifying spreads that risk._")
-    return _out("portfolio", "\n".join(lines), data_info=info,
-                trace=f"portfolio_analysis({len(holdings)} holdings) → score {a['diversification_score']} ({info['freshness']})")
+    sections = PR.focus(state["question"])
+    perf = portfolio_history(db, a["holdings"]) if db is not None else None
+    div = None
+    if db is not None and "income" in sections:
+        try:
+            div = portfolio_dividends(db, a["holdings"])
+        except Exception:  # noqa: BLE001 — dividends are optional: the section says they're unavailable
+            log.warning("portfolio dividends unavailable", exc_info=True)
+    full = sections == PR.SECTIONS
+    return _out("portfolio", PR.report(a, perf, div, sections, risk), data_info=info, verbatim=full,
+                trace=f"portfolio_analysis({len(holdings)} holdings, {'full report' if full else '+'.join(sections)}) "
+                      f"→ score {a['diversification_score']} ({info['freshness']})")
+
+
+def _saved_projection(state: FinanceState, g: dict) -> tuple[str, dict]:
+    risk = g.get("risk_tolerance") or state.get("profile", {}).get("risk_tolerance", "moderate")
+    return risk, project_goal(g["target_amount"], g["horizon_years"], g.get("current_savings", 0), g.get("monthly_contribution", 0),
+                              get_config()["risk_profiles"][risk])
+
+
+def saved_plan_figures(state: FinanceState) -> str:
+    """The saved plan's figures as lines for the calculator's prompt, when the message is about the user's plan: they are the
+    user's own numbers (so the calculator may use them as "user" inputs), and the projection is computed here in Python."""
+    g = state.get("saved_goal")
+    q = f"{state.get('original_question') or ''} {state['question']}"
+    if not g or not g.get("target_amount") or not g.get("horizon_years") or not (
+            R.refers_to_plan(q) or "goal" in (state.get("intent") or [])):
+        return ""
+    risk, r = _saved_projection(state, g)
+    current, monthly, years = g.get("current_savings", 0) or 0, g.get("monthly_contribution", 0) or 0, g["horizon_years"]
+    paid_in = current + monthly * 12 * years
+    # plain numbers (no "$" or thousands commas): the calculator copies them into its formulas
+    return (f"The user's saved {g['goal_type']} plan on the Goals tab (their own numbers, in dollars; already computed, "
+            f"use them as inputs):\n"
+            f"- target {r['target']:.0f} in {years} years\n"
+            f"- already saved {current:.0f}; contributing {monthly:.0f} a month\n"
+            f"- {risk} risk profile, assumed return {r['annual_return_assumption'] * 100:g}% a year, compounded monthly\n"
+            f"- projected value after {years} years: {r['projected_value']:.2f}\n"
+            f"- total paid in: {paid_in:.0f} ({current:.0f} + {monthly:.0f} x {12 * years} months)\n"
+            f"- investment growth (projected value minus paid in): {r['projected_value'] - paid_in:.2f}\n"
+            f"- not given: the account type (taxable, 401(k)/IRA or Roth are taxed differently) and any tax rate; a rate "
+            f"is an assumption to state (a sample value), not something to calculate")
 
 
 def _saved_goal_answer(state: FinanceState, g: dict) -> dict:
-    risk = g.get("risk_tolerance") or state.get("profile", {}).get("risk_tolerance", "moderate")
-    r = project_goal(g["target_amount"], g["horizon_years"], g.get("current_savings", 0), g.get("monthly_contribution", 0),
-                     get_config()["risk_profiles"][risk])
+    risk, r = _saved_projection(state, g)
     lines = [f"Based on your {g['goal_type']} plan on the **Goals** tab (${r['target']:,.0f} in {g['horizon_years']} years, "
              f"${g.get('current_savings', 0):,.0f} saved so far, ${g.get('monthly_contribution', 0):,.0f} a month, {risk} profile, "
              f"assuming a steady {r['annual_return_assumption'] * 100:.0f}% yearly return):",

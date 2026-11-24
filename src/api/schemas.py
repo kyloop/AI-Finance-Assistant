@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -80,6 +80,15 @@ class HoldingIn(BaseModel):
     shares: float = Field(gt=0)
     cost_basis: float | None = Field(None, ge=0)
     purchase_date: date | None = None
+
+    @field_validator("purchase_date")
+    @classmethod
+    def not_in_future(cls, v: date | None) -> date | None:
+        # The latest date anywhere on Earth (UTC+14): the user's "today" may be a day ahead of the server's.
+        latest = (datetime.now(timezone.utc) + timedelta(hours=14)).date()
+        if v is not None and v > latest:
+            raise ValueError(f"purchase date {v.isoformat()} is in the future")
+        return v
 
 
 class PortfolioIn(BaseModel):

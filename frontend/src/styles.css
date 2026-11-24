@@ -56,6 +56,7 @@ nav { display:flex; align-items:center; flex-wrap:wrap; }
 .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; } .card.wide { margin:12px 0; }
 .big { font-size:1.5rem; font-weight:600; }
 .up { color:var(--up); } .down { color:var(--down); }
+input.invalid { border-color:var(--down); outline-color:var(--down); }
 .charts { display:grid; grid-template-columns:repeat(auto-fit, minmax(320px,1fr)); gap:16px; }
 table.grid { width:100%; border-collapse:collapse; margin:8px 0; } table.grid th, table.grid td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); }
 table.grid input { width:100%; }

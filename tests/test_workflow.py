@@ -150,7 +150,8 @@ def test_market_concept_without_ticker_falls_back_to_knowledge_lookup(db):
 def test_portfolio_agent_with_and_without_holdings():
     assert "Portfolio** tab" in ask("Is my portfolio diversified?")["final_response"]
     r = ask("Is my portfolio diversified?", holdings=HOLDINGS)["final_response"]
-    assert "Diversification score" in r and "NVDA is" in r and "Concentration risk" in r
+    assert "**Diversification**" in r and "Score: **" in r and "NVDA is" in r and "Concentration risk" in r
+    assert "**Fees**" not in r                                       # a focused question gets only its section
 
 
 def test_goal_agent_projects_or_asks_for_details():
@@ -167,7 +168,7 @@ def test_tax_agent_adds_scope_caveat():
 def test_multi_intent_fans_out_and_merges_in_one_answer(db):
     s = ask("Is my portfolio too tech-heavy given the S&P 500 today?", holdings=HOLDINGS, db=db)
     assert s["agents"] == ["Portfolio Analysis", "Market Analysis"]
-    assert "Diversification score" in s["final_response"] and "S&P 500" in s["final_response"]
+    assert "**Diversification**" in s["final_response"] and "S&P 500" in s["final_response"]
     assert s["final_response"].count(DISCLAIMER) == 1
 
 
@@ -400,7 +401,8 @@ def test_market_agent_resolves_watchlist_and_selected_symbol(client, sid):
 def test_portfolio_agent_reports_gain_loss_and_benchmark(db):
     r = ask("How is my portfolio doing?", holdings=HOLDINGS, db=db)["final_response"]
     assert "Gain/loss against what you paid" in r and "Today:" in r
-    assert "for the S&P 500" in r and "bought in full on its purchase date (2026-01-01 where none is set)" in r
+    assert "The S&P 500 returned" in r and "bought in full on its purchase date (2026-01-01 where none is set)" in r
+    assert "What drove it:" in r and "**Risk**" not in r                # "doing" asks about performance only
 
 
 def test_prompts_see_the_last_four_messages_up_to_1000_characters_each():

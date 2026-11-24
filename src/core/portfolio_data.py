@@ -3,6 +3,7 @@ dividends, all through the cached market service. The maths is in calculators.py
 from __future__ import annotations
 
 import re
+from bisect import bisect_left
 from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
@@ -106,12 +107,34 @@ def _history_days(earliest: str, today: date) -> int:
 
 
 def _closes(db: Session, symbol: str, days: int) -> dict[str, float] | None:
-    params = {} if days == _HISTORY_DAYS[0] else {"days": days}          # the default shares the Market tab's cached history
+    params = {} if days == _HISTORY_DAYS[0] else {"days": days}          # the default shares the Live Market tab's cached history
     try:
         points = get_market_data(db, "history", symbol, **params)["data"]["points"]
     except SymbolNotFound:
         return None
     return {p["date"]: p["close"] for p in points}
+
+
+def with_purchase_prices(db: Session | None, holdings: list[dict], today: date | None = None) -> list[dict]:
+    """Holdings that have a purchase date but no cost basis get one: the close on the purchase date, or the first trading day
+    after it (the same close portfolio_performance starts the holding from), so their gain/loss runs from the purchase date.
+    It is marked cost_basis_source "purchase_close" with its cost_basis_date. A date after the latest close (bought today
+    before the close is in) or a ticker without history keeps no cost basis. Without a database nothing is filled."""
+    dated = [h for h in holdings if h.get("purchase_date") and h.get("cost_basis") is None]
+    if db is None or not dated:
+        return holdings
+    days = _history_days(min(str(h["purchase_date"]) for h in dated), today or date.today())
+    out = []
+    for h in holdings:
+        if h in dated and _is_cash(h["ticker"].upper()):     # always $1: in the total at cost, with no gain
+            h = h | {"cost_basis": CASH["price"], "cost_basis_source": "purchase_close", "cost_basis_date": str(h["purchase_date"])}
+        elif h in dated and (closes := _closes(db, h["ticker"].upper(), days)):
+            dates = sorted(closes)
+            on = dates[bisect_left(dates, max(str(h["purchase_date"]), dates[0]))] if str(h["purchase_date"]) <= dates[-1] else None
+            if on:
+                h = h | {"cost_basis": closes[on], "cost_basis_source": "purchase_close", "cost_basis_date": on}
+        out.append(h)
+    return out
 
 
 def portfolio_history(db: Session, holdings: list[dict], today: date | None = None) -> dict:
