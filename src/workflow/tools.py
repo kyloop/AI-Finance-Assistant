@@ -34,8 +34,9 @@ FINANCE_WORDS = ("financ", "invest", "money", "bank", "tax", "econom", "stock", 
                  "inflation", "securit", "currency", "price", "mortgage", "equity", "trading", "account")
 
 
-def _is_finance(title: str, lead: str) -> bool:
-    """Topic gate: Wikipedia search happily returns albums and file formats for loosely-worded queries."""
+def is_finance(title: str, lead: str) -> bool:
+    """Topic gate: Wikipedia search happily returns albums and file formats for loosely-worded queries, and a web search
+    answers anything it is asked (mds/topic-guardrail.md)."""
     hay = f"{title} {lead[:700]}".lower()
     return sum(w in hay for w in FINANCE_WORDS) >= 2
 
@@ -63,7 +64,7 @@ def wiki_search(query: str, max_words: int = 150) -> dict | None:
         if count_words(lead) < 40:                       # very short lead: include the first section too
             lead = page.text
         extract, _ = truncate_words(lead, max_words)
-        if not _is_finance(page.title, lead) or not _relevant(query, page.title, lead):
+        if not is_finance(page.title, lead) or not _relevant(query, page.title, lead):
             continue
         result = {"title": page.title, "url": page.url, "revision_id": page.revision_id, "extract": extract,
                   "confidence": "high" if rank == 0 else "medium"}
@@ -96,7 +97,7 @@ def wiki_topic(topic: str, max_words: int = 150) -> dict | None:
         lead, *_ = page.text.split("\n\n## ", 1)
         if count_words(lead) < 40:
             lead = page.text
-        if _is_finance(page.title, lead):
+        if is_finance(page.title, lead):
             extract, _ = truncate_words(lead, max_words)
             result = {"title": page.title, "url": page.url, "revision_id": page.revision_id, "extract": extract, "confidence": confidence}
             break
@@ -125,6 +126,33 @@ def kb_search(query: str, k: int | None = None) -> list[dict]:
     if not client.collection_exists(cfg["collection"]):
         return []
     return search(client, cfg["collection"], query, k=k or cfg["top_k"])
+
+
+_kb_fetcher = None          # tests inject `fn(query, source_ids) -> list[hit]`; None = Qdrant (or nothing while a fake searcher is set)
+
+
+def set_kb_fetcher(fn) -> None:
+    global _kb_fetcher
+    _kb_fetcher = fn
+
+
+def kb_fetch(query: str, source_ids: list[str], k: int | None = None) -> list[dict]:
+    """The knowledge-base sections behind `kb:<doc_id>#<section>` source IDs, scored against the query (store.search_sections).
+    [] when there are none or the index hasn't been built; with a fake searcher injected (tests) and no fake fetcher, []."""
+    if _kb_fetcher is not None:
+        return _kb_fetcher(query, source_ids)
+    if _kb_searcher is not None:
+        return []
+    sections = list(dict.fromkeys(tuple(i[3:].split("#", 1)) for i in source_ids if i.startswith("kb:") and "#" in i))
+    if not sections:
+        return []
+    from src.core.config import get_config
+    from src.rag.store import search_sections
+    cfg = get_config()["rag"]
+    client = _kb_client()
+    if not client.collection_exists(cfg["collection"]):
+        return []
+    return search_sections(client, cfg["collection"], query, sections, k=k or cfg["top_k"])
 
 
 _qdrant = None
@@ -166,6 +194,22 @@ def news_search(query: str, tickers: list[str] | None = None, days: int | None =
     return news.search(_kb_client(), query, tickers=tickers, days=days, k=k)
 
 
+_news_lister = None           # tests inject fn(tickers, days) -> [story]; None = the Qdrant news collection
+
+
+def set_news_lister(fn) -> None:
+    global _news_lister
+    _news_lister = fn
+
+
+def news_recent(tickers: list[str], days: int) -> list[dict]:
+    """The indexed stories for `tickers` published within `days`, newest first (payload dicts). Raises if Qdrant fails."""
+    if _news_lister is not None:
+        return _news_lister(tickers, days)
+    from src.rag import news
+    return news.recent(_kb_client(), tickers, days)
+
+
 _news_indexer = None          # tests inject fn(symbol, items) -> int; None = index into Qdrant now
 
 
@@ -180,6 +224,25 @@ def news_index_now(symbol: str, items: list[dict]) -> int:
         return _news_indexer(symbol, items)
     from src.rag import news
     return news.ingest(symbol, items, client=_kb_client())
+
+
+_article_reader = None        # tests inject fn(stories) -> {story id: text}; None = the index, else the story pages
+
+
+def set_article_reader(fn) -> None:
+    global _article_reader
+    _article_reader = fn
+
+
+def story_articles(stories: list[dict]) -> dict[str, str]:
+    """What the headline-only Yahoo stories actually say: {story id: a 2-3 sentence summary of the article (the excerpt
+    itself in basic mode)}, kept in the news index for a few days."""
+    if _article_reader is not None:
+        return _article_reader(stories)
+    from src.core.llm import current_llm
+    from src.rag import news
+    from .news import summarize_story
+    return news.articles(stories, client=_kb_client(), summarize=summarize_story if current_llm() is not None else None)
 
 
 def news_latest(db, symbol: str | None) -> dict:
@@ -200,4 +263,4 @@ def market_quotes(db, symbols: list[str]) -> tuple[list[dict], list[str]]:
     return found, missing
 
 
-__all__ = ["wiki_search", "wiki_topic", "kb_search", "news_search", "news_latest", "news_index_now", "resolve_symbol", "industry_peers", "market_quotes", "set_wiki_client", "set_kb_searcher", "set_news_searcher", "set_news_indexer", "get_wiki_client", "WikiUnavailable"]
+__all__ = ["wiki_search", "wiki_topic", "kb_search", "news_search", "news_recent", "news_latest", "news_index_now", "story_articles", "resolve_symbol", "industry_peers", "market_quotes", "set_wiki_client", "set_kb_searcher", "set_news_searcher", "set_news_lister", "set_news_indexer", "set_article_reader", "get_wiki_client", "WikiUnavailable"]

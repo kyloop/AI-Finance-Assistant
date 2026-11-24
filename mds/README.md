@@ -12,12 +12,16 @@ Decision records and the measurements behind them.
 | [kb-token-stats-goal-planning.md](kb-token-stats-goal-planning.md) | `goal-planning` category (150 pages): the same measurements and both tests; not indexed yet |
 | [kb-eval-summary.md](kb-eval-summary.md) | Both tests for every category side by side, and combined |
 | [yfinance-capabilities.md](yfinance-capabilities.md) | What the yfinance library (1.7.0) can fetch, checked live: per-ticker data, funds and ETFs, sectors, calendars, screeners; what the app uses and what it could add |
+| [market-symbols.md](market-symbols.md) | Markets that aren't companies (forex, crypto, commodities, rates, indices, sectors): which Yahoo symbols have quotes and news, the list, its Qdrant points, how a question finds its companies, markets, topic and exclusions |
 | [agent-code-map.md](agent-code-map.md) | Where each agent and workflow step lives in the code (functions, files, how to add a node) |
 | [agent-tools.md](agent-tools.md) | Graph of which tools each agent and pipeline step calls, and the data source behind each tool |
 | [calc-pipeline-design.md](calc-pipeline-design.md) | Calculator steps: understand, define, find the equation in the knowledge base and on the web with a cross-check, fill the variables, compute, quote |
 | [calc-plan-design.md](calc-plan-design.md) | Calculator: the LLM designs the calculation as a plan, Python validates and executes it; plan schema, guards, limits, costs |
 | [calc-eval.md](calc-eval.md) | Calculator eval: 20 questions with reference answers run against the live LLM (`python -m scripts.eval_calc`) |
 | [read-only-guardrail.md](read-only-guardrail.md) | Guardrail: every node only reads; how write requests (edit data, trade, change the system) are detected and flagged; per-node audit of reads and writes |
+| [news-topic-similarity.md](news-topic-similarity.md) | News agent: deciding "topic or just the latest" by embedding similarity to plain news requests, with the measured scores and threshold |
+| [topic-guardrail.md](topic-guardrail.md) | Guardrail: Finnie answers only finance questions; the router's `off_topic` route and the finance filter on Wikipedia and web results |
+| [topic-memory.md](topic-memory.md) | Design (not built yet): conversation topics across turns and chats — the `topics` and `topic_entities` tables, topic assignment rules, rebuilding a topic |
 | [agent-portfolio-agent.md](agent-portfolio-agent.md) | Portfolio agent: its responsibility and the data it needs (user portfolio data, live market data, knowledge base); the Portfolio tab report it shares, how each metric is computed and its limits |
 | [data/](data/) | CSVs behind the stats (`python -m scripts.kb_token_stats`), the retrieval test (`python -m scripts.eval_retrieval`) and the answer-quality test (`python -m scripts.eval_generation`, needs `OPENAI_API_KEY`) |
 

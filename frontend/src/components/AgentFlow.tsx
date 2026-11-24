@@ -82,7 +82,9 @@ export default function AgentFlow({ state }: { state: FlowSnapshot }) {
   const [size, setSize] = useState({ w: 0, h: 0 });          // the diagram at scale 1
   const drag = useRef<{ y: number; h: number } | null>(null);
   const [now, setNow] = useState(0);
-  useEffect(() => { api.flowLayout().then((r) => { setEdges(r.edges); setNodes(r.nodes); }).catch(() => setNodes([])); }, []);
+  useEffect(() => {                                       // on load and again with each question, so a restarted backend's new nodes show up
+    api.flowLayout().then((r) => { setEdges(r.edges); setNodes(r.nodes); }).catch(() => setNodes((n) => n ?? []));   // keep a layout we already have
+  }, [state.startedAt]);
   useEffect(() => {                                       // keep the page's scroll area clear of the fixed dock
     document.documentElement.style.setProperty("--flow-h", `${open ? height : CLOSED_H}px`);
     return () => { document.documentElement.style.removeProperty("--flow-h"); };

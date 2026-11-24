@@ -11,8 +11,8 @@ INTENT_PATTERNS = {
     "tax": r"\b(tax|taxes|taxed|taxable|taxation|401\(?k\)?|ira|roth|capital gains?|deduction)\b",
     "portfolio": r"\b(my (portfolio|holdings|investments|stocks|positions|allocation)|am i (diversified|too concentrated)|"
                  r"rebalanc\w* my)\b",
-    "market": r"\b(watchlist|price of|quote|stock market|market today|index|indices|s&p|nasdaq|dow|trend|moving average)\b",
-    "goal": r"\b(savings? plan|savings goal|my goal|save for|saving for|how much (should|do|must) i (need to )?(save|invest)|"
+    "market": r"\b(watchlist|price of|quote|stock market|markets?(?: \w+)? today|how(?:'s| is| are) (?:the )?markets?|index|indices|s&p|nasdaq|dow|trend|moving average|most (?:active|traded)|(?:biggest|largest) (?:\w+ )?(?:companies|stocks)|markets? (?:is )?(?:open|closed))\b",
+    "goal": r"\b(savings? plan|savings goals?|my goals?|save for|saving for|how much (should|do|must) i (need to )?(save|invest)|"
             r"on track)\b",
     "news": r"\b(news|headlines?|latest (on|about|news)|what happened|what('s| is| has been| have been)? (happening|said|going on)|in the news|"
             r"(recent|latest) (updates?|developments?|reports?) (on|about|in))\b",
@@ -23,7 +23,9 @@ INTENT_PATTERNS = {
 INTENTS = ["qa", "portfolio", "market", "news", "goal", "tax", "calc"]
 AGENT_FOR_INTENT = {"qa": "Finance Q&A", "portfolio": "Portfolio Analysis", "market": "Market Analysis",
                     "goal": "Goal Planning", "tax": "Tax Education", "calc": "Calculator", "example": "Calculator", "news": "News", "clarify": "Finnie",
-                    "read_only": "Read-only guard"}
+                    "read_only": "Read-only guard", "off_topic": "Topic guard"}
+
+GUARDS = ("read_only", "off_topic")                  # router-only intents that answer with a fixed message instead of an agent
 
 COMPANY_ALIASES = {"apple": "AAPL", "microsoft": "MSFT", "nvidia": "NVDA", "jpmorgan": "JPM", "johnson & johnson": "JNJ"}
 INDEX_ALIASES = {"s&p 500": "^GSPC", "s&p": "^GSPC", "nasdaq": "^IXIC", "dow jones": "^DJI", "the dow": "^DJI", "dow": "^DJI"}
@@ -36,6 +38,17 @@ _PRONOUN = re.compile(r"\b(that|it|this|those|they|them|these)\b", re.I)
 _TICKER_CUE = re.compile(r"\$[A-Z]{1,5}\b|\b[A-Z]{2,5}\s+(stock|shares|price)\b|\bhow is\s+[A-Z]{2,5}\b")
 _GOAL_CUE = re.compile(r"(\$[\d,.]+\s*(k|m|million|thousand)?\b.*\b\d{1,2}\s*(years?|yrs?)\b|\b\d{1,2}\s*(years?|yrs?)\b.*\$[\d,.]+|"
                        r"\bsaving\s+\$|\$[\d,.]+\s*(a|per|/|each)\s*month)", re.I)
+
+
+# The user's own plan or goal ("my Goals plan", "if the plan runs as planned", "my retirement goal"): with a plan saved on
+# the Goals tab, the goal agent reads it and the other agents get its figures. "The goal" alone is left out: "the goal of
+# diversification" is not their plan.
+PLAN_REF = re.compile(r"\bmy\s+(\w+\s+)?(plan|goals?)\b|\b(the|this|that)\s+(savings\s+|retirement\s+|goals?\s+)?plan\b|"
+                      r"\bgoals?\s+(plan|tab)\b|\bam i on track\b", re.I)
+
+
+def refers_to_plan(text: str) -> bool:
+    return bool(PLAN_REF.search(text))
 
 
 def classify(text: str) -> list[str]:
@@ -112,10 +125,11 @@ def _amount(num: str, unit: str | None) -> float:
 def extract_entities(text: str, history: list[dict] | None = None) -> dict:
     lower = text.lower()
     tickers = [t for t in re.findall(r"\$?\b([A-Z]{2,5})\b", text) if t in INSTRUMENTS and not t.startswith("^")]
-    tickers += [sym for name, sym in COMPANY_ALIASES.items() if name in lower]
+    named = lambda name: re.search(rf"(?<![a-z]){re.escape(name)}(?![a-z])", lower)  # noqa: E731 — "dow" is not "down"; "s&p500" still counts
+    tickers += [sym for name, sym in COMPANY_ALIASES.items() if named(name)]
     indices = []
     for name, sym in INDEX_ALIASES.items():
-        if name in lower and sym not in indices:
+        if named(name) and sym not in indices:
             indices.append(sym)
     amounts = [(_amount(m.group(1), m.group(2)), m.end()) for m in
                re.finditer(r"\$\s?([\d,]+(?:\.\d+)?)\s*(k|m|thousand|million)?\b", text, re.I)]
@@ -138,7 +152,7 @@ def parse_llm_intents(reply: str) -> tuple[list[str], float] | None:
         return None
     try:
         data = json.loads(m.group(0))
-        intents = [i for i in data.get("intents", []) if i in INTENTS or i == "read_only"]
+        intents = [i for i in data.get("intents", []) if i in INTENTS or i in GUARDS]
         return (intents, float(data.get("confidence", 1))) if intents else None
     except (ValueError, TypeError, AttributeError):
         return None

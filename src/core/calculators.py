@@ -37,7 +37,9 @@ def analyze_portfolio(holdings: list[dict], instruments: dict, risk_tolerance: s
             skipped.append(t)
             continue
         rows.append({"ticker": t, "name": info["name"], "shares": h["shares"], "price": info["price"],
-                     "value": h["shares"] * info["price"], "cost_basis": h.get("cost_basis"), "purchase_date": h.get("purchase_date"), "info": info})
+                     "value": h["shares"] * info["price"], "cost_basis": h.get("cost_basis"), "purchase_date": h.get("purchase_date"),
+                     "cost_basis_source": h.get("cost_basis_source", "entered" if h.get("cost_basis") is not None else None),
+                     "cost_basis_date": h.get("cost_basis_date"), "info": info})
     total = sum(r["value"] for r in rows)
     if not rows or total <= 0:
         return {"empty": True, "total_value": 0, "holdings": [], "skipped": skipped, "warnings": []}
@@ -70,9 +72,10 @@ def analyze_portfolio(holdings: list[dict], instruments: dict, risk_tolerance: s
         | {"Real estate" for r in rows if r["info"]["asset_type"] == "real_estate"}
     equity_sectors = {s: w for s, w in sectors.items() if s not in ("Bonds", "Cash", "Real Estate")}
     top_sector = max(equity_sectors.values(), default=0)
-    score = (min(eff_holdings / 15, 1) * 40
-             + len(classes_present) / 5 * 30
-             + max(0, min(1, (1 - top_sector) / 0.75)) * 30)          # full at <=25%, zero at 100%
+    score_parts = {"holdings": min(eff_holdings / 15, 1) * 40,               # full at 15 equal-sized holdings
+                   "asset_classes": len(classes_present) / 5 * 30,
+                   "sector": max(0, min(1, (1 - top_sector) / 0.75)) * 30}      # full at <=25%, zero at 100%
+    score = sum(score_parts.values())
     risk = sum(r["weight"] * RISK_SCORE[r["info"]["asset_type"]] for r in rows)
 
     warnings = []
@@ -107,12 +110,19 @@ def analyze_portfolio(holdings: list[dict], instruments: dict, risk_tolerance: s
         "day_change_pct": day_change / prev_value if moved and prev_value else None,
         "geography": [{"name": k, "weight": v} for k, v in sorted(geography.items(), key=lambda x: -x[1])],
         "movers": _movers(rows),
-        "holdings": [{k: v for k, v in r.items() if k != "info"} | {"asset_class": ASSET_CLASS[r["info"]["asset_type"]]} for r in rows],
+        "holdings": [{k: v for k, v in r.items() if k != "info"} | {"asset_class": ASSET_CLASS[r["info"]["asset_type"]],
+                                                                    "expense_ratio": r["info"].get("expense_ratio", 0),
+                                                                    "annual_fee": round(r["value"] * r["info"].get("expense_ratio", 0), 2)}
+                     for r in rows],
         "allocation": [{"name": k, "weight": v} for k, v in sorted(alloc.items(), key=lambda x: -x[1])],
         "sectors": [{"name": k, "weight": v} for k, v in sorted(sectors.items(), key=lambda x: -x[1])],
         "annual_fee": round(annual_fee, 2),
         "weighted_expense_ratio": annual_fee / total,
         "diversification_score": round(score),
+        "score_parts": {k: round(v, 1) for k, v in score_parts.items()},
+        "asset_classes_present": sorted(classes_present),
+        "top_sector": ({"name": max(equity_sectors, key=equity_sectors.get), "weight": top_sector} if equity_sectors else None),
+        "risk_max": TOLERANCE_MAX_RISK.get(risk_tolerance, 3.75),
         "effective_holdings": round(eff_holdings, 1),
         "risk_level": round(risk, 1),
         "risk_label": "Conservative" if risk < 2.5 else "Moderate" if risk < 3.75 else "High",
@@ -155,7 +165,8 @@ def portfolio_performance(holdings: list[dict], series: dict[str, dict[str, floa
            "excluded": excluded, "pending": pending, "clamped": list(clamped), "clamped_from": clamped, "default_start": default_start,
            "assumed": [h["ticker"] for h, _ in starts if default_start and not h.get("purchase_date")],
            "period_return": None, "annualized_return": None, "volatility": None, "max_drawdown": None, "sharpe": None, "sortino": None,
-           "benchmark_return": None, "excess_return": None}
+           "benchmark_return": None, "excess_return": None, "benchmark_volatility": None, "benchmark_max_drawdown": None,
+           "contributions": []}
     if not dates:
         return out
 
@@ -166,9 +177,16 @@ def portfolio_performance(holdings: list[dict], series: dict[str, dict[str, floa
     amount = lambda h, d: h["shares"] * closes[h["ticker"]][d] if h["ticker"] in closes else h["value"]  # noqa: E731
     active, returns, units, value = [], [], 0.0, 0.0
     growth, peak, drawdown = 1.0, 1.0, 0.0               # growth of $1 held throughout, so purchases don't look like gains
+    held: dict[int, float] = {}                          # id(holding) -> its amount at the previous close
+    # Contribution: each day's return splits exactly into the holdings' moves (their change / yesterday's value); scaled by
+    # the growth so far, the contributions add up to the period return.
+    contrib: dict[int, float] = {}
     for k, d in enumerate(dates, start=first):
         if active:
-            returns.append(sum(amount(h, d) for h in active) / value - 1)
+            now = {id(h): amount(h, d) for h in active}
+            for h in active:
+                contrib[id(h)] = contrib.get(id(h), 0.0) + growth * (now[id(h)] - held[id(h)]) / value
+            returns.append(sum(now.values()) / value - 1)
             growth *= 1 + returns[-1]
             peak = max(peak, growth)
             drawdown = min(drawdown, growth / peak - 1)
@@ -176,14 +194,27 @@ def portfolio_performance(holdings: list[dict], series: dict[str, dict[str, floa
             if start == k:
                 active.append(h)
                 units += amount(h, d) / benchmark[d] if benchmark else 0
-        value = sum(amount(h, d) for h in active)
+        held = {id(h): amount(h, d) for h in active}
+        value = sum(held.values())
         out["points"].append({"date": d, "value": round(value, 2), "benchmark": round(units * benchmark[d], 2) if benchmark else None})
     if not returns:
         return out
-    out |= {"period_return": growth - 1, "max_drawdown": drawdown}
+    by_ticker: dict[str, float] = {}
+    for h, _ in starts:
+        by_ticker[h["ticker"]] = by_ticker.get(h["ticker"], 0.0) + contrib.get(id(h), 0.0)
+    out |= {"period_return": growth - 1, "max_drawdown": drawdown,
+            "contributions": [{"ticker": t, "contribution": c} for t, c in sorted(by_ticker.items(), key=lambda x: -x[1])]}
+    bench_returns = []
     if benchmark:
         out["benchmark_return"] = benchmark[dates[-1]] / benchmark[dates[0]] - 1
         out["excess_return"] = out["period_return"] - out["benchmark_return"]
+        bench_returns = [benchmark[b] / benchmark[a] - 1 for a, b in zip(dates, dates[1:])]
+        level, top, low = 1.0, 1.0, 0.0
+        for r in bench_returns:
+            level *= 1 + r
+            top = max(top, level)
+            low = min(low, level / top - 1)
+        out["benchmark_max_drawdown"] = low
     if len(dates) < MIN_HISTORY_DAYS:                    # too few days for the annualized figures to mean anything
         return out
     span = (date.fromisoformat(dates[-1]) - date.fromisoformat(dates[0])).days
@@ -191,6 +222,10 @@ def portfolio_performance(holdings: list[dict], series: dict[str, dict[str, floa
     std = math.sqrt(sum((r - mean) ** 2 for r in returns) / (len(returns) - 1))
     daily_rf = risk_free_rate / trading_days
     downside = math.sqrt(sum(min(r - daily_rf, 0) ** 2 for r in returns) / len(returns))
+    if len(bench_returns) > 1:
+        b_mean = sum(bench_returns) / len(bench_returns)
+        b_std = math.sqrt(sum((r - b_mean) ** 2 for r in bench_returns) / (len(bench_returns) - 1))
+        out["benchmark_volatility"] = b_std * math.sqrt(trading_days)
     out |= {"annualized_return": growth ** (365 / span) - 1, "volatility": std * math.sqrt(trading_days),
             "sharpe": (mean - daily_rf) / std * math.sqrt(trading_days) if std else None,
             "sortino": (mean - daily_rf) / downside * math.sqrt(trading_days) if std and downside else None}

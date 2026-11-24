@@ -4,16 +4,16 @@ import AgentFlow from "./components/AgentFlow";
 import ChatTab from "./components/ChatTab";
 import { DISCLAIMER, ErrorBanner } from "./components/common";
 import GoalsTab from "./components/GoalsTab";
-import LiveTab, { loadWatchlist } from "./components/LiveTab";
-import MarketTab from "./components/MarketTab";
+import LiveMarketTab, { loadWatchlist } from "./components/LiveMarketTab";
 import PortfolioTab from "./components/PortfolioTab";
 import ResearchTab from "./components/ResearchTab";
 import Sidebar from "./components/Sidebar";
 import { useFlowRunner } from "./flow";
 import type { ChatView, Message, Profile } from "./types";
 
-const TABS = ["Portfolio", "Market", "Research", "Live", "Goals"] as const;
+const TABS = ["Portfolio", "Live Market", "Research", "Goals"] as const;
 type Tab = (typeof TABS)[number];
+const SYMBOL_TABS: readonly Tab[] = ["Live Market", "Research"];     // tabs that show one symbol the chat can call "this"
 const DEFAULT_PROFILE: Profile = { knowledge_level: "beginner", risk_tolerance: "moderate", horizon_years: 10 };
 const CHAT_W_KEY = "finnie_chat_w", CHAT_MIN_W = 320, CHAT_DEFAULT_W = 400;
 const chatMaxW = () => Math.max(CHAT_MIN_W, Math.min(1000, window.innerWidth - 480));
@@ -44,22 +44,34 @@ export default function App() {
   const [profileCollapsed, setProfileCollapsed] = useState(() => localStorage.getItem("finnie_profile_collapsed") === "1");
   const [chatW, setChatW] = useState(() => { const n = Number(localStorage.getItem(CHAT_W_KEY)); return n ? clampChatW(n) : CHAT_DEFAULT_W; });
   const drag = useRef<{ x: number; w: number } | null>(null);
-  const [liveSelected, setLiveSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);         // the symbol open on the Live Market or Research tab
   const [pendingQ, setPendingQ] = useState<string | null>(null);
   const timer = useRef<number>();
   const [flow, flowState] = useFlowRunner();
 
+  // Start-up retries while the server is unreachable (e.g. the backend restarting) and clears the banner once it answers,
+  // so a moment of downtime doesn't leave "Can't reach the Finnie server" on every tab.
   useEffect(() => {
-    (async () => {
+    let cancelled = false, retry: number | undefined;
+    const start = (delay: number) => load().then(() => { if (!cancelled) setError(null); }).catch(() => {
+      if (cancelled) return;
+      setError("Can't reach the Finnie server. Is the backend running on port 8000? Retrying…");
+      retry = window.setTimeout(() => start(Math.min(delay * 2, 10_000)), delay);
+    });
+    start(1000);
+    return () => { cancelled = true; window.clearTimeout(retry); };
+    async function load() {
       const id = await ensureSession();
+      if (cancelled) return;
       setSid(id);
       const saved = Number(localStorage.getItem("finnie_conversation"));
       const known = saved ? (await api.conversations(id)).some((c) => c.id === saved) : false;
       const conv = known ? { id: saved } : await api.newConversation(id);    // reuses an empty thread if one exists
       const [p, m] = await Promise.all([api.getProfile(id), api.messages(id, conv.id)]);
+      if (cancelled) return;
       localStorage.setItem("finnie_conversation", String(conv.id));
       setProfile(p); setCid(conv.id); setMessages(m);
-    })().catch(() => setError("Can't reach the Finnie server. Is the backend running on port 8000?"));
+    }
   }, []);
 
   const onProfile = useCallback((p: Profile) => {
@@ -75,7 +87,8 @@ export default function App() {
     localStorage.setItem("finnie_conversation", String(id));
   }
   async function startConversation() { if (sid) await openConversation((await api.newConversation(sid)).id); }
-  const getView = (): ChatView => ({ tab, selected: tab === "Live" ? liveSelected : null, watchlist: loadWatchlist() });
+  const shownSymbol = SYMBOL_TABS.includes(tab) ? selected : null;
+  const getView = (): ChatView => ({ tab, selected: shownSymbol, watchlist: loadWatchlist() });
   function toggleChat() {
     setChatOpen((o) => { localStorage.setItem("finnie_chat_open", o ? "0" : "1"); return !o; });
   }
@@ -98,14 +111,19 @@ export default function App() {
     <div className={`layout${chatOpen ? " chat-open" : ""}${profileCollapsed ? " profile-collapsed" : ""}`} style={{ "--chat-w": `${chatW}px` } as CSSProperties}>
       <Sidebar profile={profile} onChange={onProfile} onReset={reset} saving={saving} collapsed={profileCollapsed} onCollapse={collapseProfile} />
       <main>
-        <header><h1>Finnie <span className="muted">your finance learning assistant</span></h1>
-          <nav>{TABS.map((t) => <button key={t} className={t === tab ? "tab active" : "tab"} onClick={() => setTab(t)}>{t}</button>)}
-            <button className="secondary chat-toggle" aria-pressed={chatOpen} onClick={toggleChat}>{chatOpen ? "Hide chat" : "Show chat"}</button></nav></header>
+        <h1>Finnie <span className="muted">your finance learning assistant</span></h1>
+        <header>
+          <nav>{TABS.map((t) => <button key={t} className={t === tab ? "tab active" : "tab"} onClick={() => setTab(t)}>{t}</button>)}</nav>
+          <button className="chat-toggle" aria-pressed={chatOpen} aria-label={chatOpen ? "Hide chat" : "Show chat"} title={chatOpen ? "Hide chat" : "Show chat"} onClick={toggleChat}>
+            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" /><path d="M8.5 11h7" /><path d="M8.5 14.5h4" />
+            </svg>
+          </button>
+        </header>
         <ErrorBanner message={error} />
         {tab === "Portfolio" && <PortfolioTab sid={sid} onAsk={askInChat} />}
-        {tab === "Market" && <MarketTab />}
-        {tab === "Research" && <ResearchTab onAsk={askInChat} />}
-        {tab === "Live" && <LiveTab onSelect={setLiveSelected} />}
+        {tab === "Live Market" && <LiveMarketTab onSelect={setSelected} />}
+        {tab === "Research" && <ResearchTab onAsk={askInChat} onSelect={setSelected} />}
         {tab === "Goals" && <GoalsTab sid={sid} profile={profile} />}
         <footer className="muted small">{DISCLAIMER}</footer>
       </main>
@@ -114,7 +132,7 @@ export default function App() {
           <div className="chat-resize" role="separator" aria-orientation="vertical" aria-label="Resize chat: drag, or use the left and right arrow keys; double-click to reset"
             aria-valuemin={CHAT_MIN_W} aria-valuemax={chatMaxW()} aria-valuenow={chatW} tabIndex={0} title="Drag to resize · double-click to reset"
             onPointerDown={onDragStart} onPointerMove={onDragMove} onPointerUp={onDragEnd} onPointerCancel={onDragEnd} onKeyDown={onDragKey} onDoubleClick={() => saveChatW(CHAT_DEFAULT_W)}><span /></div>
-          <ChatTab flow={flow} sid={sid} cid={cid} onNew={startConversation} onOpen={openConversation} getView={getView} messages={messages} setMessages={setMessages} initialQuestion={pendingQ} onConsumed={() => setPendingQ(null)} />
+          <ChatTab flow={flow} sid={sid} cid={cid} onNew={startConversation} onOpen={openConversation} getView={getView} screen={shownSymbol ? `${tab} · ${shownSymbol}` : `${tab} tab`} messages={messages} setMessages={setMessages} initialQuestion={pendingQ} onConsumed={() => setPendingQ(null)} />
         </aside>
       )}
     </div>

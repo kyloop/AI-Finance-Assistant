@@ -64,7 +64,7 @@ const cell = (name: string, v: number | null, cur: string) =>
   name.endsWith("EPS") ? eps(v) : name.includes("Shares") ? count(v) : big(v, cur);
 
 /** Company research: earnings and analyst estimates, the key lines of the financial statements, and dividends / splits. */
-export default function StockResearch({ onAsk }: { onAsk: (q: string) => void }) {
+export default function StockResearch({ onAsk, onSelect }: { onAsk: (q: string) => void; onSelect?: (symbol: string | null) => void }) {
   const [symbol, setSymbol] = useState("AAPL");
   const [input, setInput] = useState("AAPL");
   const [env, setEnv] = useState<Envelope<StockProfile> | null>(null);
@@ -72,6 +72,7 @@ export default function StockResearch({ onAsk }: { onAsk: (q: string) => void })
   const [loading, setLoading] = useState(false);
   const [section, setSection] = useState<Section>("Earnings & estimates");
 
+  useEffect(() => { onSelect?.(symbol || null); }, [symbol, onSelect]);
   useEffect(() => {
     if (!symbol) return;
     let alive = true;

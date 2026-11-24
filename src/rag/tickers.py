@@ -284,13 +284,15 @@ def ensure_index(client: QdrantClient | None = None) -> bool:
 
 
 def search_names(client: QdrantClient, query: str, k: int = 5, name: str | None = None) -> list[dict]:
-    """Closest company names as record dicts with a `score`. The query is embedded as a plain name, not as a retrieval question."""
+    """Closest company names as record dicts with a `score`. The query is embedded as a plain name, not as a retrieval question.
+    Stocks and ETFs only: the collection also holds the market points (markets.py), which have no rank."""
     name = name or _cfg()["collection"]
     qvec = next(iter(get_embedder().embed([query]))).tolist()
+    companies = models.Filter(must=[models.FieldCondition(key="asset_type", match=models.MatchAny(any=["stock", "etf"]))])
     with QDRANT_LOCK:
         if not client.collection_exists(name):
             return []
-        hits = client.query_points(name, query=qvec, limit=k, with_payload=True).points
+        hits = client.query_points(name, query=qvec, query_filter=companies, limit=k, with_payload=True).points
     return [{**h.payload, "score": h.score} for h in hits]
 
 
@@ -301,12 +303,22 @@ def _hit(r: dict, match: str, alternatives: list[dict] | None = None) -> dict:
     return out
 
 
+# Names people use that aren't the start of the listed name, which would otherwise match something else ("Google" is the start of
+# a Google DeepMind ETF, "Exxon" of nothing: the listing is "ExxonMobil").
+BRANDS = {"google": "GOOGL", "youtube": "GOOGL", "facebook": "META", "instagram": "META", "whatsapp": "META", "tsmc": "TSM",
+          "jpmorgan": "JPM", "jp morgan": "JPM", "chase": "JPM", "exxon": "XOM", "exxon mobil": "XOM", "p and g": "PG",
+          "j and j": "JNJ", "lilly": "LLY"}
+
+
 def lookup_exact(query: str) -> dict | None:
-    """Steps 1-2: an exact ticker or a company name that starts with the query. Safe to trust."""
+    """Steps 1-2: an exact ticker, a brand from `BRANDS`, or a company name that starts with the query. Safe to trust."""
     d = get_directory()
     r = d.exact(query)
     if r:
         return _hit(r, "ticker")
+    brand = d.exact(BRANDS.get(norm_name(query), ""))
+    if brand:
+        return _hit(brand, "name")
     named = d.by_name(query)
     return _hit(named[0], "name", named[1:]) if named else None
 

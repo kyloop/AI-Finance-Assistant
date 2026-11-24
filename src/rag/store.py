@@ -36,15 +36,31 @@ def point_id(chunk: Chunk) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, chunk.id))
 
 
+# Every payload field a filter uses. Qdrant Cloud refuses a filter on an unindexed field (400 "Index required but not
+# found"); the local store doesn't, so a missing one only shows against the cloud.
+KB_INDEXES = ("category", "doc_id", "section")
+_indexed: set[str] = set()
+
+
+def ensure_indexes(client: QdrantClient, name: str) -> None:
+    """The KB_INDEXES payload indexes on `name`, once per collection per process: also on collections built before
+    `section` was indexed (the topic-memory lookup in `search_sections` filters on it). Creating an existing index is a no-op."""
+    if name in _indexed:
+        return
+    with warnings.catch_warnings():                   # local (embedded) Qdrant ignores payload indexes and warns
+        warnings.simplefilter("ignore", UserWarning)
+        for field in KB_INDEXES:
+            client.create_payload_index(name, field, models.PayloadSchemaType.KEYWORD)
+    _indexed.add(name)
+
+
 def build_collection(client: QdrantClient, name: str, chunks: list[Chunk]) -> None:
-    """(Re)create `name` and index every chunk: one point per chunk, category/doc_id payload indexes."""
+    """(Re)create `name` and index every chunk: one point per chunk, KB_INDEXES payload indexes."""
     if client.collection_exists(name):
         client.delete_collection(name)
     client.create_collection(name, vectors_config=models.VectorParams(size=EMBEDDING_DIM, distance=models.Distance.COSINE))
-    with warnings.catch_warnings():                   # local (embedded) Qdrant ignores payload indexes and warns
-        warnings.simplefilter("ignore", UserWarning)
-        for field in ("category", "doc_id"):
-            client.create_payload_index(name, field, models.PayloadSchemaType.KEYWORD)
+    _indexed.discard(name)
+    ensure_indexes(client, name)
     vectors = get_embedder().embed([c.embed_text for c in chunks])
     points = [
         models.PointStruct(id=point_id(c), vector=v.tolist(), payload={
@@ -60,6 +76,21 @@ def search(client: QdrantClient, name: str, query: str, *, k: int = 5, category:
     """Top-k chunks as payload dicts with a `score` (cosine similarity)."""
     qvec = next(iter(get_embedder().embed([QUERY_PREFIX + query]))).tolist()
     flt = models.Filter(must=[models.FieldCondition(key="category", match=models.MatchValue(value=category))]) if category else None
+    with QDRANT_LOCK:
+        hits = client.query_points(name, query=qvec, limit=k, query_filter=flt, with_payload=True).points
+    return [{"score": h.score, **h.payload} for h in hits]
+
+
+def search_sections(client: QdrantClient, name: str, query: str, sections: list[tuple[str, str]], *, k: int = 5) -> list[dict]:
+    """The chunks of the given (doc_id, section) pairs, scored against `query` like `search` (so they can be ranked with a
+    fresh search's hits). Used to fetch the sections a topic was answered from again (mds/topic-memory.md)."""
+    if not sections:
+        return []
+    ensure_indexes(client, name)
+    qvec = next(iter(get_embedder().embed([QUERY_PREFIX + query]))).tolist()
+    flt = models.Filter(should=[models.Filter(must=[models.FieldCondition(key="doc_id", match=models.MatchValue(value=d)),
+                                                    models.FieldCondition(key="section", match=models.MatchValue(value=sec))])
+                                for d, sec in sections])
     with QDRANT_LOCK:
         hits = client.query_points(name, query=qvec, limit=k, query_filter=flt, with_payload=True).points
     return [{"score": h.score, **h.payload} for h in hits]

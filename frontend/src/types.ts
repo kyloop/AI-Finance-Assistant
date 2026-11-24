@@ -5,9 +5,11 @@ export type Freshness = "live" | "cached" | "stale" | "sample";
 export interface Profile { knowledge_level: Knowledge; risk_tolerance: Risk; horizon_years: number }
 export interface Source { id: string; title: string; url?: string | null }
 export interface DataInfo { provider: string; fetched_at: string; freshness: Freshness }
+/** An earlier chat an answer drew on (topic memory, mds/topic-memory.md). */
+export interface LinkedChat { uid: string | null; date: string; label: string }
 export interface Message {
   id: number; role: "user" | "assistant"; content: string;
-  agents: string[]; sources: Source[]; data_info: DataInfo | null; trace: string[]; choices?: string[]; created_at: string;
+  agents: string[]; sources: Source[]; data_info: DataInfo | null; trace: string[]; choices?: string[]; linked?: LinkedChat[]; created_at: string;
 }
 export interface ChatStatus { llm: { enabled: boolean; provider: string | null; model: string | null; last_error?: string | null }; tools: string[] }
 export interface Holding { ticker: string; shares: number; cost_basis: number | null; purchase_date?: string | null }
@@ -24,7 +26,9 @@ export interface Analysis {
   performance?: Performance; dividends?: Dividends; data_info?: DataInfo;
   holdings: {
     ticker: string; name: string; shares: number; price: number; value: number; weight: number; asset_class: string;
-    gain_loss: number | null; gain_loss_pct: number | null; day_change: number | null; day_change_pct: number | null;
+    gain_loss: number | null; gain_loss_pct: number | null;
+    /** "entered" by the user, or "purchase_close": none entered, so the close on cost_basis_date (the purchase date or the next trading day). */
+    cost_basis: number | null; cost_basis_source: "entered" | "purchase_close" | null; cost_basis_date: string | null; day_change: number | null; day_change_pct: number | null;
   }[];
 }
 export interface Mover { ticker: string; name: string; change_pct: number; change: number }
@@ -52,6 +56,20 @@ export interface IntradayData { symbol: string; prev_close: number; points: Intr
 export interface IntradayPoint { t: string; close: number; volume: number }
 export interface LiveQuote extends Envelope<Quote> { spark: number[] }
 export interface SymbolInfo { symbol: string; name: string }
+/** Live Market tab boards (src/core/market_boards.py): sectors, a sector's industries, the largest companies, regions, most active. */
+export type BoardRange = "1D" | "1M" | "3M" | "YTD" | "1Y";
+export interface BoardItem {
+  symbol: string; name: string; return?: number;
+  key?: string; weight?: number | null;             // sectors and industries: Yahoo key; industries: share of the sector
+  market_cap?: number | null; region?: string;       // largest companies; regions
+  price?: number | null; change_pct?: number | null; volume?: number | null;   // most active
+}
+export interface Board {
+  range: BoardRange; label: string; start_date: string | null; end_date: string | null; as_of: string | null;
+  freshness: Freshness | null; provider: string | null; items: BoardItem[]; missing: string[];
+  title?: string; sector?: { symbol: string; name: string };
+}
+export interface SectorNews { symbol: string; sector: string; feeds: string[]; items: NewsItem[] }
 export interface GoalInput {
   goal_type: "retirement" | "house" | "education" | "other"; target_amount: number; horizon_years: number;
   current_savings: number; monthly_contribution: number; risk_tolerance: Risk;

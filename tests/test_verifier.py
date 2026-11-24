@@ -191,3 +191,51 @@ def test_no_replan_without_an_llm():
     set_wiki_client(FakeWiki(results={}))
     s = ask("What is a flibbertigibbet fund?")
     assert not any(t.startswith("replan") for t in s["trace"]) and "rather not guess" in s["final_response"]
+
+
+# ------------------------------------------------------------------ an agent whose gap another agent already fills
+class PromptsLLM(ScriptedLLM):
+    """ScriptedLLM that also keeps the user prompt sent for each role."""
+    def __init__(self, **replies):
+        super().__init__(**replies)
+        self.prompts: dict[str, list[str]] = {}
+
+    def invoke(self, messages):
+        reply = super().invoke(messages)
+        if self.calls:
+            self.prompts.setdefault(self.calls[-1], []).append(messages[1][1])
+        return reply
+
+
+NVDA_Q = "How has NVDA done over the last month and what does that mean?"
+
+
+def test_a_kb_miss_that_the_market_figures_cover_is_dropped_without_research_or_replan(db):
+    set_kb_searcher(lambda q, k=None: [kb_hit(MIN + 0.1)])                     # strong score, nothing about NVDA's month
+    llm = PromptsLLM(router='{"intents": ["market", "qa"], "confidence": 0.9}', check='{"answers": false, "covered": true}')
+    llm_module.set_llm(llm)
+    s = ask_db(NVDA_Q, db)
+    assert "verifier: qa not needed, market already answers the question" in s["trace"]
+    assert "ANSWERED BY OTHER AGENTS:\n[market]\n- **NVIDIA Corp.** (NVDA)" in llm.prompts["check"][0]
+    assert "topics" not in llm.calls and "replan" not in llm.calls and not any(t.startswith(("wiki_", "web_search")) for t in s["trace"])
+    assert s["agents"] == ["Market Analysis"] and s["sources"] == []           # the irrelevant KB chunk isn't cited
+
+
+def test_covered_is_ignored_when_no_other_agent_answered():
+    wiki = FakeWiki(results={"mortgage": ["Mortgage loan"]})
+    set_wiki_client(wiki)
+    set_kb_searcher(lambda q, k=None: [kb_hit(MIN + 0.1)])
+    llm = PromptsLLM(check=['{"answers": false, "covered": true}', '{"answers": true}'], topics='{"topics": ["Mortgage loan"]}')
+    llm_module.set_llm(llm)
+    s = ask("How does a mortgage work?")
+    assert "ANSWERED BY OTHER AGENTS" not in llm.prompts["check"][0]
+    assert any("don't answer the question → research" in t for t in s["trace"])
+    assert [x["title"] for x in s["sources"]] == ["Mortgage loan (Wikipedia)"]
+
+
+def test_replan_is_told_what_the_other_agents_already_answered(db):
+    llm = PromptsLLM(router='{"intents": ["market", "qa"], "confidence": 0.9}', topics='{"topics": ["Exchange-traded fund"]}',
+                     check='{"answers": false, "missing": "what it means"}')
+    llm_module.set_llm(llm)
+    ask_db(NVDA_Q, db)
+    assert "ANSWERED:\n[market]\n- **NVIDIA Corp.** (NVDA)" in llm.prompts["replan"][0]

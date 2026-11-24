@@ -15,7 +15,7 @@ rate-limited, and calls sometimes return empty DataFrames or `None`. Cache resul
 | `Ticker.get_news`, `yf.Search(...).news` | `market_service.py` (`_yf_news`, `_search_news`): the News agent and the news index |
 | `yf.Search(...).quotes` | `market_service.py` (`_yf_resolve`): company name → ticker |
 | `yf.Industry(key).top_companies` | `market_service.py` (`_yf_peers`): industry peers for "news from the same sector" |
-| `yf.AsyncWebSocket` | `src/core/live_stream.py`: live prices on the Live tab |
+| `yf.AsyncWebSocket` | `src/core/live_stream.py`: live prices on the Live Market tab |
 | `Ticker.funds_data` (all fields) + `info` (`totalAssets`, `yield`) | `market_service.py` (`_yf_fund`, `_fund_payload`): the Research tab's fund profiles |
 | `dividends`, `splits`, `capital_gains`, `get_shares_full`; `income_stmt` / `balance_sheet` / `cash_flow` (annual, quarterly, TTM); `calendar`, `get_earnings_dates`, `earnings_history`, `earnings_estimate`, `revenue_estimate`, `eps_trend`, `eps_revisions`, `growth_estimates` | `market_service.py` (`_yf_stock`, `_stock_payload`): the Research tab's Stock research |
 

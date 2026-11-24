@@ -1,7 +1,6 @@
 """Calculator agent: the LLM designs the calculation as a plan (inputs, formulas, equations, period-by-period rules and
 checks; see mds/calc-plan-design.md), src/core/calc_plan.py validates and executes it, and this module renders the result
-with its working. Without an LLM, a keyword fallback picks one of the CATALOG calculators, which the illustrate node also
-uses for worked examples."""
+with its working. Without an LLM, a keyword fallback picks one of the CATALOG calculators."""
 from __future__ import annotations
 
 import json
@@ -313,20 +312,14 @@ def plan_text(r: dict) -> str:
     return "\n".join(lines)
 
 EXAMPLE_SYSTEM = (
-    "A personal-finance learner asked a question and got a conceptual answer. Add a worked example: pick the calculation "
-    "that best makes the concept concrete and choose simple, typical sample numbers (or the user's own numbers if they "
-    "gave any). Most money concepts have one, so include it whenever the topic involves amounts, rates, prices or time: "
-    "interest, compounding, saving or investing growth → future_value; APY, APR, effective rate → apy_from_apr; "
-    "inflation, purchasing power, cost of living → purchasing_power; real interest or real return → real_return; "
-    "loans, mortgages, credit → loan_payment; present value, NPV, discounting, time value of money → present_value; "
-    "Rule of 72, doubling → doubling_time; bond yield, coupon, bond price → bond_current_yield. Reply {\"function\": null} "
-    "only when the topic isn't numeric at all (e.g. what an institution is, a type of bond's purpose, history). "
-    "Rates are percentages as plain numbers (6 for 6%).\n"
-    "Functions:\n" + "\n".join(f"- {name}: {desc}. Args: " + "; ".join(f"{a} ({d})" for a, d in args.items())
-                               for name, (_, desc, args) in CATALOG.items()) +
-    '\nReply with ONLY JSON: {"function": "future_value", "args": {"annual_rate": 6, "years": 10, "principal": 10000}} '
-    'or {"function": null}.')
-EXAMPLE_HEADING = "**Example with sample numbers**"
+    "A personal-finance learner asked a question and got a conceptual answer. Add a worked example: write the one "
+    "calculation that best makes the concept concrete, as a question a calculator can answer, with every number it needs. "
+    "Use the real figures listed under \"Figures\" when they fit (a company's price, shares outstanding, market cap), the "
+    "user's own numbers if they gave any, and otherwise simple, typical sample numbers. Most money concepts have one, so "
+    "include it whenever the topic involves amounts, rates, prices or time (interest and compounding, inflation, loans, "
+    "present value, bond yields, valuation ratios, market cap, returns). Reply {\"question\": null} only when the topic "
+    "isn't numeric at all (e.g. what an institution is, a type of bond's purpose, history).\n"
+    'Reply with ONLY JSON: {"question": "How much does $10,000 grow to at 6% a year over 10 years?"} or {"question": null}.')
 
 ASK = ("I couldn't tell which calculation you mean. Tell me what you'd like to work out and the numbers you have, "
        "such as one of the questions below.")

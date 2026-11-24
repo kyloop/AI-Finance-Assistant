@@ -1,0 +1,153 @@
+# Markets that aren't a company: currencies, crypto, commodities, rates, indices and sectors, as Yahoo symbols.
+# Read by src/rag/markets.py; mds/market-symbols.md records how each symbol was checked against Yahoo.
+#
+# Per group: label (how answers name it), aliases (what users call the whole group), news (Yahoo search terms for the
+# group's headlines), symbols.
+# Per symbol:
+#   symbol   the Yahoo symbol the app sends (EURUSD=X, GC=F, ^TNX, BTC-USD)
+#   name     how answers name it
+#   aliases  what users write; matched exactly and embedded for meaning search, so keep them readable ("euro", "EUR/USD")
+#   codes    joined-up forms matched exactly only ("eurusd"); they embed badly
+#   news     the Yahoo search term that returns its headlines (the symbol itself when that works, a checked name when it
+#            doesn't, null when Yahoo has no news for it: prices only)
+#   etf      an ETF tracking it whose Yahoo news is richer, used when `news` finds too little
+#   yahoo    a sector's Yahoo sector key (yf.Sector: its industries and largest companies)
+#   region   the country or area a main stock index stands for (the Live Market tab's region chart)
+
+forex:
+  label: currencies
+  aliases: [forex, fx, currencies, currency markets, foreign exchange, exchange rates, currency exchange rates]
+  news: [JPY=X, EURUSD=X, CNY=X, DXY]
+  symbols:
+    - {symbol: DX-Y.NYB, name: US Dollar Index, aliases: [US dollar index, dollar index, US dollar, greenback], codes: [dxy], news: DXY, etf: UUP}
+    - {symbol: EURUSD=X, name: EUR/USD, aliases: [euro, euro dollar exchange rate, euro vs dollar], codes: [eurusd], news: EURUSD=X, etf: FXE}
+    - {symbol: JPY=X, name: USD/JPY, aliases: [yen, Japanese yen, dollar yen exchange rate], codes: [usdjpy], news: JPY=X, etf: FXY}
+    - {symbol: GBPUSD=X, name: GBP/USD, aliases: [British pound, pound sterling, sterling, pound dollar exchange rate], codes: [gbpusd, cable], news: GBPUSD=X, etf: FXB}
+    - {symbol: AUDUSD=X, name: AUD/USD, aliases: [Australian dollar, aussie dollar], codes: [audusd], news: AUDUSD=X}
+    - {symbol: NZDUSD=X, name: NZD/USD, aliases: [New Zealand dollar], codes: [nzdusd], news: NZDUSD=X}
+    - {symbol: CAD=X, name: USD/CAD, aliases: [Canadian dollar, loonie], codes: [usdcad], news: CAD=X}
+    - {symbol: CHF=X, name: USD/CHF, aliases: [Swiss franc], codes: [usdchf], news: CHF=X}
+    - {symbol: CNY=X, name: USD/CNY, aliases: [Chinese yuan, yuan, renminbi], codes: [usdcny, rmb], news: CNY=X}
+    - {symbol: HKD=X, name: USD/HKD, aliases: [Hong Kong dollar], codes: [usdhkd], news: HKD=X}
+    - {symbol: SGD=X, name: USD/SGD, aliases: [Singapore dollar], codes: [usdsgd], news: SGD=X}
+    - {symbol: INR=X, name: USD/INR, aliases: [Indian rupee, rupee], codes: [usdinr], news: INR=X}
+    - {symbol: MXN=X, name: USD/MXN, aliases: [Mexican peso], codes: [usdmxn], news: MXN=X}
+    - {symbol: IDR=X, name: USD/IDR, aliases: [Indonesian rupiah, rupiah], codes: [usdidr], news: IDR=X}
+    - {symbol: PHP=X, name: USD/PHP, aliases: [Philippine peso], codes: [usdphp], news: PHP=X}
+    - {symbol: THB=X, name: USD/THB, aliases: [Thai baht, baht], codes: [usdthb], news: THB=X}
+    - {symbol: MYR=X, name: USD/MYR, aliases: [Malaysian ringgit, ringgit], codes: [usdmyr], news: MYR=X}
+    - {symbol: ZAR=X, name: USD/ZAR, aliases: [South African rand], codes: [usdzar], news: null}
+    - {symbol: RUB=X, name: USD/RUB, aliases: [Russian ruble, ruble, rouble], codes: [usdrub], news: RUB=X}
+    - {symbol: EURJPY=X, name: EUR/JPY, aliases: [euro yen exchange rate], codes: [eurjpy], news: null}
+    - {symbol: GBPJPY=X, name: GBP/JPY, aliases: [pound yen exchange rate], codes: [gbpjpy], news: null}
+    - {symbol: EURGBP=X, name: EUR/GBP, aliases: [euro pound exchange rate], codes: [eurgbp], news: null}
+    - {symbol: EURCHF=X, name: EUR/CHF, aliases: [euro franc exchange rate], codes: [eurchf], news: null}
+    - {symbol: EURCAD=X, name: EUR/CAD, aliases: [], codes: [eurcad], news: null}
+    - {symbol: EURSEK=X, name: EUR/SEK, aliases: [Swedish krona], codes: [eursek], news: null}
+
+crypto:
+  label: crypto
+  aliases: [crypto, cryptocurrency, cryptocurrencies, digital assets, crypto market]
+  news: [crypto, Bitcoin]
+  symbols:
+    - {symbol: BTC-USD, name: Bitcoin, aliases: [bitcoin], codes: [btc, btcusd], news: Bitcoin, etf: IBIT}
+    - {symbol: ETH-USD, name: Ethereum, aliases: [ethereum, ether], codes: [eth, ethusd], news: Ethereum, etf: ETHA}
+    - {symbol: SOL-USD, name: Solana, aliases: [solana], codes: [sol, solusd], news: Solana}
+    - {symbol: XRP-USD, name: XRP, aliases: [XRP, Ripple], codes: [xrpusd], news: XRP}
+    - {symbol: BNB-USD, name: BNB, aliases: [Binance Coin], codes: [bnb, bnbusd], news: BNB}
+    - {symbol: DOGE-USD, name: Dogecoin, aliases: [dogecoin], codes: [doge, dogeusd], news: Dogecoin}
+    - {symbol: ADA-USD, name: Cardano, aliases: [cardano], codes: [ada, adausd], news: Cardano}
+    - {symbol: TRX-USD, name: TRON, aliases: [Tron], codes: [trx, trxusd], news: TRON}
+    - {symbol: LINK-USD, name: Chainlink, aliases: [chainlink], codes: [linkusd], news: Chainlink}
+    - {symbol: XLM-USD, name: Stellar, aliases: [Stellar Lumens], codes: [xlm, xlmusd], news: Stellar}
+    - {symbol: USDT-USD, name: Tether, aliases: [Tether stablecoin], codes: [usdt], news: Tether}
+    - {symbol: USDC-USD, name: USD Coin, aliases: [USDC stablecoin], codes: [usdc], news: USDC}
+
+commodities:
+  label: commodities
+  aliases: [commodities, commodity markets, raw materials]
+  news: [GC=F, CL=F, commodities]
+  symbols:
+    - {symbol: GC=F, name: Gold, aliases: [gold, gold price, gold futures], codes: [], news: GC=F, etf: GLD}
+    - {symbol: SI=F, name: Silver, aliases: [silver, silver price], codes: [], news: SI=F, etf: SLV}
+    - {symbol: PL=F, name: Platinum, aliases: [platinum], codes: [], news: PL=F}
+    - {symbol: PA=F, name: Palladium, aliases: [palladium], codes: [], news: PA=F}
+    - {symbol: HG=F, name: Copper, aliases: [copper, copper price], codes: [], news: copper prices, etf: CPER}
+    - {symbol: CL=F, name: Crude Oil (WTI), aliases: [oil, crude oil, oil price, WTI crude], codes: [wti], news: CL=F, etf: USO}
+    - {symbol: BZ=F, name: Brent Crude, aliases: [Brent, Brent crude, Brent oil], codes: [], news: BZ=F}
+    - {symbol: NG=F, name: Natural Gas, aliases: [natural gas, nat gas, natural gas price], codes: [], news: natural gas prices, etf: UNG}
+    - {symbol: RB=F, name: Gasoline (RBOB), aliases: [gasoline, gasoline futures], codes: [rbob], news: RB=F}
+    - {symbol: HO=F, name: Heating Oil, aliases: [heating oil, diesel futures], codes: [], news: HO=F}
+    - {symbol: ZC=F, name: Corn, aliases: [corn, corn futures], codes: [], news: ZC=F}
+    - {symbol: ZS=F, name: Soybeans, aliases: [soybeans, soybean futures], codes: [], news: ZS=F}
+    - {symbol: KE=F, name: Wheat, aliases: [wheat, wheat futures], codes: [], news: wheat prices}
+    - {symbol: KC=F, name: Coffee, aliases: [coffee, coffee futures], codes: [], news: KC=F}
+    - {symbol: SB=F, name: Sugar, aliases: [sugar, sugar futures], codes: [], news: SB=F}
+    - {symbol: CC=F, name: Cocoa, aliases: [cocoa, cocoa futures], codes: [], news: CC=F}
+    - {symbol: CT=F, name: Cotton, aliases: [cotton, cotton futures], codes: [], news: CT=F}
+    - {symbol: LE=F, name: Live Cattle, aliases: [cattle, live cattle], codes: [], news: LE=F}
+    - {symbol: HE=F, name: Lean Hogs, aliases: [hogs, lean hogs], codes: [], news: HE=F}
+    - {symbol: ZR=F, name: Rough Rice, aliases: [rice, rice futures], codes: [], news: ZR=F}
+
+rates:
+  label: US Treasury yields
+  aliases: [bonds, bond market, treasuries, treasury yields, bond yields, interest rates]
+  news: [Treasury yields, ^TNX]
+  symbols:
+    - {symbol: ^IRX, name: 13-Week Treasury Bill Yield, aliases: [3-month Treasury bill, T-bill yield], codes: [irx], news: null}
+    - {symbol: ^FVX, name: 5-Year Treasury Yield, aliases: [5-year Treasury yield, five-year yield], codes: [fvx], news: null}
+    - {symbol: ^TNX, name: 10-Year Treasury Yield, aliases: [10-year Treasury yield, ten-year yield, 10-year note], codes: [tnx], news: ^TNX, etf: IEF}
+    - {symbol: ^TYX, name: 30-Year Treasury Yield, aliases: [30-year Treasury yield, long bond], codes: [tyx], news: ^TYX, etf: TLT}
+
+us_indices:
+  label: the US stock market
+  aliases: [stock market, US stock market, US stocks, Wall Street, the market]
+  news: [^GSPC, ^DJI, ^IXIC]
+  symbols:
+    - {symbol: ^GSPC, name: S&P 500, aliases: [S&P 500, S&P, S&P 500 index], codes: [spx, sp500, gspc], news: ^GSPC, region: United States}
+    - {symbol: ^DJI, name: Dow Jones Industrial Average, aliases: [Dow Jones, the Dow, Dow Jones Industrial Average], codes: [djia, dji], news: ^DJI}
+    - {symbol: ^IXIC, name: Nasdaq Composite, aliases: [Nasdaq, Nasdaq Composite], codes: [ixic], news: ^IXIC}
+    - {symbol: ^RUT, name: Russell 2000, aliases: [Russell 2000, small-cap stocks], codes: [rut], news: ^RUT}
+    - {symbol: ^VIX, name: CBOE Volatility Index, aliases: [VIX, volatility index, fear index], codes: [], news: ^VIX}
+    - {symbol: ^NYA, name: NYSE Composite, aliases: [NYSE Composite], codes: [nya], news: null}
+    - {symbol: ES=F, name: S&P 500 Futures, aliases: [S&P 500 futures, stock futures], codes: [], news: null}
+    - {symbol: NQ=F, name: Nasdaq 100 Futures, aliases: [Nasdaq futures], codes: [], news: null}
+    - {symbol: YM=F, name: Dow Futures, aliases: [Dow futures], codes: [], news: null}
+
+world_indices:
+  label: world stock markets
+  aliases: [world markets, global markets, global stocks, international stocks]
+  news: [^FTSE, Nikkei, ^HSI]
+  symbols:
+    - {symbol: ^FTSE, name: FTSE 100, aliases: [FTSE 100, UK stocks, London stock market], codes: [ftse], news: ^FTSE, etf: EWU, region: United Kingdom}
+    - {symbol: ^GDAXI, name: DAX, aliases: [German stocks, DAX index], codes: [gdaxi], news: ^GDAXI, etf: EWG, region: Germany}
+    - {symbol: ^FCHI, name: CAC 40, aliases: [CAC 40, French stocks], codes: [fchi], news: ^FCHI, region: France}
+    - {symbol: ^STOXX50E, name: Euro Stoxx 50, aliases: [Euro Stoxx 50, European stocks], codes: [stoxx50e], news: ^STOXX50E, region: Eurozone}
+    - {symbol: ^N225, name: Nikkei 225, aliases: [Nikkei, Nikkei 225, Japanese stocks], codes: [n225], news: Nikkei, etf: EWJ, region: Japan}
+    - {symbol: ^HSI, name: Hang Seng, aliases: [Hang Seng, Hong Kong stocks], codes: [hsi], news: ^HSI, region: Hong Kong}
+    - {symbol: 000001.SS, name: SSE Composite, aliases: [Shanghai Composite, Chinese stocks, China stocks], codes: [], news: null, etf: FXI, region: China}
+    - {symbol: ^AXJO, name: S&P/ASX 200, aliases: [ASX 200, Australian stocks], codes: [axjo], news: ^AXJO, region: Australia}
+    - {symbol: ^GSPTSE, name: S&P/TSX Composite, aliases: [TSX, Canadian stocks], codes: [gsptse], news: ^GSPTSE, region: Canada}
+    - {symbol: ^KS11, name: KOSPI, aliases: [KOSPI, Korean stocks], codes: [ks11], news: ^KS11, region: South Korea}
+    - {symbol: ^TWII, name: TAIEX, aliases: [TAIEX, Taiwan stocks], codes: [twii], news: null, region: Taiwan}
+    - {symbol: ^BSESN, name: BSE Sensex, aliases: [Sensex, Indian stocks], codes: [bsesn], news: ^BSESN, etf: INDA, region: India}
+    - {symbol: ^BVSP, name: Bovespa, aliases: [Bovespa, Ibovespa, Brazilian stocks], codes: [bvsp], news: ^BVSP, region: Brazil}
+    - {symbol: ^MXX, name: IPC Mexico, aliases: [Mexican stocks], codes: [mxx], news: null, region: Mexico}
+    - {symbol: ^JKSE, name: Jakarta Composite, aliases: [Indonesian stocks], codes: [jkse], news: ^JKSE, region: Indonesia}
+
+sectors:
+  label: US stock market sectors
+  aliases: [sectors, market sectors, sector performance]
+  news: [XLK, XLF, XLE]
+  symbols:
+    - {symbol: XLK, name: Technology sector, aliases: [tech sector, technology stocks, tech stocks, information technology], codes: [], news: XLK, yahoo: technology}
+    - {symbol: XLF, name: Financial sector, aliases: [financial stocks, bank stocks, financials, financial services, financial services sector, banking sector], codes: [], news: XLF, yahoo: financial-services}
+    - {symbol: XLE, name: Energy sector, aliases: [energy stocks, oil stocks], codes: [], news: XLE, yahoo: energy}
+    - {symbol: XLV, name: Healthcare sector, aliases: [healthcare stocks, health care sector, health care stocks], codes: [], news: XLV, yahoo: healthcare}
+    - {symbol: XLY, name: Consumer discretionary sector, aliases: [consumer discretionary stocks, retail stocks, consumer cyclical, consumer discretionary, retail sector], codes: [], news: XLY, yahoo: consumer-cyclical}
+    - {symbol: XLP, name: Consumer staples sector, aliases: [consumer staples stocks, consumer defensive, consumer staples], codes: [], news: XLP, yahoo: consumer-defensive}
+    - {symbol: XLI, name: Industrials sector, aliases: [industrial stocks, industrials, industrial sector], codes: [], news: XLI, yahoo: industrials}
+    - {symbol: XLB, name: Materials sector, aliases: [materials stocks, mining stocks, basic materials], codes: [], news: XLB, yahoo: basic-materials}
+    - {symbol: XLU, name: Utilities sector, aliases: [utility stocks, utilities, utility sector], codes: [], news: XLU, yahoo: utilities}
+    - {symbol: XLRE, name: Real estate sector, aliases: [real estate stocks, REIT stocks, REIT sector], codes: [], news: XLRE, yahoo: real-estate}
+    - {symbol: XLC, name: Communication services sector, aliases: [communication stocks, media stocks, communication services, communications sector, telecom stocks], codes: [], news: XLC, yahoo: communication-services}

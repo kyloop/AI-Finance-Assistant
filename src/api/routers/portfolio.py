@@ -5,7 +5,7 @@ from src.api import schemas
 from src.api.deps import get_session
 from src.core.calculators import analyze_portfolio
 from src.core.config import get_config
-from src.core.portfolio_data import portfolio_dividends, portfolio_history, portfolio_instruments
+from src.core.portfolio_data import portfolio_dividends, portfolio_history, portfolio_instruments, with_purchase_prices
 from src.db.models import Holding, Portfolio, Session
 from src.db.session import get_db
 
@@ -39,7 +39,7 @@ def put_portfolio(body: schemas.PortfolioIn, s: Session = Depends(get_session), 
 @router.get("/sessions/{session_id}/portfolio/analysis")
 def analysis(s: Session = Depends(get_session), db: DBSession = Depends(get_db)):
     """The Portfolio tab's whole report in one call: allocation and risk, then performance against the benchmark and dividends."""
-    holdings = _holdings(s)
+    holdings = with_purchase_prices(db, _holdings(s))
     instruments, data_info = portfolio_instruments(db, [h["ticker"] for h in holdings])
     result = analyze_portfolio(holdings, instruments, s.profile.risk_tolerance)
     result["data_info"] = data_info

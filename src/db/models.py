@@ -3,7 +3,7 @@
 import uuid
 from datetime import date, datetime, timezone
 
-from sqlalchemy import JSON, Date, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
@@ -51,6 +51,7 @@ class Conversation(Base):
 
     session: Mapped[Session] = relationship(back_populates="conversations")
     messages: Mapped[list["Message"]] = relationship(back_populates="conversation", cascade="all, delete-orphan", order_by="Message.id")
+    topics: Mapped[list["Topic"]] = relationship(cascade="all, delete-orphan", order_by="Topic.created_at")   # deleted with the chat
 
 
 class Message(Base):
@@ -71,6 +72,48 @@ class Message(Base):
 
     session: Mapped[Session] = relationship(back_populates="messages")
     conversation: Mapped["Conversation | None"] = relationship(back_populates="messages")
+
+    @property
+    def linked(self) -> list:
+        """Earlier chats this answer drew on ([{uid, date, label}], from the topic node), for the "Using N earlier chats" line."""
+        return list((self.context or {}).get("linked") or []) if self.role == "assistant" else []
+
+
+class Topic(Base):
+    """One subject of a conversation, rolled up from its assistant messages (mds/topic-memory.md). Derived data: the
+    messages' `context` rows are the source of truth, and `workflow.topics.rebuild_topic` recreates a row from them."""
+    __tablename__ = "topics"
+    __table_args__ = (UniqueConstraint("conversation_id", "topic_id"),)
+    uid: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), index=True)
+    conversation_id: Mapped[int] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"), index=True)
+    topic_id: Mapped[str] = mapped_column(String(8))                                  # "t1", unique within the conversation
+    label: Mapped[str] = mapped_column(String(120), default="")
+    summary: Mapped[str] = mapped_column(Text, default="")                            # at most 3 sentences, no figures
+    companies: Mapped[list] = mapped_column(JSON, default=list)                       # most recent first, at most 3
+    markets: Mapped[list] = mapped_column(JSON, default=list)
+    intents: Mapped[list] = mapped_column(JSON, default=list)
+    period: Mapped[dict | None] = mapped_column(JSON, nullable=True)                  # the latest period used
+    facts: Mapped[dict] = mapped_column(JSON, default=dict)                           # latest value per symbol, with as_of
+    source_ids: Mapped[list] = mapped_column(JSON, default=list)                      # the 10 most recent
+    related: Mapped[list] = mapped_column(JSON, default=list)                         # uids of linked topics in earlier chats (step 3)
+    message_ids: Mapped[list] = mapped_column(JSON, default=list)                     # the assistant messages in this topic
+    turns: Mapped[int] = mapped_column(Integer, default=0)
+    summary_vec: Mapped[list | None] = mapped_column(JSON, nullable=True)             # embedding of summary (step 3)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
+
+    entities: Mapped[list["TopicEntity"]] = relationship(cascade="all, delete-orphan")
+
+
+class TopicEntity(Base):
+    """What a topic is about, one row per entity, so a session's topics can be found by company, market, concept or the
+    user's own data (mds/topic-memory.md). Rewritten from the topic after each turn."""
+    __tablename__ = "topic_entities"
+    topic_uid: Mapped[str] = mapped_column(ForeignKey("topics.uid", ondelete="CASCADE"), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(16), primary_key=True)                   # company | market | concept | user_data
+    key: Mapped[str] = mapped_column(String(80), primary_key=True, index=True)        # TSLA, group:us_indices, swing-trading, portfolio
+    session_id: Mapped[str] = mapped_column(String(32), index=True)                   # cross-chat lookups need no join
 
 
 class Portfolio(Base):

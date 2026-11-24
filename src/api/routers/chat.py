@@ -15,6 +15,7 @@ from src.db.models import Conversation, Message, Session
 from src.db.session import get_db
 from src.workflow.graph import flow_edges, flow_layout, run_chat, stream_chat
 from src.workflow.safety import REFUSAL_NOTE  # noqa: F401  (re-exported for tests)
+from src.workflow.topics import candidates, drop_links, record_turn
 
 log = logging.getLogger(__name__)
 router = APIRouter(tags=["chat"])
@@ -115,6 +116,9 @@ class _Turn:
         self.history = [{"role": m.role, "content": m.content} for m in conv.messages[-get_config()["workflow"]["history_turns"]:]]
         last = next((m for m in reversed(conv.messages) if m.role == "assistant"), None)
         context = last.context if last else None                     # what the previous answer worked out (workflow/context.py)
+        if body.no_memory and context:                               # "Answer without them": the topic forgets its earlier chats
+            drop_links(db, conv, context.get("topic_id"))
+        topics = candidates(db, conv, earlier=not body.no_memory)     # topic memory (workflow/topics.py)
         if not conv.messages:
             conv.title = _title(self.text) if self.text else "New chat"
         conv.updated_at = datetime.now(timezone.utc)
@@ -127,7 +131,7 @@ class _Turn:
         g = s.goals[-1] if s.goals else None
         saved_goal = {k: getattr(g, k) for k in ("goal_type", "target_amount", "horizon_years", "current_savings", "monthly_contribution", "risk_tolerance")} if g else None
         self.graph_args = dict(history=self.history, profile=profile, holdings=holdings, db=db, saved_goal=saved_goal,
-                               view=body.view.model_dump() if body.view else None, context=context,
+                               view=body.view.model_dump() if body.view else None, context=context, topics=topics,
                                trace=dict(session_id=s.id, conversation_id=self.cid))   # Langfuse grouping (core/tracing.py)
 
     def _reply(self, **fields) -> Message:
@@ -152,6 +156,11 @@ class _Turn:
             retitle(self.conv, self.db)
         return reply
 
+    def record_topic(self, reply: Message) -> None:
+        """Topic memory (mds/topic-memory.md): the reply's topic and summary, after it is saved. Never raises."""
+        if reply.context:
+            record_turn(self.db, self.conv, reply)
+
 
 @router.post("/sessions/{session_id}/chat", response_model=schemas.MessageOut)
 def chat(body: schemas.ChatIn, s: Session = Depends(get_session), db: DBSession = Depends(get_db)):
@@ -162,7 +171,9 @@ def chat(body: schemas.ChatIn, s: Session = Depends(get_session), db: DBSession 
         reply = turn.reply_from(run_chat(turn.text, **turn.graph_args))
     except Exception:  # noqa: BLE001
         reply = turn.failed_reply()
-    return turn.save(reply)
+    turn.save(reply)
+    turn.record_topic(reply)
+    return reply
 
 
 @router.get("/chat/flow")
@@ -192,6 +203,7 @@ def chat_stream(body: schemas.ChatIn, s: Session = Depends(get_session), db: DBS
                     reply = turn.failed_reply()
             message = schemas.MessageOut.model_validate(turn.save(reply)).model_dump(mode="json")
             yield _line({"type": "done", "message": message})
+            turn.record_topic(reply)                          # after the reply is sent: its summary call doesn't delay the answer
         except Exception:  # noqa: BLE001 — the stream is already open, so report the failure inside it
             log.exception("chat stream failed")
             yield _line({"type": "error", "message": ERROR_REPLY})

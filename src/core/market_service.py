@@ -8,12 +8,15 @@ import logging
 import random
 import re
 import threading
+import weakref
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
 
 from src.db.models import MarketCache
+from src.db.session import market_cache_session
 
 from .config import DATA_DIR, get_config
 
@@ -134,15 +137,16 @@ def _yf_quote(symbol: str, **_) -> dict:
         price, prev = float(fi["lastPrice"]), float(fi["previousClose"])
     except Exception as e:
         raise ProviderEmpty(symbol) from e
-    return {"symbol": symbol, "name": _yf_name(t, symbol), "price": round(price, 2), "prev_close": round(prev, 2),
-            "change": round(price - prev, 2), "change_pct": round(price / prev - 1, 4),
+    dp = 4 if abs(price) < 10 else 2                     # EUR/USD 1.1218, not 1.12
+    return {"symbol": symbol, "name": _yf_name(t, symbol), "price": round(price, dp), "prev_close": round(prev, dp),
+            "change": round(price - prev, dp), "change_pct": round(price / prev - 1, 4),
             "volume": int(fi["lastVolume"] or 0),
-            "day_high": round(float(fi["dayHigh"]), 2), "day_low": round(float(fi["dayLow"]), 2)}
+            "day_high": round(float(fi["dayHigh"]), dp), "day_low": round(float(fi["dayLow"]), dp)}
 
 
 def _yf_intraday(symbol: str, **_) -> dict:
     t = _yf_ticker(symbol)
-    df = t.history(period="1d", interval="1m")
+    df = t.history(period="1d", interval="1m").dropna(subset=["Close"])
     if df.empty:
         raise ProviderEmpty(symbol)
     try:
@@ -155,8 +159,8 @@ def _yf_intraday(symbol: str, **_) -> dict:
 
 def _yf_history(symbol: str, days: int = 250, **_) -> dict:
     period = "2y" if days <= 250 else "5y" if days <= 1250 else "10y"   # 2y so the 200-day average is full across the last year
-    df = _yf_ticker(symbol).history(period=period, interval="1d")
-    if df.empty:
+    df = _yf_ticker(symbol).history(period=period, interval="1d").dropna(subset=["Close"])  # after the close Yahoo adds today's bar
+    if df.empty:                                                                                  # with volume but no Close yet
         raise ProviderEmpty(symbol)
     df["ma50"], df["ma200"] = df["Close"].rolling(50).mean(), df["Close"].rolling(200).mean()
     nz = lambda v: None if v != v else round(float(v), 2)          # NaN -> null
@@ -193,7 +197,8 @@ def _search_news_item(raw: dict) -> dict | None:
 
 
 def _search_news(symbol: str, count: int) -> list[dict]:
-    """Second source for a symbol's headlines: Yahoo's search endpoint, used when the ticker news feed fails or is empty."""
+    """A symbol's headlines from Yahoo's search endpoint (also takes a name: "Ethereum", "DXY"). Tried first: in Oct 2026 the ticker
+    news feed returned nothing for every symbol (mds/market-symbols.md). Its stories have no summary."""
     import yfinance as yf
     raw = yf.Search(symbol, max_results=1, news_count=count, lists_count=0, timeout=10).news
     return [i for i in map(_search_news_item, raw or []) if i]
@@ -205,20 +210,22 @@ def _yf_news(symbol: str, count: int = 30, **_) -> dict:
     for src in sources:
         found = []
         try:
-            found = [i for i in map(_news_item, _yf_ticker(src).get_news(count=count)) if i]
-        except Exception as e:  # noqa: BLE001 — try the search endpoint, but leave the reason in the log
-            log.warning("yfinance news for %s failed: %s: %s", src, type(e).__name__, str(e)[:200])
+            found = _search_news(src, count)
+        except Exception as e:  # noqa: BLE001 — try the ticker feed, but leave the reason in the log
+            log.warning("Yahoo search news for %s failed: %s: %s", src, type(e).__name__, str(e)[:200])
         if not found:
-            log.warning("yfinance news for %s returned no stories; trying Yahoo search", src)
             try:
-                found = _search_news(src, count)
+                found = [i for i in map(_news_item, _yf_ticker(src).get_news(count=count)) if i]
             except Exception as e:  # noqa: BLE001
-                log.warning("Yahoo search news for %s failed: %s: %s", src, type(e).__name__, str(e)[:200])
+                log.warning("yfinance news for %s failed: %s: %s", src, type(e).__name__, str(e)[:200])
         for item in found:
             items.setdefault(item["id"], item)
     if not items:
         raise ProviderEmpty(symbol)
-    ordered = sorted(items.values(), key=lambda i: i["published"] or "", reverse=True)
+    by_title: dict[str, dict] = {}              # the same story is often listed twice under different ids (a press release, a re-post)
+    for item in items.values():
+        by_title.setdefault(" ".join(item["title"].lower().split()), item)
+    ordered = sorted(by_title.values(), key=lambda i: i["published"] or "", reverse=True)
     return {"symbol": symbol, "items": ordered[:count]}
 
 
@@ -436,7 +443,7 @@ def _stock_payload(symbol: str, t, info: dict, quote_type: str) -> dict:
                                                              ("price_to_book", "priceToBook"), ("beta", "beta"),
                                                              ("dividend_yield", "trailingAnnualDividendYield"),
                                                              ("fifty_two_week_high", "fiftyTwoWeekHigh"), ("fifty_two_week_low", "fiftyTwoWeekLow"),
-                                                             ("average_volume", "averageVolume"))},
+                                                             ("average_volume", "averageVolume"), ("shares_outstanding", "sharesOutstanding"))},
         "actions": {
             "dividends": [{"date": _date(d), "amount": _num(v)} for d, v in divs.tail(12).items()][::-1],      # newest first
             "dividends_by_year": [{"year": int(y), "amount": round(float(v), 4)} for y, v in yearly.tail(10).items()],
@@ -503,9 +510,108 @@ def _sample_stock(symbol: str, **_) -> dict:
                          "eps_revisions": [], "growth": []}}
 
 
+# ---- sectors, industries, screens and market hours (Live Market tab boards, market agent) ---------------------------
+# Yahoo-only: the bundled sample data has none of these, so offline they raise SymbolNotFound like an unknown symbol.
+SCREENS = {"most_actives": "Most active stocks today", "day_gainers": "Biggest gainers today", "day_losers": "Biggest losers today",
+           "top_etfs_us": "Largest US ETFs", "top_performing_etfs": "Best performing ETFs"}       # Yahoo's predefined screens offered
+LARGEST_US = "largest_us"                                   # our own screen: US-listed companies by market cap
+SCREEN_MAX = 25
+_US_EXCHANGES = ["NMS", "NYQ", "NGM", "NCM", "ASE"]         # Nasdaq and NYSE listings: no foreign duplicate lines (NVD.DE)
+
+
+def _company_rows(df, n: int) -> list[dict]:
+    """Sector / Industry `top_companies`: [{symbol, name, rating, weight}] (weight = share of the sector or industry)."""
+    if df is None or df.empty:
+        return []
+    return [{"symbol": str(sym), "name": str(r.get("name") or sym), "rating": r.get("rating") if isinstance(r.get("rating"), str) else None,
+             "weight": _num(r.get("market weight"))} for sym, r in df.head(n).iterrows()]
+
+
+def _overview(ov: dict | None) -> dict:
+    ov = ov or {}
+    return {"companies_count": ov.get("companies_count"), "market_cap": _num(ov.get("market_cap")),
+            "market_weight": _num(ov.get("market_weight")), "industries_count": ov.get("industries_count"),
+            "description": ov.get("description") or ""}
+
+
+def _yf_sector(key: str, **_) -> dict:
+    """yf.Sector: overview, the 20 largest companies, its industries (each with a Yahoo index symbol) and its largest ETFs."""
+    import yfinance as yf
+    s = yf.Sector(key.lower())
+    if not s.overview:
+        raise SymbolNotFound(key)
+    ind = s.industries
+    industries = [] if ind is None or ind.empty else [{"key": str(k), "name": str(r["name"]), "symbol": str(r["symbol"]), "weight": _num(r.get("market weight"))}
+                                                      for k, r in ind.iterrows()]
+    return {"key": s.key, "name": s.name, "symbol": s.symbol, "overview": _overview(s.overview), "top_companies": _company_rows(s.top_companies, 20),
+            "industries": industries, "top_etfs": [{"symbol": k, "name": (v or k).strip()} for k, v in (s.top_etfs or {}).items()]}
+
+
+def _yf_industry(key: str, **_) -> dict:
+    """yf.Industry: overview, the 20 largest companies, and Yahoo's best performing (year to date) and fastest growing ones."""
+    import yfinance as yf
+    i = yf.Industry(key.lower())
+    if not i.overview:
+        raise SymbolNotFound(key)
+    def rows(df, cols: dict[str, str]) -> list[dict]:
+        if df is None or df.empty:
+            return []
+        return [{"symbol": str(sym), "name": str(r.get("name") or sym), **{k: _num(r.get(c)) for k, c in cols.items()}} for sym, r in df.iterrows()]
+    return {"key": i.key, "name": i.name, "symbol": i.symbol, "sector_key": i.sector_key, "sector_name": i.sector_name,
+            "overview": _overview(i.overview), "top_companies": _company_rows(i.top_companies, 20),
+            "top_performing": rows(i.top_performing_companies, {"ytd_return": "ytd return", "last_price": "last price", "target_price": "target price"}),
+            "top_growth": rows(i.top_growth_companies, {"ytd_return": "ytd return", "growth_estimate": "growth estimate"})}
+
+
+def _screen_row(q: dict) -> dict:
+    pct = _num(q.get("regularMarketChangePercent"))
+    return {"symbol": q["symbol"], "name": (q.get("longName") or q.get("shortName") or q["symbol"]).strip(),
+            "price": _num(q.get("regularMarketPrice")), "change_pct": round(pct / 100, 4) if pct is not None else None,
+            "volume": _num(q.get("regularMarketVolume")), "market_cap": _num(q.get("marketCap")),
+            "exchange": q.get("fullExchangeName") or q.get("exchange"), "quote_type": q.get("quoteType")}
+
+
+def _yf_screen(name: str, count: int = 20, **_) -> dict:
+    """A list of stocks or funds: one of Yahoo's predefined screens (SCREENS), or LARGEST_US (one line per company, so
+    Alphabet's two share classes count once)."""
+    import yfinance as yf
+    name, count = name.lower(), max(1, min(int(count), SCREEN_MAX))
+    if name == LARGEST_US:
+        q = yf.EquityQuery("and", [yf.EquityQuery("eq", ["region", "us"]), yf.EquityQuery("is-in", ["exchange", *_US_EXCHANGES])])
+        raw = yf.screen(q, sortField="intradaymarketcap", sortAsc=False, size=count + 5)
+        title = "Largest US-listed companies by market value"
+    elif name in SCREENS:
+        raw = yf.screen(name, count=count)
+        title = SCREENS[name]
+    else:
+        raise SymbolNotFound(name)
+    rows, seen = [], set()
+    for q in raw.get("quotes") or []:
+        r = _screen_row(q)
+        if name == LARGEST_US and r["name"] in seen:
+            continue
+        seen.add(r["name"])
+        rows.append(r)
+    if not rows:
+        raise ProviderEmpty(name)
+    return {"name": name, "title": title, "total": raw.get("total"), "quotes": rows[:count]}
+
+
+def _yf_market_status(region: str, **_) -> dict:
+    """Whether a market is open: {status, message, open, close, timezone}. Yahoo reports this for the US only."""
+    import yfinance as yf
+    st = yf.Market(region.upper()).status
+    if not st:
+        raise SymbolNotFound(region)
+    return {"region": region.upper(), "name": st.get("name"), "status": st.get("status"), "message": st.get("message"),
+            "open": str(st["open"]) if st.get("open") else None, "close": str(st["close"]) if st.get("close") else None,
+            "timezone": (st.get("timezone") or {}).get("short") or (str(st["tz"]) if st.get("tz") else None)}   # `tz` is a tzinfo object
+
+
 # provider name -> {endpoint: fn}; ordered = fallback chain (real data first, bundled sample data last, per FR-M4).
 PROVIDERS: dict[str, dict] = {
-    "yfinance": {"quote": _yf_quote, "history": _yf_history, "intraday": _yf_intraday, "news": _yf_news, "fund": _yf_fund, "stock": _yf_stock},
+    "yfinance": {"quote": _yf_quote, "history": _yf_history, "intraday": _yf_intraday, "news": _yf_news, "fund": _yf_fund, "stock": _yf_stock,
+                 "sector": _yf_sector, "industry": _yf_industry, "screen": _yf_screen, "market_status": _yf_market_status},
     "sample": {"quote": _sample_quote, "history": _sample_history, "intraday": _sample_intraday, "news": _sample_news, "fund": _sample_fund, "stock": _sample_stock},
 }
 
@@ -661,17 +767,38 @@ def _notify_news(symbol: str, payload: dict) -> None:
 
 # Agents answering one question run in parallel threads and may share the request's database session (market and portfolio
 # both do); the cache reads and writes are serialised so they never use it at the same moment. Provider calls stay outside.
-_cache_lock = threading.Lock()
+# The lock is per session, not global: with one global lock a thread holding it could wait for a pooled connection while
+# every connection belonged to sessions queued behind the lock (the Live Market boards fan out ~25 fetches), and the whole
+# market API hung.
+# An in-memory SQLite database (StaticPool: every session shares its one connection) keeps one lock for the engine.
+_session_locks: "weakref.WeakKeyDictionary[object, threading.Lock]" = weakref.WeakKeyDictionary()
+_session_locks_guard = threading.Lock()
+
+
+def _cache_lock(db: Session) -> threading.Lock:
+    bind = db.get_bind()
+    key = bind if isinstance(getattr(bind, "pool", None), StaticPool) else db
+    with _session_locks_guard:
+        lock = _session_locks.get(key)
+        if lock is None:
+            lock = _session_locks[key] = threading.Lock()
+        return lock
 
 
 def get_market_data(db: Session, endpoint: str, symbol: str, refresh: bool = False, **params) -> dict:
-    """Returns {data, provider, fetched_at, freshness: live|cached|stale|sample}."""
+    """Returns {data, provider, fetched_at, freshness: live|cached|stale|sample}. The cache lives in `db`, or in its own local
+    database when the main one is remote (`market_cache_session`)."""
+    with market_cache_session(db) as cache:
+        return _cached_market_data(cache, endpoint, symbol, refresh, **params)
+
+
+def _cached_market_data(db: Session, endpoint: str, symbol: str, refresh: bool, **params) -> dict:
     symbol = symbol.upper()
     market_cfg = get_config()["market"]
     ttl = market_cfg.get(f"{endpoint}_cache_ttl_seconds", market_cfg["cache_ttl_seconds"])     # e.g. news refreshes faster than quotes' default
     for provider, endpoints in PROVIDERS.items():
         key = hashlib.sha1(f"{provider}|{symbol}|{endpoint}|{json.dumps(params, sort_keys=True)}".encode()).hexdigest()
-        with _cache_lock:
+        with _cache_lock(db):
             row = db.get(MarketCache, key)
         if row and not refresh and _aware(row.expires_at) > _now():
             return _envelope(row.payload, provider, row.fetched_at, "cached", provider)
@@ -684,7 +811,7 @@ def get_market_data(db: Session, endpoint: str, symbol: str, refresh: bool = Fal
                 return _envelope(row.payload, provider, row.fetched_at, "stale", provider)
             continue
         now = _now()
-        with _cache_lock:
+        with _cache_lock(db):
             if row:
                 row.payload, row.fetched_at, row.expires_at = payload, now, now + timedelta(seconds=ttl)
             else:
@@ -692,7 +819,7 @@ def get_market_data(db: Session, endpoint: str, symbol: str, refresh: bool = Fal
                                    fetched_at=now, expires_at=now + timedelta(seconds=ttl)))
             try:
                 db.commit()
-            except IntegrityError:        # another request (a parallel agent, the Live tab, the news poll) cached this key a moment ago
+            except IntegrityError:        # another request (a parallel agent, the Live Market tab, the news poll) cached this key a moment ago
                 db.rollback()
                 other = db.get(MarketCache, key)
                 if other is None:

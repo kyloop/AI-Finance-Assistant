@@ -37,6 +37,8 @@ def test_keyword_router_and_entities():
     assert R.classify("How does a Roth IRA work?") == ["tax"]
     e = R.extract_entities("How is NVDA and Apple doing versus the Nasdaq?")
     assert e["tickers"] == ["NVDA", "AAPL"] and e["indices"] == ["^IXIC"]
+    assert R.extract_entities("Is the market up or down today?")["indices"] == []        # "down" is not the Dow
+    assert R.extract_entities("How is the Dow doing?")["indices"] == ["^DJI"]
     g = R.extract_entities("I want $1.5 million in 30 years, saving $2,000 a month")
     assert (g["target_amount"], g["monthly_amount"], g["years"]) == (1_500_000, 2000, 30)
     assert R.clean_topic("What is an ETF?") == "ETF" and R.clean_topic("How does a Roth IRA work?") == "Roth IRA"
@@ -148,7 +150,8 @@ def test_market_concept_without_ticker_falls_back_to_knowledge_lookup(db):
 def test_portfolio_agent_with_and_without_holdings():
     assert "Portfolio** tab" in ask("Is my portfolio diversified?")["final_response"]
     r = ask("Is my portfolio diversified?", holdings=HOLDINGS)["final_response"]
-    assert "Diversification score" in r and "NVDA is" in r and "Concentration risk" in r
+    assert "**Diversification**" in r and "Score: **" in r and "NVDA is" in r and "Concentration risk" in r
+    assert "**Fees**" not in r                                       # a focused question gets only its section
 
 
 def test_goal_agent_projects_or_asks_for_details():
@@ -165,7 +168,7 @@ def test_tax_agent_adds_scope_caveat():
 def test_multi_intent_fans_out_and_merges_in_one_answer(db):
     s = ask("Is my portfolio too tech-heavy given the S&P 500 today?", holdings=HOLDINGS, db=db)
     assert s["agents"] == ["Portfolio Analysis", "Market Analysis"]
-    assert "Diversification score" in s["final_response"] and "S&P 500" in s["final_response"]
+    assert "**Diversification**" in s["final_response"] and "S&P 500" in s["final_response"]
     assert s["final_response"].count(DISCLAIMER) == 1
 
 
@@ -209,6 +212,23 @@ def test_llm_router_can_flag_a_write_request_the_keywords_miss(db):
     llm_module.set_llm(FakeLLM(intents='{"intents": ["read_only"], "confidence": 0.9}'))
     s = ask("Pop 20 Apple shares into what I own", db=db)
     assert s["agents"] == ["Read-only guard"] and "Request flagged" in s["final_response"]
+
+
+def test_llm_router_declines_an_off_topic_question_without_looking_it_up(db):
+    fake = FakeLLM(intents='{"intents": ["off_topic"], "confidence": 0.95}')
+    llm_module.set_llm(fake)
+    s = ask("Who won the 2022 World Cup?", db=db)
+    assert s["intent"] == ["off_topic"] and s["agents"] == ["Topic guard"] and list(s["agent_outputs"]) == ["off_topic"]
+    assert s["final_response"].startswith("🚫 **Off topic: Finnie only covers personal finance.**") and s["final_response"].endswith(DISCLAIMER)
+    assert s["choices"] and fake.calls == ["proofread", "router"]                  # no synthesis, no follow-ups, no research
+    assert not any("wiki" in t or "web_search" in t for t in s["trace"])
+
+
+def test_an_off_topic_part_does_not_block_the_finance_part(db):
+    llm_module.set_llm(FakeLLM(intents='{"intents": ["off_topic", "qa"], "confidence": 0.8}'))
+    s = ask("Who won the World Cup, and what is an ETF?", db=db)
+    assert s["intent"] == ["qa"] and "Topic guard" not in s["agents"]
+    assert R.parse_llm_intents('{"intents": ["off_topic"]}') == (["off_topic"], 1.0)
 
 
 def test_chat_turns_never_write_to_user_tables(db):
@@ -388,7 +408,7 @@ def test_goal_agent_uses_saved_goal_when_none_stated():
 
 
 def test_market_agent_resolves_watchlist_and_selected_symbol(client, sid):
-    view = {"tab": "Live", "selected": "NVDA", "watchlist": ["AAPL", "MSFT"]}
+    view = {"tab": "Live Market", "selected": "NVDA", "watchlist": ["AAPL", "MSFT"]}
     r = client.post(f"/api/sessions/{sid}/chat", json={"message": "How is my watchlist doing?", "view": view}).json()
     assert "AAPL" in r["content"] and "MSFT" in r["content"]
     r = client.post(f"/api/sessions/{sid}/chat", json={"message": "What is the price of this?", "view": view}).json()
@@ -398,7 +418,8 @@ def test_market_agent_resolves_watchlist_and_selected_symbol(client, sid):
 def test_portfolio_agent_reports_gain_loss_and_benchmark(db):
     r = ask("How is my portfolio doing?", holdings=HOLDINGS, db=db)["final_response"]
     assert "Gain/loss against what you paid" in r and "Today:" in r
-    assert "for the S&P 500" in r and "bought in full on its purchase date (2026-01-01 where none is set)" in r
+    assert "The S&P 500 returned" in r and "bought in full on its purchase date (2026-01-01 where none is set)" in r
+    assert "What drove it:" in r and "**Risk**" not in r                # "doing" asks about performance only
 
 
 def test_prompts_see_the_last_four_messages_up_to_1000_characters_each():

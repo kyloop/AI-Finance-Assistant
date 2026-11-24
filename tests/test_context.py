@@ -138,6 +138,10 @@ def test_describe_lists_the_figures_for_prompts():
     text = CTX.describe({**CONTEXT, "facts": {"SBUX": {"price": 94.71, "as_of": "2026-10-02", "period": "last month", "return": -0.105,
                                                        "start_price": 105.82, "end_price": 94.71}}})
     assert "SBUX: price $94.71 on 2026-10-02; last month return -10.5% ($105.82 → $94.71)" in text
+    text = CTX.describe({"facts": {"NVDA": {"price": 202.06, "market_cap": 4879142617088.0, "shares_outstanding": 24300000000,
+                                            "trailing_pe": 25.54488, "dividend_yield": 0.0013682564}}})
+    assert text == ("NVDA: price $202.06; market cap $4,879,142,617,088; shares outstanding 24,300,000,000; P/E (trailing) 25.54; "
+                    "dividend yield 0.14%")
 
 
 def test_the_chat_api_saves_the_context_and_starts_the_next_turn_from_it(client, sid):
@@ -173,3 +177,108 @@ def test_proofread_still_rejects_a_number_that_isnt_in_the_conversation(db):
     llm_module.set_llm(ContextLLM('{"question": "How much does $20,000 grow at 9% a year for 5 years?", "follow_up": true}'))
     s = run_chat("what if it's $20000?", history=CALC_HISTORY, profile=PROFILE, holdings=[], db=db, context=VEHICLE)
     assert s["question"] == "what if it's $20000?" and s["follow_up"]          # kept as typed; "what if" still marks it
+
+
+# ---- the tab on screen: "this" after a tab switch means what the user is now looking at, not the earlier answer
+HOLDINGS = [{"ticker": "AAPL", "shares": 10, "cost_basis": 150.0, "purchase_date": None},
+            {"ticker": "MSFT", "shares": 5, "cost_basis": 300.0, "purchase_date": None}]
+SAVED_GOAL = {"goal_type": "retirement", "target_amount": 1_000_000, "horizon_years": 30, "current_savings": 10_000,
+              "monthly_contribution": 500, "risk_tolerance": "moderate"}
+PORTFOLIO_VIEW, GOALS_VIEW = {"tab": "Portfolio", "selected": None, "watchlist": []}, {"tab": "Goals", "selected": None, "watchlist": []}
+
+
+def on_tabs(db, *turns_):
+    """Run (question, view) turns as one conversation with holdings and a saved goal; returns the final states."""
+    states, history, context = [], [], None
+    for q, view in turns_:
+        s = run_chat(q, history=history, profile=PROFILE, holdings=HOLDINGS, saved_goal=SAVED_GOAL, db=db, view=view, context=context)
+        states.append(s)
+        history += [{"role": "user", "content": q}, {"role": "assistant", "content": s["final_response"]}]
+        context = s["context"]
+    return states
+
+
+@pytest.mark.parametrize("q", ["What about this?", "explain this", "How is this stock doing?", "what does this mean?",
+                               "How am I doing?", "Is this good?", "what's shown here?"])
+def test_messages_that_point_at_the_screen(q):
+    assert CTX.POINTS_AT_SCREEN.search(q)
+
+
+@pytest.mark.parametrize("q", ["What is an ETF?", "What about it?", "How is that different from a bond?", "Is this year a good time to save?",
+                               "compare them"])
+def test_messages_that_dont_point_at_the_screen(q):
+    assert not CTX.POINTS_AT_SCREEN.search(q)
+
+
+def test_an_answer_saves_the_tab_it_was_asked_on(db):
+    (s,) = on_tabs(db, ("How diversified is my portfolio?", PORTFOLIO_VIEW))
+    assert s["context"]["tab"] == "Portfolio"
+
+
+def test_this_after_switching_tabs_means_the_new_tab(db):
+    first, second = on_tabs(db, ("How diversified is my portfolio?", PORTFOLIO_VIEW), ("What about this?", GOALS_VIEW))
+    assert first["intent"] == ["portfolio"]
+    assert second["intent"] == ["goal"] and not second["follow_up"] and second["screen"]["switched"] == "the Portfolio tab"
+    assert "$1,000,000" in second["final_response"]
+    assert "since you switched from the Portfolio tab" in second["final_response"]
+
+
+def test_a_follow_up_on_the_same_tab_keeps_the_conversation(db):
+    _, second = on_tabs(db, ("How diversified is my portfolio?", PORTFOLIO_VIEW), ("What about this?", PORTFOLIO_VIEW))
+    assert second["screen"] is None and second["follow_up"]
+    assert "since you switched" not in second["final_response"]
+
+
+def market_view(symbol):
+    return {"tab": "Live Market", "selected": symbol, "watchlist": []}
+
+
+def test_an_answer_saves_the_symbol_it_was_asked_on(db):
+    (s,) = on_tabs(db, ("How is this stock doing?", market_view("MSFT")))
+    assert s["context"]["tab"] == "Live Market" and s["context"]["symbol"] == "MSFT"
+
+
+def test_this_after_picking_another_symbol_on_the_same_tab_means_the_new_one(db):
+    _, second = on_tabs(db, ("How is this stock doing?", market_view("MSFT")), ("What about this?", market_view("AAPL")))
+    assert second["screen"]["symbol"] == "AAPL" and second["screen"]["switched"] == "MSFT" and not second["follow_up"]
+    assert second["entities"]["tickers"][0] == "AAPL"
+    assert "since you switched from MSFT" in second["final_response"]
+
+
+def test_this_on_the_same_symbol_keeps_the_conversation(db):
+    _, second = on_tabs(db, ("How is this stock doing?", market_view("MSFT")), ("What about this?", market_view("MSFT")))
+    assert second["screen"] is None and second["follow_up"]
+
+
+def test_a_named_subject_wins_over_the_tab(db):
+    _, second = on_tabs(db, ("Am I on track for retirement?", GOALS_VIEW), ("How diversified is my portfolio?", PORTFOLIO_VIEW))
+    assert second["screen"] is None and second["intent"] == ["portfolio"]
+
+
+def test_a_tab_with_nothing_to_read_leaves_the_conversation_in_charge(db):
+    s = run_chat("What about this?", history=[], profile=PROFILE, holdings=[], db=db, view=PORTFOLIO_VIEW,
+                 context={"question": "Am I on track?", "intents": ["goal"], "companies": [], "tab": "Goals", "facts": {}})
+    assert s["screen"] is None                                     # no holdings: "this" can't be the Portfolio tab
+
+
+def test_this_on_a_research_tab_is_the_symbol_shown(db):
+    view = {"tab": "Research", "selected": "AAPL", "watchlist": []}
+    s = run_chat("explain this", history=[], profile=PROFILE, holdings=[], db=db, view=view)
+    assert s["intent"] == ["market"] and "AAPL" in s["entities"]["tickers"] and "AAPL" in s["final_response"]
+
+
+def test_this_compared_with_another_ticker_keeps_the_symbol_shown(db):
+    view = {"tab": "Live Market", "selected": "AAPL", "watchlist": []}
+    s = run_chat("How does this stock compare to MSFT?", history=[], profile=PROFILE, holdings=[], db=db, view=view)
+    assert s["entities"]["tickers"][:2] == ["AAPL", "MSFT"]
+
+
+def test_after_a_tab_switch_the_llm_sees_the_screen_not_the_conversation(db):
+    llm = ContextLLM('{"question": "What about this?", "follow_up": false}', router='{"intents": ["qa"], "confidence": 0.9}')
+    llm_module.set_llm(llm)
+    history = [{"role": "user", "content": "How diversified is my portfolio?"}, {"role": "assistant", "content": "Fairly."}]
+    s = run_chat("What about this?", history=history, profile=PROFILE, holdings=HOLDINGS, saved_goal=SAVED_GOAL, db=db, view=GOALS_VIEW,
+                 context={"question": "How diversified is my portfolio?", "intents": ["portfolio"], "companies": [], "tab": "Portfolio", "facts": {}})
+    assert "CONTEXT" not in llm.prompts["proofread"] and "RECENT CONVERSATION" not in llm.prompts["proofread"]
+    assert "On screen: your saved plan on the Goals tab" in llm.prompts["router"] and "diversified" not in llm.prompts["router"]
+    assert s["intent"] == ["goal"]                                 # the router's bare "qa" is replaced by the tab's agent

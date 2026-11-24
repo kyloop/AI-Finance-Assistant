@@ -93,6 +93,8 @@ def test_portfolio_performance_on_a_known_series():
     assert p["max_drawdown"] == pytest.approx(1900 / 2200 - 1)
     assert p["annualized_return"] == pytest.approx(1.05 ** (365 / 39) - 1)
     assert p["volatility"] > 0 and p["sharpe"] is not None and p["sortino"] is not None
+    assert p["contributions"] == [{"ticker": "AAA", "contribution": pytest.approx(0.05)}, {"ticker": "CASH", "contribution": 0.0}]
+    assert p["benchmark_max_drawdown"] == 0 and p["benchmark_volatility"] > 0
 
 
 def test_portfolio_performance_needs_enough_history():
@@ -122,6 +124,10 @@ def test_performance_counts_each_holding_from_its_purchase_date():
     # …but a purchase is not a gain: +10% on everything held on day 20, then +10% on BBB's 1,000 of 2,210 on day 30
     assert p["period_return"] == pytest.approx(1.10 * (1 + 100 / 2210) - 1)
     assert p["benchmark_return"] == pytest.approx(0.10)
+    contrib = {c["ticker"]: c["contribution"] for c in p["contributions"]}
+    assert sum(contrib.values()) == pytest.approx(p["period_return"])       # contributions add up to the return…
+    assert contrib["BBB"] == pytest.approx(1.10 * 100 / 2210) and "CCC" not in contrib          # CCC isn't bought yet
+    assert contrib["AAA"] > contrib["BBB"]                                   # …AAA rose while it was all there was
     # the same money in the index on the same dates: all 2,100 went in before its rise on day 25
     assert by_date[dates[-1]]["benchmark"] == pytest.approx(2100 * 1.1)
 

@@ -1,0 +1,210 @@
+# Multi-turn conversations for scripts/eval_conversations.py. Each conversation runs in a fresh session through the chat API,
+# so history, saved context and topic memory carry from turn to turn as in the app. Every answer is graded by an LLM judge on
+# the four metrics of the knowledge-base and news generation tests (scripts/eval_generation.py):
+#   relevance 1-5, faithfulness 0-1 (claims supported by what the agents gave the synthesizer), correctness 1-5 (vs reference),
+#   completeness 0-1 (key points covered).
+#
+#   id, title       the conversation
+#   profile         optional ProfileIn (knowledge_level, risk_tolerance, horizon_years)
+#   holdings        optional portfolio (ticker, shares, cost_basis, purchase_date)
+#   turns           each {q, reference, key_points, view?}
+#     reference     what a correct answer says. Market figures change between runs, so for those the reference says which
+#                   figures a correct answer gives and the judge takes their values from the sources; deterministic results
+#                   (calculations, goals) are given exactly.
+#     key_points    the separate things a complete answer contains
+#     view          optional ChatView (tab, selected, watchlist)
+#     decline       true when the right answer is to decline (off topic); a decline elsewhere scores the floor
+
+- id: market-today
+  title: The market today, then NVDA against it (the Langfuse case)
+  turns:
+    - q: news today about market?
+      reference: A list of today's US stock market headlines, each with its publisher and time, summarised only from what the stories say.
+      key_points: ["lists several of today's market headlines", "gives each story's publisher", "summarises stories without inventing what they say"]
+    - q: is the market up or down today?
+      reference: >-
+        Mixed or up/down as the figures say: today's change versus the previous close for the S&P 500, the Nasdaq Composite and the
+        Dow Jones (and the Russell 2000 if given), with a one-line conclusion on whether the market is up or down overall.
+      key_points: ["S&P 500's change today", "Nasdaq's change today", "Dow Jones's change today", "a conclusion on up or down overall"]
+    - q: how about nvda vs market trending today?
+      reference: >-
+        NVIDIA's change today versus its previous close, set against each main index's change today (S&P 500, Nasdaq, Dow), and
+        whether NVDA did better or worse than the market today. It must not compare NVDA's day with the indices' monthly returns.
+      key_points: ["NVDA's change today", "the indices' change today", "says whether NVDA beat or lagged the market today", "same period (today) for both sides"]
+    - q: and over the last month?
+      reference: >-
+        NVIDIA's total return over the last month against the S&P 500's, Nasdaq's and Dow's returns over the same month, and
+        which did better.
+      key_points: ["NVDA's return over the last month", "the indices' returns over the last month", "says which did better over the month"]
+    - q: which did better?
+      reference: Over the last month (the period just discussed), says plainly whether NVDA or the market did better, using the month's returns.
+      key_points: ["names which did better", "uses the last month's returns, not today's change"]
+
+- id: nvda-vs-market-cold
+  title: The same NVDA question as a chat's first message, from the Live Market tab (as asked in the app)
+  turns:
+    - q: how about nvda vs market trending today?
+      view: {tab: Live Market, selected: AAPL, watchlist: [AAPL, MSFT, NVDA, VTI, QQQ, BND]}
+      reference: >-
+        NVIDIA's change today versus its previous close, set against each main index's change today (S&P 500, Nasdaq, Dow), and
+        whether NVDA did better or worse than the market today. It must not compare NVDA's day with the indices' monthly returns,
+        and it is about NVDA, not the selected AAPL.
+      key_points: ["NVDA's change today", "the indices' change today", "says whether NVDA beat or lagged the market today", "same period (today) for both sides"]
+    - q: and over the last month?
+      view: {tab: Live Market, selected: AAPL, watchlist: [AAPL, MSFT, NVDA, VTI, QQQ, BND]}
+      reference: >-
+        NVIDIA's total return over the last month against the S&P 500's, Nasdaq's and Dow's returns over the same month, and
+        which did better.
+      key_points: ["NVDA's return over the last month", "the indices' returns over the last month", "says which did better over the month"]
+
+- id: portfolio-then-market
+  title: A market question straight after a portfolio summary (as asked in the app)
+  holdings:
+    - {ticker: NVDA, shares: 100, cost_basis: 60, purchase_date: "2025-01-15"}
+    - {ticker: AAPL, shares: 20, cost_basis: 180, purchase_date: "2025-01-15"}
+    - {ticker: VTI, shares: 20, cost_basis: 250, purchase_date: "2025-01-15"}
+  turns:
+    - q: summary of my portfolio?
+      view: {tab: Portfolio, watchlist: [AAPL, MSFT, NVDA, VTI, QQQ, BND, JPM, SPY]}
+      reference: The portfolio's total value, gain or loss against cost, today's change, diversification and risk, covering NVDA, AAPL and VTI.
+      key_points: ["total value", "gain or loss against cost", "today's change", "diversification or concentration"]
+    - q: how about nvda vs market trending today?
+      view: {tab: Portfolio, watchlist: [AAPL, MSFT, NVDA, VTI, QQQ, BND, JPM, SPY]}
+      reference: >-
+        NVIDIA's change today against each main index's change today (S&P 500, Nasdaq, Dow), as a comparison table, and whether
+        NVDA did better or worse than the market. It answers this question, not the previous portfolio one.
+      key_points: ["NVDA's change today", "the indices' change today", "says whether NVDA beat or lagged the market", "about NVDA and the market, not the portfolio summary"]
+
+- id: company-compare
+  title: Two companies over a period, then valuation follow-ups
+  turns:
+    - q: How has AAPL done over the last 6 months?
+      reference: Apple's total return over the last 6 months with its start and end prices and dates, and the period's high and low.
+      key_points: ["AAPL's total return over 6 months", "start and end prices", "the high and low of the period"]
+    - q: compare to MSFT
+      reference: Apple's and Microsoft's total returns over the same last 6 months side by side.
+      key_points: ["AAPL's 6-month return", "MSFT's 6-month return", "same 6-month period for both"]
+    - q: which did better?
+      reference: Names whichever of Apple or Microsoft had the higher total return over the last 6 months, with both returns.
+      key_points: ["names the one with the higher 6-month return", "gives both returns"]
+    - q: what is MSFT's P/E?
+      reference: Microsoft's P/E ratio (trailing, and forward if given) from the data, with a short plain explanation of what P/E means.
+      key_points: ["MSFT's P/E figure", "what P/E means"]
+    - q: what about Apple's?
+      reference: Apple's P/E ratio (trailing, and forward if given) from the data. It is about Apple, not Microsoft.
+      key_points: ["AAPL's P/E figure", "about Apple only"]
+
+- id: sectors
+  title: Sector and market-structure questions
+  turns:
+    - q: how is the tech sector doing?
+      reference: >-
+        The technology sector's return over the last month (measured by its sector fund) against the S&P 500 over the same dates,
+        and how its largest companies moved.
+      key_points: ["tech sector's return over the period", "S&P 500's return for comparison", "its largest companies' moves"]
+    - q: which industries in it did best?
+      reference: The technology sector's industries ranked by return over the period, naming the best performers (and the worst if given).
+      key_points: ["names the best-performing tech industries", "gives their returns", "ranks or orders them"]
+    - q: what about energy?
+      reference: The energy sector's return over the same period against the S&P 500, and its largest companies' moves.
+      key_points: ["energy sector's return", "S&P 500 comparison", "its largest companies' moves"]
+    - q: what are the biggest companies today?
+      reference: >-
+        The 10 largest US-listed companies by market value and how each moved today. (A list of only energy companies does not
+        answer it.)
+      key_points: ["lists the largest US companies by market value", "about the whole market, not one sector", "how they moved today"]
+    - q: is the market open right now?
+      reference: Whether the US stock market is open or closed now, with its regular trading hours.
+      key_points: ["says open or closed", "gives the trading hours"]
+
+- id: learn-and-calc
+  title: Concepts, calculations and tax
+  profile: {knowledge_level: beginner, risk_tolerance: moderate, horizon_years: 20}
+  turns:
+    - q: What is compound interest?
+      reference: Compound interest is interest earned on the principal and on the interest already added, so money grows faster than with simple interest.
+      key_points: ["interest on principal plus earlier interest", "contrast with simple interest", "a simple example or growth over time"]
+    - q: How much will $10,000 grow to at 7% a year for 20 years?
+      reference: With annual compounding, $10,000 at 7% for 20 years grows to $38,696.84 (FV = PV × (1 + r)^n).
+      key_points: ["about $38,697", "uses compound growth FV = PV(1+r)^n"]
+    - q: and at 5%?
+      reference: The same $10,000 for 20 years at 5% a year grows to $26,532.98.
+      key_points: ["about $26,533", "keeps $10,000 and 20 years from the previous turn"]
+    - q: What is a Roth IRA?
+      reference: >-
+        A US individual retirement account funded with after-tax money: no tax break on contributions, but growth and qualified
+        withdrawals in retirement are tax-free.
+      key_points: ["a US retirement account", "contributions are after-tax (no upfront deduction)", "qualified withdrawals are tax-free"]
+    - q: how are withdrawals taxed?
+      reference: >-
+        Roth IRA withdrawals: contributions can come out tax-free at any time; earnings are tax-free in a qualified withdrawal
+        (generally age 59½ and the account open 5 years), otherwise earnings may be taxed and hit by a 10% penalty.
+      key_points: ["about Roth IRA withdrawals", "qualified withdrawals are tax-free", "the conditions (59½ and 5 years)", "non-qualified earnings can be taxed or penalised"]
+
+- id: portfolio
+  title: Questions about my holdings
+  holdings:
+    - {ticker: AAPL, shares: 10, cost_basis: 180, purchase_date: "2025-01-15"}
+    - {ticker: VOO, shares: 5, cost_basis: 480, purchase_date: "2025-03-01"}
+    - {ticker: NVDA, shares: 8, cost_basis: 120, purchase_date: "2025-06-10"}
+  turns:
+    - q: how is my portfolio doing?
+      reference: >-
+        The portfolio's total value, gain or loss against cost, today's change, and how the three holdings (AAPL, VOO, NVDA) make
+        it up, with notes on diversification and risk against the stated moderate tolerance.
+      key_points: ["total value", "gain or loss against cost", "today's change", "covers all three holdings AAPL, VOO and NVDA"]
+    - q: which holding did best?
+      reference: Names the holding with the best return since purchase among AAPL, VOO and NVDA, with each holding's return.
+      key_points: ["names the best holding", "gives each holding's return"]
+    - q: how diversified am I?
+      reference: >-
+        The diversification score and what it means, the concentration in the largest holdings and in technology, and that a low
+        score means more risk from a few holdings or one sector.
+      key_points: ["the diversification score", "concentration by holding", "concentration in technology", "what low diversification means for risk"]
+    - q: any news on my holdings?
+      reference: Recent headlines about the user's holdings (Apple, the S&P 500 fund VOO and NVIDIA), each with its publisher.
+      key_points: ["news on Apple", "news on NVIDIA", "news on VOO or the S&P 500", "publishers given"]
+
+- id: goal
+  title: A retirement goal and what-ifs
+  profile: {knowledge_level: intermediate, risk_tolerance: moderate, horizon_years: 25}
+  turns:
+    - q: I want to retire with $1 million in 25 years, how much should I save each month?
+      reference: At the moderate profile's 6% yearly return, compounded monthly, saving about $1,443.02 a month reaches $1 million in 25 years.
+      key_points: ["about $1,443 a month", "assumes a 6% yearly return"]
+    - q: what if I already have $50,000 saved?
+      reference: Starting with $50,000 already saved, at 6% for 25 years the monthly amount needed drops to about $1,120.87.
+      key_points: ["about $1,121 a month", "accounts for the $50,000 already saved", "lower than the previous answer"]
+    - q: and if I take more risk?
+      reference: >-
+        With the aggressive profile's 8% yearly return assumption (and the $50,000 already saved), the monthly amount drops to
+        about $665.59, with a note that higher expected return comes with more volatility and no guarantee.
+      key_points: ["uses a higher return assumption (8%, aggressive)", "about $666 a month", "keeps the $50,000 saved", "notes more risk or volatility"]
+
+- id: markets-and-switches
+  title: Other markets, a topic switch, off-topic and advice
+  turns:
+    - q: What is an ETF?
+      reference: An exchange-traded fund is a fund holding a basket of assets that trades on a stock exchange like a single stock, giving diversification usually at low cost.
+      key_points: ["a fund holding many assets", "trades on an exchange like a stock", "diversification"]
+    - q: who won the world cup in 2022?
+      decline: true
+      reference: The assistant politely declines because the question is not about personal finance, and invites a finance question.
+      key_points: ["declines as off topic", "says it covers personal finance"]
+    - q: back to ETFs - what is the expense ratio of VOO?
+      reference: VOO's (Vanguard S&P 500 ETF) expense ratio from the data, about 0.03%, with what an expense ratio means in dollars.
+      key_points: ["VOO's expense ratio", "what an expense ratio is"]
+    - q: should I buy NVDA now?
+      reference: >-
+        Declines to say whether to buy, and instead gives educational facts about NVIDIA (price, valuation, profile) and the
+        ideas behind such a decision. It must not pass on buy ratings or price targets as a recommendation.
+      key_points: ["declines to give buy/sell advice", "gives facts about NVDA", "explains what to consider"]
+    - q: how is gold doing today?
+      reference: Gold's price today and its change versus the previous close.
+      key_points: ["gold's price", "gold's change today"]
+    - q: and bitcoin?
+      reference: Bitcoin's price today and its change versus the previous close (about bitcoin, not gold).
+      key_points: ["bitcoin's price", "bitcoin's change today"]
+    - q: what's the euro to dollar rate?
+      reference: The EUR/USD exchange rate (dollars per euro) and its change today.
+      key_points: ["the EUR/USD rate", "its change today"]

@@ -17,9 +17,10 @@ from src.core.calculators import analyze_portfolio, project_goal
 from src.core.config import get_config
 from src.core.llm import ask_llm, current_llm
 from src.core.market_service import SymbolNotFound
-from src.core.portfolio_data import portfolio_history, portfolio_instruments
-from src.core.tavily import WebSearchUnavailable, web_search, web_search_enabled
+from src.core.portfolio_data import portfolio_dividends, portfolio_history, portfolio_instruments, with_purchase_prices
+from src.core.tavily import WebSearchUnavailable, web_news, web_news_enabled, web_search, web_search_enabled
 from src.kb.wiki import WikiUnavailable
+from src.rag import markets as MK
 
 from . import calc as CALC
 from . import calc_pipeline as CP
@@ -27,12 +28,15 @@ from . import context as CTX
 from . import history as H
 from . import market_tools as MT
 from . import news as NEWS
+from . import portfolio_report as PR
 from . import router as R
 from . import symbols as SYM
+from . import topics as TOP
 from .jsonreply import first_json
 from .safety import finalize
 from .state import AgentOutput, FinanceState
-from .tools import industry_peers, kb_search, news_index_now, news_latest, news_search, wiki_search, wiki_topic
+from .tools import (industry_peers, is_finance, kb_fetch, kb_search, news_index_now, news_latest, news_recent, news_search, story_articles, wiki_search,
+                    wiki_topic)
 
 log = logging.getLogger(__name__)
 
@@ -41,7 +45,7 @@ LENGTH_BY_LEVEL = {"beginner": "explain terms in plain words, with a short examp
                    "intermediate": "skip the basic definitions and keep it to a short paragraph or a few bullets",
                    "advanced": "assume the basics are known: give only the key points, in two or three sentences or bullets"}
 SYMBOL_OK = re.compile(r"^[A-Z0-9.\-=^]{1,15}$")
-ORDER = ["portfolio", "market", "news", "calc", "goal", "tax", "qa", "example", "clarify", "read_only"]
+ORDER = ["portfolio", "market", "news", "calc", "goal", "tax", "qa", "example", "clarify", "read_only", "off_topic"]
 FALLBACK_MESSAGE = "I'm having trouble answering that right now. Please try again in a moment."
 CLARIFY_MESSAGE = ("I didn't quite catch that. You could ask things like “What is an ETF?”, “How does a Roth IRA work?”, "
                    "“What is the S&P 500 doing?” or “Is my portfolio diversified?”")
@@ -78,7 +82,10 @@ PROOFREAD_SYSTEM = (
     "You are the proofreader in front of a personal-finance assistant. Rewrite the user's latest message with spelling, grammar and "
     "abbreviations fixed, so the agents after you can read it: \"yrs\" -> \"years\", \"mo\" -> \"months\", \"tsla\" -> \"TSLA\", "
     "\"nvdia\" -> \"NVIDIA\", \"wht abt\" -> \"what about\". Keep the meaning, every number and every ticker symbol; never answer "
-    "the message, add facts or drop a request. If a word may be a ticker or name you don't know, leave it unchanged.\n"
+    "the message, add facts or drop a request. If a word may be a ticker or name you don't know, leave it unchanged. "
+    "If the message says what the user does NOT want, rewrite it as what they do want and leave out what they ruled out: "
+    "\"I am not looking for DHSB news. I just want earlier news of today\" -> \"What were the market headlines earlier today?\"; "
+    "\"not Apple, show me Microsoft's price\" -> \"What is Microsoft's stock price?\".\n"
     "You may be given the CONTEXT of the conversation so far (the previous question, its companies, period and figures) and the "
     "RECENT CONVERSATION. If the message continues it, or an earlier question there (it points back with \"it\", \"them\", "
     "\"which\", \"compare to\", \"what about X\", \"what if X is Y\", or leaves out a company, period or figure it relies on), "
@@ -92,12 +99,15 @@ PROOFREAD_SYSTEM = (
     "contributions\" after \"You want to know how much $30,000 grows at 7% a year over 10 years; is 7% the yearly rate?\" -> "
     "\"How much does $30,000 grow at 7% a year over 10 years with no extra contributions?\", not \"Is 7% the yearly rate?\"; "
     "\"3%\" after \"what risk-free rate should I use?\" -> the earlier question with a 3% risk-free rate. "
-    "Set follow_up to true then. If the message starts a new topic, only correct it and set follow_up to false; a message that states every "
+    "Set follow_up to true then. If the message starts a new topic, only correct it and set follow_up to false; never replace the subject "
+    "it names with an earlier one (\"What's the latest technology sector news?\" after a question about the Pentagon is about the "
+    "technology sector). A message that states every "
     "company, period and figure it needs is a new question even on the same subject (\"How much would $2,500 grow to at 7% a "
     "year over 10 years?\" after a 7% example). Take companies, periods and numbers "
     "only from the message, the CONTEXT or the RECENT CONVERSATION.\n"
     'Reply with ONLY JSON: {"question": "<the corrected message>", "follow_up": true}')
 _TICKER_TOKEN = re.compile(r"\b[A-Z]{2,5}\b")
+_NAME_WORD = re.compile(r"\b[A-Z][A-Za-z&.\-]+")          # a capitalised word: a ticker or a name the rewrite must not invent
 _NUMBER = re.compile(r"\d+(?:\.\d+)?")
 _THOUSANDS = re.compile(r"(?<=\d),(?=\d{3}\b)")         # "$20,000" and "$20000" are the same number
 PROOFREAD_MAX_CHARS = 500                  # longer messages go to the router as typed
@@ -113,8 +123,11 @@ def _proofread_ok(original: str, fixed: str, ctx: dict | None = None, recent: st
     original, fixed = _THOUSANDS.sub("", original), _THOUSANDS.sub("", fixed)
     if any(n not in fixed for n in _NUMBER.findall(original)):
         return False
-    if any(t not in fixed for t in _TICKER_TOKEN.findall(original) if not original.isupper()):
+    ruled_out = SYM.excluded(original)                    # "not looking for DHSB news": the rewrite may drop DHSB
+    if any(t not in fixed for t in _TICKER_TOKEN.findall(original) if not original.isupper() and t.lower() not in ruled_out):
         return False
+    if {m["key"] for m in MK.in_text(SYM.without_excluded(original))} - {m["key"] for m in MK.in_text(fixed)}:
+        return False                                      # the market the message names is its subject: never swapped for an earlier one
     if ctx is not None:
         known = _THOUSANDS.sub("", f"{original} {CTX.describe(ctx)} {recent}").upper()
         return (len(fixed) <= len(original) + FOLLOW_UP_EXTRA_CHARS
@@ -122,12 +135,22 @@ def _proofread_ok(original: str, fixed: str, ctx: dict | None = None, recent: st
                 and set(_NUMBER.findall(fixed)) <= set(_NUMBER.findall(known)))     # whole numbers: 9 isn't in 14693.28
     if len(fixed) > 2 * len(original) + 40:
         return False
+    if ruled_out:                                         # "not X, just Y" -> "Y?": a different sentence, so check what it names
+        return not SYM.excluded(fixed) & ruled_out and not any(t.lower() in ruled_out for t in re.findall(r"[\w&.\-]+", fixed)) \
+            and all(w.lower() in original.lower() for w in _NAME_WORD.findall(fixed.split(" ", 1)[-1]))
     return difflib.SequenceMatcher(None, original.lower(), fixed.lower()).ratio() >= 0.5
 
 
-def _proofread_reply(q: str, ctx: dict | None, recent: str) -> tuple[str, bool] | None:
-    """(corrected question, follow-up?) from the LLM; None if it gave nothing usable. A plain-text reply counts as a correction."""
-    prompt = ((f"CONTEXT:\n{CTX.describe(ctx)}\n\n" if ctx else "")
+def _own_subject(q: str) -> bool:
+    """The message names a market and nothing in it leans on the conversation ("What's the latest technology sector news?"): a new question."""
+    return bool(MK.in_text(q)) and not CTX.points_back(q)
+
+
+def _proofread_reply(q: str, ctx: dict | None, recent: str, topic_summary: str = "") -> tuple[str, bool] | None:
+    """(corrected question, follow-up?) from the LLM; None if it gave nothing usable. A plain-text reply counts as a correction.
+    `topic_summary` is the current topic so far (mds/topic-memory.md), so a follow-up two turns from its subject still resolves."""
+    described = CTX.describe(ctx) + (f"\nTopic so far: {topic_summary}" if ctx and topic_summary else "") if ctx else ""
+    prompt = ((f"CONTEXT:\n{described}\n\n" if ctx else "")
               + (f"RECENT CONVERSATION:\n{recent}\n\n" if recent else "") + f"Message: {q}")
     reply = ask_llm(PROOFREAD_SYSTEM, prompt)
     if not reply:
@@ -140,24 +163,42 @@ def _proofread_reply(q: str, ctx: dict | None, recent: str) -> tuple[str, bool] 
     return (fixed, bool(data.get("follow_up")) and bool(ctx or recent)) if fixed else None
 
 
+def _topic_summary(state: FinanceState, ctx: dict | None) -> str:
+    """The summary of the topic the previous turn belongs to, when topic memory loaded it."""
+    tid = (ctx or {}).get("topic_id")
+    return next((t.get("summary") or "" for t in (state.get("topics_in") or {}).get("current") or [] if tid and t.get("topic_id") == tid), "")
+
+
 def proofread_node(state: FinanceState, config: RunnableConfig):
     """Fix spelling, grammar and abbreviations before routing ("tsla last 10 yrs" -> "TSLA over the last 10 years"), and turn
     a follow-up into a complete question from the previous answer's context ("compare to starbucks" -> "Compare TSLA and
     Starbucks over the last month"). The rewrite replaces `question` for every later node; `original_question` keeps what
     the user typed. `follow_up` tells the router and agents to carry the context's companies, period and figures over.
-    Without an LLM the message is kept and a follow-up is recognised by its wording (context.looks_like_follow_up)."""
+    Without an LLM the message is kept and a follow-up is recognised by its wording (context.looks_like_follow_up).
+    A message about what is on screen after a tab switch ("what about this?") is not a follow-up: `screen` says what it means."""
     q, ctx = state["question"], state.get("context_in") or None
-    base = {"original_question": q, "follow_up": bool(ctx or state.get("history")) and CTX.looks_like_follow_up(q)}
+    on_screen = CTX.screen(state, q)
+    base = {"original_question": q, "screen": on_screen,
+            "follow_up": not on_screen and bool(ctx or state.get("history")) and CTX.looks_like_follow_up(q)}
     note = " (follow-up: carrying the earlier context)" if base["follow_up"] else ""
+    if on_screen:
+        note = f" (about {on_screen['label']}" + (f"; switched from {on_screen['switched']})" if on_screen["switched"] else ")")
+        ctx = None
     if not get_config()["workflow"].get("proofread", True) or current_llm() is None:
         return {**base, "trace": [("proofread: skipped (no LLM)" if current_llm() is None else "proofread: off") + note]}
     if R.is_gibberish(q) or len(q) > PROOFREAD_MAX_CHARS:
         return {**base, "trace": ["proofread: left as typed" + note]}
+    if on_screen:                                    # spelling only: the earlier conversation must not fill in "this"
+        fixed = (_proofread_reply(q, None, "") or (q, False))[0]
+        if fixed == q or not _proofread_ok(q, fixed):
+            return {**base, "trace": ["proofread: no changes" + note]}
+        return {**base, "question": fixed, "trace": [f"proofread: “{q}” → “{fixed}”{note}"]}
     recent = H.transcript(state.get("history"))
-    got = _proofread_reply(q, ctx, recent)
+    got = _proofread_reply(q, ctx, recent, _topic_summary(state, ctx))
     if got is None:
         return {**base, "trace": ["proofread: no reply, left as typed" + note]}
     fixed, follow_up = got
+    follow_up = follow_up and not _own_subject(q)
     if not _proofread_ok(q, fixed, (ctx or {}) if follow_up else None, recent if follow_up else ""):
         log.info("proofread rewrite rejected: %r -> %r", q, fixed)
         return {**base, "trace": ["proofread: rewrite rejected, left as typed" + note]}
@@ -173,30 +214,34 @@ ROUTER_SYSTEM = """You are the router for a personal-finance EDUCATION assistant
 AGENTS AND THEIR RESPONSIBILITIES
 - qa: Explains financial concepts, definitions, how things work, WHY something happens, drivers/risks/pros-cons, and "what should I consider" questions. Knowledge-base driven. No live data, no user holdings.
 - portfolio: Analyzes the USER'S OWN holdings (allocation, diversification, concentration, risk, performance of what they own). Only when the message refers to "my portfolio / my stocks / my holdings" or supplied holdings.
-- market: Live and recent market DATA and trends: prices, quotes, indices, valuation metrics for a named security (P/E, dividend yield, market cap), sector or asset-class performance, "how is X doing / performing", comparisons between tickers, rates, housing, commodities, crypto. Anything about the current STATE or PERFORMANCE of a market, sector, asset class or security.
-- news: Recent headlines and developments ("latest", "recent", "what happened", "what's being reported", "any news") about a company, industry, sector, topic or the whole market. Summarizes and gives context.
-- goal: Builds a savings plan: monthly amount needed to reach a target amount by a date (risk appetite may apply). Only when they want a plan or "how much should I save".
+- market: Live and recent market DATA at every level. A company or fund: prices, quotes, valuation (P/E, dividend yield, market cap), performance over a period, comparisons between tickers. A sector: its return against the S&P 500 and how its largest companies moved. A sector's industries and what it is made of. A region or country: its stock index. The US market as a whole: the main indices, every sector ranked, the largest companies, today's most active stocks, whether the market is open. Asset classes: rates, commodities, currencies, crypto. Anything about the current STATE or PERFORMANCE of a security, sector, region, market or asset class.
+- news: Recent headlines and developments ("latest", "recent", "what happened", "what's being reported", "any news") about a company, sector, region, topic or the whole market. Summarizes and gives context.
+- goal: Builds a savings plan: monthly amount needed to reach a target amount by a date (risk appetite may apply). Only when they want a plan or "how much should I save". Also reads and explains the plan the user saved on the Goals tab whenever they ask about "my plan", "my goal(s)", "the plan" or whether they are on track.
 - tax: Tax rules and account types (401k, IRA, Roth, HSA, 529), contribution limits, capital gains, deductions, tax treatment of investments.
 - calc: Computes a specific number: future value, loan/mortgage payment, doubling time, present value, real return, APY, bond yield, how long savings last with yearly withdrawals, or any other finance formula. Use when the user wants a figure calculated, not explained.
 
 ROUTING RULES
 0. qa is the DEFAULT. Use goal, portfolio or tax only when the message itself explicitly asks for that agent's job: a savings plan or how much to save (goal), an analysis of the user's own holdings (portfolio), tax treatment, tax rules or tax-advantaged accounts (tax). Mentioning retirement, saving, investing or an amount of money is not by itself a request for any of them: "I plan to retire with $1 million and need $50,000 a year" asks nothing about a savings plan, so it is not goal.
 1. A message can need several agents. Return every intent whose responsibility is required; usually 1-3, never more than 4.
-2. Performance or condition of a market, sector or asset class ("how is the housing market performing", "how are tech stocks doing", "state of the bond market") -> market + qa. market supplies the data; qa supplies the explanation of what drives it and what it means for a learner. Add news if they ask about recent events/causes or use "lately/this week/why now".
+2. Performance or condition of a sector, region, market or asset class ("how are tech stocks doing", "just the tech sector?", "how is Japan's market doing", "state of the bond market") -> market. The market agent supplies the figures; add qa only when the message also asks for an explanation (what drives it, why it matters, what it means, how it works). Add news if they ask about recent events/causes or use "lately/this week/why now". The market as a whole, with no specific market named (a market update, overview, recap or insights, "how's the market", "what are stocks doing") -> market + news, even when phrased as a fragment rather than a question.
 3. "Why did X move / why is X up/down" -> market + news (+ qa if they also ask what the concept means).
 4. Split compound messages. If a message has several parts (joined by "and", "also", a comma, or a second question), classify EACH part separately and return the union of intents. A definition plus a live figure for a named company or index ("What is a P/E ratio and what is TSLA's?") -> qa + market. Never let one part hide the other. But "and" alone does not mean two agents: add an agent only if the second part needs a different agent's job.
 5. A pure price/quote request ("price of NVDA") -> market only. A pure definition ("what is an ETF") -> qa only. Only use a single intent when the WHOLE message is that one thing. Do not add agents that contribute nothing.
 6. "Should I buy/invest in X" or "is X a good investment" -> qa + market (+ portfolio if they mention their holdings). Education only, never personal advice.
 7. Questions about what to consider or how something works (buying a house, mortgages, retirement accounts) -> qa. Add goal only if they ask for a savings plan, calc only if they ask for a number, tax only if tax treatment is asked.
 8. "How much will I have / what is my payment" -> calc. A request to SEE a calculation worked through ("show me an example of how to calculate WACC", "how do you calculate APY? walk me through it") -> calc, even without numbers: the calculator explains the formula with sample numbers. "How much must I save each month to reach $X by <date>" -> goal. If both a number and an explanation are requested, calc + qa.
+8b. A question about the user's own saved plan or goal ("explain my Goals plan", "am I on track?") -> goal. A figure worked out FROM that plan ("how much tax will I pay if the plan runs as planned?", "what if I add $200 a month?") -> goal + calc, plus the agent that explains the idea (tax for tax, qa otherwise): goal supplies the plan, calc the number, the other the explanation.
 9. Tax-related investing questions ("how are dividends taxed", "Roth vs traditional") -> tax (+ qa if broad concept explanation is also requested).
 10. Follow-ups: pronouns or references to the earlier subject ("them", "it", "the same sector", "grab the recent news") inherit the intents the conversation is about. A short "what about X?" repeats ALL intents of the previous question for the new subject (price and news for NVDA, then "what about NU?" -> market + news).
 11. Anything unclear or very general about money/investing -> qa, with lower confidence.
 12. Finnie can only READ. If the message asks Finnie itself to CHANGE something (add/remove/edit holdings, goals or the profile, place a trade, move money, change settings, data or the system) -> ["read_only"] alone. Asking whether or how to do it ("should I sell?", "how do I add holdings?") only needs reading and is routed as usual.
+13. Finnie only covers personal finance, investing, markets, the economy and money matters. A message about anything else (sport, cooking, travel, health, celebrities, coding, homework, general trivia, jokes, poems or stories) -> ["off_topic"] alone. If one part of the message is about finance, route that part as usual and leave off_topic out. A follow-up to a finance conversation ("why?", "and the year before?") is not off-topic, and neither is a money question about any subject ("how much does a wedding cost to save for?", "is Nike stock up?").
 
 EXAMPLES
-"What is the performance of the housing market?" -> ["market","qa"]
-"How is the housing market doing and what's in the news?" -> ["market","qa","news"]
+"How is the tech sector doing?" -> ["market"]
+"What about just the tech sector?" (after a question about the stock market) -> ["market"]
+"How is the energy sector doing and what drives it?" -> ["market","qa"]
+"How are bank stocks doing and what's in the news?" -> ["market","news"]
 "Why are tech stocks down this week?" -> ["market","news"]
 "What is a P/E ratio?" -> ["qa"]
 "What is a P/E ratio? And what is TSLA's P/E ratio?" -> ["qa","market"]
@@ -212,10 +257,14 @@ EXAMPLES
 "How should I plan for retirement?" -> ["qa"]
 "How much should I save each month to retire with $1 million in 25 years?" -> ["goal"]
 "Roth IRA or 401k, and how are the gains taxed?" -> ["tax","qa"]
+"Can you explain my Goals plan?" -> ["goal"]
+"How much tax do I need to pay if my plan runs as planned?" -> ["goal","tax","calc"]
 "Should I invest in real estate right now?" -> ["qa","market"]
 "Put 20 Apple shares in my portfolio" -> ["read_only"]
+"Who won the 2022 World Cup?" -> ["off_topic"]
+"Give me a recipe for banana bread" -> ["off_topic"]
 
-Reply with ONLY JSON: {"intents": ["qa"], "confidence": 0.0-1.0}. Intents must come from: qa, portfolio, market, news, goal, tax, calc, read_only. Confidence reflects how sure you are that the intent SET is complete and correct."""
+Reply with ONLY JSON: {"intents": ["qa"], "confidence": 0.0-1.0}. Intents must come from: qa, portfolio, market, news, goal, tax, calc, read_only, off_topic. Confidence reflects how sure you are that the intent SET is complete and correct."""
 
 
 def _resolved_label(c: dict) -> str:
@@ -231,7 +280,7 @@ def _with_listed_tickers(intents: list[str], text: str) -> list[str]:
     """A message that names a listed ticker ("what about the company with ticker SDEV?") needs the market agent, whatever the router guessed
     (after a Q&A turn the LLM reads "what about X?" as Q&A, and news alone never fetches the quote). The Q&A agent only knows the
     knowledge base, so in a short message it is replaced by the market agent; in a longer one it stays, as there may be a concept to explain too."""
-    if "market" in intents or not SYM.ticker_mentions(text):
+    if "market" in intents or not (SYM.ticker_mentions(text) or SYM.lowercase_mentions(text)):     # "ho'ws tesla stock doing?" too
         return intents
     if set(intents) <= {"qa", "news"} and len(text.split()) <= SHORT_QUESTION_WORDS:
         return [*(i for i in intents if i != "qa"), "market"]
@@ -239,35 +288,139 @@ def _with_listed_tickers(intents: list[str], text: str) -> list[str]:
 
 
 SHORT_QUESTION_WORDS = 12
+_MARKET_STATE = re.compile(r"\b(doing|performing|trading|status|price|prices|rate|rates|quote|level|up|down|today|now|worth)\b", re.I)
+
+
+def _with_market_words(intents: list[str], text: str) -> list[str]:
+    """Without an LLM: a short question about a market's current state ("how is the yen doing today?", "gold price") needs the
+    market agent, not Q&A; "what is forex?" stays a concept question."""
+    if intents != ["qa"] or len(text.split()) > SHORT_QUESTION_WORDS or not _MARKET_STATE.search(text) or not MK.in_text(text):
+        return intents
+    return ["market"]
 
 
 def _routed(res: dict, state: FinanceState) -> dict:
-    """Add the companies a market or news question is about. Resolved once here, with the conversation, so "nvdia" is corrected to
-    NVIDIA and "them" means the company discussed earlier; the market and news agents both read `entities["companies"]`."""
+    """Add what a market or news question is about: its companies, markets ("forex", "gold"), topic and what it rules out. Found
+    once here, with the conversation, so "nvdia" is corrected to NVIDIA and "them" means the company discussed earlier; the market
+    and news agents read `entities["companies"]`, `["markets"]`, `["topic"]` and `["excluded"]`."""
     e = res["entities"]
-    if {"market", "news"} & set(res["intent"]) and not (e["tickers"] or e["indices"]):
-        e["companies"] = SYM.resolve(state["question"], history=state.get("history"))
+    if not {"market", "news"} & set(res["intent"]):
+        e["tickers"] = [t for t in e["tickers"] if t.lower() not in SYM.excluded(state["question"])]
+        return res
+    known = bool(e["tickers"] or e["indices"])                # the router's own list named them: no model call needed
+    subj = SYM.subjects(state["question"], use_llm=not known, history=state.get("history"))
+    ruled_out = subj["excluded"] | SYM.excluded(state.get("original_question") or "")     # the proofreader may have dropped it
+    e["tickers"] = [t for t in e["tickers"] if t.lower() not in ruled_out]     # "not looking for DHSB news"
+    e.update(markets=subj["markets"], topic=subj["topic"], excluded=sorted(ruled_out))
+    if not known:
+        e["companies"] = subj["companies"]
         if e["companies"]:
             res["trace"] = [*res["trace"], "resolved " + ", ".join(_resolved_label(c) for c in e["companies"])]
-    return _with_carried_companies(res, state)
+    if e["markets"]:
+        res["trace"] = [*res["trace"], "markets: " + ", ".join(_market_label(m) for m in e["markets"])]
+    return _with_sector_figures(_with_levels(_with_carried_companies(res, state)))
+
+
+def _with_sector_figures(res: dict) -> dict:
+    """News about a sector comes with how the sector has done, so the market agent runs too (`_sector_lines` shows the result)."""
+    if "sector" not in res["entities"]["levels"] or "news" not in res["intent"]:
+        return res
+    res["entities"]["sector_figures"] = True
+    if "market" not in res["intent"]:
+        res["intent"] = [*res["intent"], "market"]
+        res["trace"] = [*res["trace"], "sector news: adding the market agent for its performance"]
+    return res
+
+
+def _with_levels(res: dict) -> dict:
+    """`entities["levels"]`: what the subjects (named or carried) cover, company to market (symbols.levels)."""
+    e = res["entities"]
+    indices = [MK.market(s) for s in e.get("indices") or [] if MK.entry(s)]
+    e["levels"] = SYM.levels([*(e.get("companies") or []), *e.get("tickers", [])], [*(e.get("markets") or []), *indices])
+    if e["levels"]:
+        res["trace"] = [*res["trace"], "level: " + ", ".join(e["levels"])]
+    return res
+
+
+def _market_label(m: dict) -> str:
+    return f"{m['name']} ({m['symbol']})" if m["symbol"] else f"{m['name']} (all {m['group']})"
+
+
+def _carried_markets(prev: dict) -> list[dict]:
+    """The previous answer's markets, rebuilt from their saved keys (a market dropped from markets.yaml since is skipped)."""
+    out = []
+    for m in prev.get("markets") or []:
+        key = m["key"]
+        try:
+            out.append(MK.group(key.removeprefix("group:")) if key.startswith("group:") else MK.market(key))
+        except (KeyError, TypeError):
+            continue
+    return out
 
 
 def _with_carried_companies(res: dict, state: FinanceState) -> dict:
-    """A follow-up uses the companies the previous answer was about: all of them when it names none ("which did better?"),
-    and alongside the new one when it compares or adds ("compare to Starbucks", "news on MSFT too?")."""
+    """A follow-up uses the companies and markets the previous answer was about: all of them when it names none ("which did
+    better?", "any news on it?"), and alongside the new one when it compares or adds ("compare to Starbucks", "news on MSFT too?")."""
     prev, e = CTX.carried(state), res["entities"]
-    if not prev.get("companies") or not {"market", "news"} & set(res["intent"]):
+    if not (prev.get("companies") or prev.get("markets")) or not {"market", "news"} & set(res["intent"]):
         return res
-    new = e.get("companies") or []
-    have = {*e["tickers"], *e["indices"], *(c["symbol"] for c in new)}
+    new, new_markets = e.get("companies") or [], e.get("markets") or []
+    have = {*e["tickers"], *e["indices"], *(c["symbol"] for c in new), *(m["key"] for m in new_markets)}
     if have and not CTX.ADDS_TO.search(state["question"]):
         return res
-    add = [{**c, "mention": "(earlier)"} for c in prev["companies"] if c["symbol"] not in have]
+    ruled_out = set(e.get("excluded") or ()) | SYM.excluded(state["question"])
+    add = [{**c, "mention": "(earlier)"} for c in prev.get("companies") or [] if c["symbol"] not in have and not SYM.is_excluded(c, ruled_out)]
     add = add[:max(0, CTX.MAX_COMPANIES - len(have))]
     if add:
         e["companies"] = [*add, *new]
         res["trace"] = [*res["trace"], "from the previous answer: " + ", ".join(c["symbol"] for c in add)]
+    markets = [m for m in _carried_markets(prev) if m["key"] not in have and not SYM._ruled_out_market(m, ruled_out)]
+    if markets:
+        e["markets"] = [*markets, *new_markets][:CTX.MAX_COMPANIES]
+        res["trace"] = [*res["trace"], "markets from the previous answer: " + ", ".join(m["name"] for m in markets)]
     return res
+
+
+# Words that make a message about the user's own money. Without one, a market question keeps no portfolio intent: after
+# "summary of my portfolio?" the LLM router sent "how about nvda vs market trending today?" to the portfolio agent too.
+_OWN_MONEY = re.compile(r"\b(my|mine|i own|i hold|i have|i bought|our|portfolio|holdings?|positions?|diversif\w*|allocation|"
+                        r"rebalanc\w*|am i)\b", re.I)
+
+
+def _without_stray_portfolio(intents: list[str], state: FinanceState) -> list[str]:
+    """Drop the portfolio intent the LLM router carried over from an earlier turn, when the message is a market question that
+    never mentions the user's own holdings (the router's rule: portfolio only when the message asks for that job)."""
+    q = f"{state.get('original_question') or ''} {state['question']}"
+    if "portfolio" in intents and "market" in intents and not _OWN_MONEY.search(q):
+        return [i for i in intents if i != "portfolio"]
+    return intents
+
+
+def _with_screen(intents: list[str], state: FinanceState) -> list[str]:
+    """A message about the tab on screen also goes to the agent that reads it (portfolio, goal, market). A short one
+    ("what about this?", "explain this") the router could only call Q&A goes to that agent alone."""
+    on_screen = state.get("screen")
+    if not on_screen:
+        return intents
+    if set(intents) <= {"qa"} and len(state["question"].split()) <= CTX.SCREEN_SHORT_WORDS:
+        return list(on_screen["intents"])
+    return list(dict.fromkeys([*intents, *on_screen["intents"]]))
+
+
+_FIGURE_ASKED = re.compile(r"\b(how much|how many dollars|estimate|work out|calculat\w*|figure out)\b", re.I)
+
+
+def _with_saved_plan(intents: list[str], state: FinanceState) -> list[str]:
+    """A message about the user's own plan ("explain my Goals plan", "if the plan runs as planned") goes to the goal agent,
+    which reads the plan saved on the Goals tab: the router LLM tends to call it Q&A, which has no way to see the plan."""
+    q = f"{state.get('original_question') or ''} {state['question']}"
+    if not state.get("saved_goal") or not R.refers_to_plan(q):
+        return intents
+    if "goal" not in intents:
+        intents = ["goal"] if intents == ["qa"] else [*intents, "goal"]   # Q&A alone can't add anything about their plan
+    if "tax" in intents and "calc" not in intents and _FIGURE_ASKED.search(q):   # the tax agent explains, it never computes
+        intents = [*intents, "calc"]
+    return intents
 
 
 def router_node(state: FinanceState, config: RunnableConfig):
@@ -285,9 +438,13 @@ def _route(state: FinanceState) -> dict:
                 "trace": [f"router: asks to change something ({write}) → read_only guard"]}
     if R.is_gibberish(text):
         return {"intent": ["clarify"], "entities": entities, "router_mode": "keywords", "trace": ["router: no words found → clarify"]}
+    on_screen = state.get("screen")
+    if on_screen and on_screen["symbol"]:            # "how does this compare to MSFT?" on AAPL: both
+        entities["tickers"] = list(dict.fromkeys([on_screen["symbol"], *entities["tickers"]]))
     if current_llm() is not None:
-        recent = H.transcript(state.get("history"))
-        reply = ask_llm(ROUTER_SYSTEM, f"Recent conversation:\n{recent or '(none)'}\n\nMessage: {text}")
+        recent = "" if on_screen else H.transcript(state.get("history"))
+        shown = f"On screen: {on_screen['label']}; \"this\" and \"here\" in the message mean it.\n\n" if on_screen else ""
+        reply = ask_llm(ROUTER_SYSTEM, f"{shown}Recent conversation:\n{recent or '(none)'}\n\nMessage: {text}")
         parsed = R.parse_llm_intents(reply) if reply else None
         if parsed:
             intents, confidence = parsed
@@ -296,18 +453,57 @@ def _route(state: FinanceState) -> dict:
             if "read_only" in intents:
                 return {"intent": ["read_only"], "entities": {**entities, "write_request": "data"}, "router_mode": "llm",
                         "trace": ["router (LLM): asks to change something → read_only guard"]}
-            intents = _with_listed_tickers(intents, text)
+            if intents == ["off_topic"]:
+                return {"intent": ["off_topic"], "entities": entities, "router_mode": "llm",
+                        "trace": ["router (LLM): not about finance → off_topic guard"]}
+            intents = [i for i in intents if i != "off_topic"] or ["qa"]       # a finance part is answered; the rest is left out
+            intents = _with_saved_plan(_with_screen(_without_stray_portfolio(_with_listed_tickers(intents, text), state), state), state)
             return _routed({"intent": intents, "entities": entities, "router_mode": "llm", "trace": [f"router (LLM): {', '.join(intents)}"]}, state)
         log.warning("router LLM reply unusable; falling back to keywords")
-    intents = _with_listed_tickers(R.classify(text), text)
+    intents = _with_saved_plan(_with_screen(_with_listed_tickers(_with_market_words(R.classify(text), text), text), state), state)
     if intents == ["qa"] and CTX.carried(state).get("companies"):                 # "which did better?" after a market answer
         intents = ["market"]
     return _routed({"intent": intents, "entities": entities, "router_mode": "keywords", "trace": [f"router (keywords): {', '.join(intents)}"]}, state)
 
 
+def _writes_from_notes() -> bool:
+    """Whether the reply can use earlier chats' notes: only the LLM synthesizer reads them."""
+    return current_llm() is not None
+
+
+def topic_node(state: FinanceState, config: RunnableConfig):
+    """Which topic the message belongs to (mds/topic-memory.md): the previous turn's for a follow-up or a message with no
+    subject of its own; an older topic of this chat it names again ("back to Tesla"), whose subject, period and figures then
+    fill in what the message leaves out; or a new topic, linked to earlier chats about the same thing, whose dated
+    summaries reach the synthesizer as background. Runs after the router so it matches on the router's resolved entities.
+    A no-op when the run has no topic memory (run_chat without topics)."""
+    pool = state.get("topics_in")
+    if pool is None:
+        return {"trace": ["topic: no topic memory for this run"]}
+    if (state.get("intent") or []) in (["read_only"], ["off_topic"], ["clarify"]):
+        return {"trace": ["topic: guard reply, no topic"]}
+    cfg = get_config().get("topics") or {}
+    try:
+        got = TOP.choose(state, pool, embed=TOP.embed, same_chat=float(cfg.get("same_chat_similarity", 0.8)),
+                         earlier_chat=float(cfg.get("earlier_chat_similarity", 0.86)), max_linked=int(cfg.get("max_linked", 3)))
+    except Exception as e:  # noqa: BLE001 — topic memory must never break a turn
+        log.warning("topic node failed: %s", e)
+        return {"trace": [f"topic: skipped ({type(e).__name__})"]}
+    out = {"topic": {k: got[k] for k in ("action", "topic_id", "related", "linked")}, "trace": [got["note"]]}
+    if got["action"] == "reopen":
+        out.update(context_in=got["context"], follow_up=True)
+    elif got["action"] == "continue" and not state.get("follow_up") and state.get("context_in"):
+        out["follow_up"] = bool(CTX.subjectless(state.get("original_question") or state["question"]))      # rule 2 only
+    if got.get("background") and _writes_from_notes():
+        out["topic_background"] = got["background"]
+    elif got["linked"]:                         # basic mode writes no reply from the notes: link the topics, don't claim to use them
+        out["topic"]["linked"] = []
+    return out
+
+
 def route_after_router(state: FinanceState) -> list[str]:
     intents = state.get("intent") or ["qa"]
-    if intents in (["clarify"], ["read_only"]):
+    if intents in (["clarify"], ["read_only"], ["off_topic"]):
         return intents
     nodes = {f"{i}_agent" for i in intents if i in R.INTENTS}
     return sorted(nodes) or ["qa_agent"]
@@ -338,12 +534,29 @@ def _not_found(agent: str, query: str, trace: str, prefix: str = "") -> dict:
     return _out(agent, "", status="not_found", query=query, prefix=prefix, confidence="low", trace=trace)
 
 
+def _reranked(fresh: list[dict], earlier: list[dict], k: int) -> list[dict]:
+    """A fresh search and the topic's earlier sections in one list, by similarity to the question, each chunk once."""
+    seen, out = set(), []
+    for h in sorted([*fresh, *earlier], key=lambda h: h.get("score", 0), reverse=True):
+        key = (h.get("doc_id"), h.get("section"), h.get("piece"))
+        if key not in seen:
+            seen.add(key)
+            out.append(h)
+    return out[:k]
+
+
 def _kb_answer(agent: str, state: FinanceState, query: str, prefix: str = "") -> dict:
     """Answer from the knowledge base (Qdrant). not_found (→ research on Wikipedia) when the index is missing or failing,
     or the best match is below rag.min_score (the topic probably isn't indexed yet)."""
     cfg = get_config()["rag"]
     try:
         hits = kb_search(state["question"])
+        earlier = [i for i in CTX.carried(state).get("source_ids") or [] if i.startswith("kb:")]
+        if earlier:                     # a follow-up: the sections that answered the topic before, scored against this question
+            try:
+                hits = _reranked(hits, kb_fetch(state["question"], earlier), cfg["top_k"])
+            except Exception as e:  # noqa: BLE001 — the fresh search still answers
+                log.warning("re-fetching the topic's sources failed: %s", e)
     except Exception as e:  # noqa: BLE001 — a broken index must not break Q&A
         log.warning("knowledge-base search failed: %s", e)
         return _not_found(agent, query, f"kb_search → failed ({type(e).__name__})", prefix)
@@ -387,30 +600,42 @@ def tax_node(state: FinanceState, config: RunnableConfig):
 _PRICE_ASK = re.compile(r"\b(price|quote|trading at|share price|worth today|how much is)\b", re.I)
 MARKET_ASK = ("I couldn't tell which company or ticker you mean. Tell me the company name or its ticker symbol "
               "(for example “NVIDIA” or “NVDA”) and I'll look up its price.")
+# Basic mode only (with an LLM, `symbols.subjects` decides): "the market" plus a word asking how it is doing now means the
+# US indices. Both are required, so "time the market" or "market cap" stays a concept lookup.
+_WHOLE_MARKET = re.compile(r"\b(?:the\s+)?(?:stock\s+)?markets?\b", re.I)
+_MARKET_NOW = re.compile(r"\b(today|tonight|so far|right now|now|this (?:morning|afternoon|week)|doing|performing|going|moving|"
+                         r"insights?|overview|update|recap|wrap(?:-?up)?)\b", re.I)
 
 
 def _view_symbols(state: FinanceState) -> list[str]:
-    """Symbols the user means without naming them: "my watchlist", or "this stock" while one is selected on the Live tab."""
+    """Symbols the user means without naming them: "my watchlist", or "this stock" while one is selected on the Live Market
+    or Research tab."""
     view, q = state.get("view") or {}, state["question"]
     valid = lambda syms: [s for s in dict.fromkeys(str(x).strip().upper() for x in syms if x) if SYMBOL_OK.match(s)]  # noqa: E731
     if re.search(r"\b(watchlist|watching|tracking|following)\b", q, re.I):
         return valid(view.get("watchlist") or [])
-    if view.get("selected") and re.search(r"\b(this|it|that|selected|current)\b", q, re.I):
+    if view.get("selected") and re.search(r"\b(this|selected|current)\b", q, re.I):     # not "it"/"that": they usually mean something else
         return valid([view["selected"]])
     return []
 
 
 _PERFORMANCE = re.compile(r"\b(perform\w*|better|worse|best|worst|compare\w*|versus|vs|returns?|gain\w*|grow\w*|done|doing|did)\b", re.I)
+# Today's move, read from quotes (change vs previous close), not a period's return. "nvda vs market today?" once carried the
+# previous answer's "last month" and compared NVDA's day with the indices' month.
+_TODAY = re.compile(r"\b(today|today's|tonight|intraday|right now|this (?:morning|afternoon))\b", re.I)
+# "NVDA vs the market": the US indices are a subject too, though the router named only the company (a chat's first message).
+_VS_MARKET = re.compile(r"\b(?:vs\.?|versus|compared?\s+(?:to|with)|against|than|relative\s+to)\s+(?:the\s+)?"
+                        r"(?:overall\s+|broader\s+|wider\s+|whole\s+)?(?:us\s+|u\.s\.\s+)?(?:stock\s+)?markets?\b", re.I)
 
 
 def _period_for(state: FinanceState) -> tuple[date, str] | None:
     """The period this question asks about; for a follow-up ("which did better?", "what about AAPL?"), the one the previous
-    answer used (its saved context). A plain price question gets none. Conversations saved before contexts existed fall
-    back to looking for a period in the recent messages."""
+    answer used (its saved context). A plain price question, or one about today, gets none. Conversations saved before
+    contexts existed fall back to looking for a period in the recent messages."""
     q = state["question"]
     if p := MT.asked_period(q):
         return p
-    if _PRICE_ASK.search(q):
+    if _PRICE_ASK.search(q) or _TODAY.search(q):
         return None
     if state.get("context_in") is not None:
         return CTX.period_of(CTX.carried(state))
@@ -421,10 +646,19 @@ def _period_for(state: FinanceState) -> tuple[date, str] | None:
 
 MARKET_TOOL_SYSTEM = (
     "You fetch market data for a personal-finance EDUCATION assistant. Call the tools that supply the figures the question "
-    "needs, for the companies or funds it is about (use ticker symbols). Request everything in this one reply; you may call "
-    "several tools at once. get_quote gives today's price, change, volume and day range; get_performance a period's return, "
-    "high/low and average volume; get_company_profile a company's sector, valuation (P/E, market cap, beta), earnings and "
-    "dividends; get_fund_profile an ETF's or mutual fund's expense ratio, yield and holdings. Don't answer the question yourself.")
+    "needs, for the companies, funds or markets it is about (use ticker symbols). Request everything in this one reply; you may "
+    "call several tools at once. Match the level the question is about. Company or fund: get_quote gives today's price, change, "
+    "volume and day range; get_performance a period's return, high/low and average volume; get_company_profile a company's "
+    "sector, valuation (P/E, market cap, beta), earnings and dividends; get_fund_profile an ETF's or mutual fund's expense ratio, "
+    "yield and holdings. Sector (\"the tech sector\", \"bank stocks\"): get_sector_performance for how it did, never a quote of the "
+    "sector's fund; get_sector_profile for what it is made of; get_industry_performance for which of its industries did best or "
+    "worst. One industry (\"semiconductors\"): get_industry. The market as a whole, or all sectors: get_market_overview; the "
+    "largest companies: get_largest_companies; stock markets around the world, a region or a country: get_region_performance; "
+    "today's most traded stocks: get_most_active; whether the market is open: get_market_status. Call each tool once per subject, "
+    "for the period the question or conversation names; with none named, leave the period out (it defaults to the last month). "
+    "A question about today (\"today\", \"right now\") is about today's move: get_quote, for the market too (its index "
+    "symbols, e.g. ^GSPC, ^IXIC, ^DJI), never a period's return from get_performance or get_market_overview. "
+    "Don't answer the question yourself.")
 
 
 def _llm_fetch(llm, state: FinanceState, db, symbols: list[str], period: tuple[date, str] | None) -> tuple[dict, list[str]]:
@@ -434,13 +668,17 @@ def _llm_fetch(llm, state: FinanceState, db, symbols: list[str], period: tuple[d
     cfg = get_config()["workflow"]
     max_calls, rounds = int(cfg.get("market_tool_calls", 4)), int(cfg.get("market_tool_rounds", 1))
     names = {c["symbol"]: c.get("name") for c in state["entities"].get("companies") or []}
-    about = [f"Companies: {', '.join(f'{names[s]} ({s})' if names.get(s) else s for s in symbols)}"]
+    names.update({s: m["name"] if m["symbol"] else f"{m['name']}: {s}" for m in state["entities"].get("markets") or [] for s in m["quotes"]})
+    about = [f"Companies and markets: {', '.join(f'{names[s]} ({s})' if names.get(s) else s for s in symbols)}" if symbols else
+             "Companies and markets: none named (a question about the market as a whole)"]
+    if levels := state["entities"].get("levels") or []:
+        about.append(f"Level: {', '.join(levels)}")
     if period:
         about.append(f"Period the conversation is about: {period[1]}")
     if known := CTX.describe(state.get("context_in")):
         about.append(f"Earlier in the conversation:\n{known}")
     messages = [SystemMessage(MARKET_TOOL_SYSTEM), HumanMessage("\n".join(about) + f"\n\nQuestion: {state['question']}")]
-    bound, data, notes, calls = llm.bind_tools(MT.TOOL_SPECS), {}, [], 0
+    bound, data, notes, calls, seen = llm.bind_tools(MT.TOOL_SPECS), {}, [], 0, set()
     for _ in range(rounds):
         reply = bound.invoke(messages)
         tool_calls = getattr(reply, "tool_calls", None) or []
@@ -448,6 +686,15 @@ def _llm_fetch(llm, state: FinanceState, db, symbols: list[str], period: tuple[d
             break
         messages.append(reply)
         for call in tool_calls:
+            key = (call["name"], json.dumps(call.get("args") or {}, sort_keys=True))
+            if key in seen:                     # the same call again (one overview per index listed): nothing new, not counted
+                messages.append(ToolMessage("skipped: same call as before", tool_call_id=call["id"]))
+                continue
+            seen.add(key)
+            if "company" in levels and (strays := _off_subject(call.get("args") or {}, symbols)):
+                notes.append(f"{call['name']}({', '.join(strays)}) → skipped (not what the question is about)")
+                messages.append(ToolMessage(f"skipped: {', '.join(strays)} is not one of the question's subjects", tool_call_id=call["id"]))
+                continue
             if calls >= max_calls:
                 notes.append(f"{call['name']} → skipped (limit of {max_calls} tool calls)")
                 messages.append(ToolMessage("skipped: tool call limit reached", tool_call_id=call["id"]))
@@ -460,21 +707,66 @@ def _llm_fetch(llm, state: FinanceState, db, symbols: list[str], period: tuple[d
     return data, notes
 
 
-def _fill_in(db, data: dict, symbols: list[str], period: tuple[date, str] | None) -> tuple[dict, list[str]]:
+def _off_subject(args: dict, symbols: list[str]) -> list[str]:
+    """The symbols a tool call names that the question isn't about, checked when it names companies (a question about the
+    market as a whole leaves the stocks to the model). The model sees the earlier conversation, and once turned "Gold" into
+    the stock GOLD for a question about AAPL; a subject the router missed is better missing than invented."""
+    asked = args.get("symbols") if "symbols" in args else args.get("symbol")
+    named = [str(s).strip().upper().lstrip("$") for s in (asked if isinstance(asked, list) else [asked]) if s]
+    return [s for s in named if s not in set(symbols)]
+
+
+def _fill_in(db, data: dict, symbols: list[str], period: tuple[date, str] | None, *, quote_only=()) -> tuple[dict, list[str]]:
     """What every answer has, whatever the model chose (and all of it without an LLM): a quote for each company, and the
-    asked or carried period's performance."""
+    asked or carried period's performance (not for `quote_only`: symbols whose period the market overview already gives)."""
     notes = []
     need = [s for s in symbols if "quote" not in data.get(s, {})]      # cached, so cheap even when the model chose other tools
-    if need:
-        got = MT.get_quote(db, need)
-        notes.append(f"get_quote({', '.join(need)}) → {_freshness(got)}")
+    for i in range(0, len(need), MT.MAX_SYMBOLS):                      # the tool takes MAX_SYMBOLS at a time; all four US indices are 4
+        part = need[i:i + MT.MAX_SYMBOLS]
+        got = MT.get_quote(db, part)
+        notes.append(f"get_quote({', '.join(part)}) → {_freshness(got)}")
         data = MT.merge_market(data, got)
     if period:
-        need = [s for s in symbols if "quote" in data.get(s, {}) and "period" not in data[s]]
+        need = [s for s in symbols if "quote" in data.get(s, {}) and "period" not in data[s] and s not in quote_only]
         if need:
             got = MT.performance(db, need, *period)
             notes.append(f"get_performance({', '.join(need)}, {period[1]}) → {_freshness(got)}")
             data = MT.merge_market(data, got)
+    return data, notes
+
+
+def _group_syms(markets: list[dict], group: str) -> set[str]:
+    return {s for m in markets if m["group"] == group for s in m["quotes"]}
+
+
+def _levels_asked(state: FinanceState, markets: list[dict], period: tuple[date, str] | None) -> tuple[list[str], bool]:
+    """Figures above one company the question needs: (the sectors to measure against the S&P 500, whether to add the market
+    overview). A sector gets its sector figures; "sectors" as a group, or how the whole market performed, the overview. A price
+    asked for ("price of XLK") keeps the plain quote."""
+    q = state["question"]
+    if _PRICE_ASK.search(q):
+        return [], False
+    sectors = [m["symbol"] for m in markets if m.get("level") == "sector" and m["symbol"]]
+    keys = {m["key"] for m in markets}
+    over_time = bool(period) or (_PERFORMANCE.search(q) and not _TODAY.search(q))     # today: the indices' quotes say it
+    overview = "group:sectors" in keys or ("group:us_indices" in keys and over_time)
+    return sectors, overview
+
+
+def _fill_levels(db, data: dict, sectors: list[str], overview: bool, period: tuple[date, str] | None) -> tuple[dict, list[str]]:
+    """The sector and overview figures the model didn't fetch (all of them without an LLM), over the asked or carried period,
+    else MT.DEFAULT_PERIOD."""
+    start, label = period or MT.parse_period(MT.DEFAULT_PERIOD)
+    notes = []
+    for s in sectors:
+        if "sector" not in data.get(s, {}):
+            got = MT.sector_performance(db, s, start, label)
+            notes.append(f"get_sector_performance({s}, {label}) → {_freshness(got)}")
+            data = MT.merge_market(data, got)
+    if overview and "overview" not in data.get(MT.OVERVIEW_KEY, {}):
+        got = MT.market_overview(db, start, label)
+        notes.append(f"get_market_overview({label}) → {_freshness(got)}")
+        data = MT.merge_market(data, got)
     return data, notes
 
 
@@ -494,7 +786,7 @@ def _key_facts(data: dict) -> dict:
             f.update({"period": p["label"], "return": p["return"], "start_price": p["start_price"], "end_price": p["end_price"],
                       "start_date": p["start_date"], "end_date": p["end_date"], "avg_volume": p.get("avg_volume")})
         if pr := d.get("profile"):
-            f.update({k: pr[k] for k in ("trailing_pe", "market_cap", "dividend_yield") if pr.get(k) is not None})
+            f.update({k: pr[k] for k in ("trailing_pe", "market_cap", "shares_outstanding", "dividend_yield") if pr.get(k) is not None})
         if fd := d.get("fund"):
             f.update({k: fd[k] for k in ("expense_ratio", "yield") if fd.get(k) is not None})
         if f:
@@ -505,14 +797,24 @@ def _key_facts(data: dict) -> dict:
 @safe("market")
 def market_node(state: FinanceState, config: RunnableConfig):
     """Market data through tools (market_tools.py). With an LLM the model picks the tools and arguments for the question
-    (quote, performance over a period, company or fund profile); then, and without an LLM, every company gets a quote and the
-    asked or carried period its performance. All figures go to `market_data` for the synthesizer and the saved context."""
+    (quote, performance over a period, company or fund profile, sector performance, market overview); then, and without an LLM,
+    every company gets a quote and the asked or carried period its performance, a sector (`entities["levels"]`) its return against
+    the S&P 500 instead of its fund's quote, and the market as a whole the overview. All figures go to `market_data` for the
+    synthesizer and the saved context."""
     e = state["entities"]
     symbols = e["tickers"] + e["indices"]
     view_syms = _view_symbols(state) if not symbols else []
     symbols = symbols or view_syms
     named = e.get("companies") or []        # "price of Palantir": looked up on Yahoo by the router; or carried from the previous answer
-    symbols = list(dict.fromkeys([*symbols, *(r["symbol"] for r in named)]))
+    markets = e.get("markets") or []        # "how is gold doing?": GC=F; "forex": the group's main pairs
+    if not (symbols or named or markets) and current_llm() is None and _WHOLE_MARKET.search(state["question"]) and _MARKET_NOW.search(state["question"]):
+        markets = [MK.group("us_indices")]
+    if not markets and _VS_MARKET.search(state["question"]):
+        markets = [MK.group("us_indices")]
+    market_syms = [s for m in markets for s in m["quotes"]]
+    symbols = list(dict.fromkeys([*symbols, *(r["symbol"] for r in named), *market_syms]))
+    if not symbols and (wide := _market_wide(state, config)):                    # "most active stocks today?": no subject needed
+        return wide
     if not symbols and _PRICE_ASK.search(state["question"]):                      # a quote for something we can't identify: ask, don't research
         return _out("market", MARKET_ASK, status="need_info", confidence="low", trace="market: price asked for, but no company or ticker recognised → ask")
     if not symbols:                        # a market concept rather than a quote: look it up
@@ -521,6 +823,8 @@ def market_node(state: FinanceState, config: RunnableConfig):
     if db is None:
         raise RuntimeError("no database session for market lookup")
     period = _period_for(state)
+    sectors, overview = _levels_asked(state, markets, period)
+    quoted = [s for s in symbols if s not in sectors and not (overview and s in _group_syms(markets, "sectors"))]
     data, notes, how = {}, [], "keywords"
     llm = current_llm()
     if llm is not None and hasattr(llm, "bind_tools"):
@@ -530,25 +834,88 @@ def market_node(state: FinanceState, config: RunnableConfig):
         except Exception as ex:  # noqa: BLE001 — a model that can't call tools still gets the standard figures
             log.warning("market tool calling failed: %s", ex)
             notes.append(f"tool calling failed ({type(ex).__name__})")
-    data, more = _fill_in(db, data, symbols, period)
+    ov = data.get(MT.OVERVIEW_KEY, {}).get("overview")
+    if ov and period is None and _TODAY.search(state["question"]) and ov["label"] != "last day":
+        del data[MT.OVERVIEW_KEY]           # the model asked for a month's returns (the default) for a question about today
+        quoted += [s for s in MT.OVERVIEW_INDICES if s not in quoted]
+        notes.append(f"market overview ({ov['label']}) dropped: the question is about today → index quotes")
+    data, more = _fill_in(db, data, quoted, period, quote_only=MT.OVERVIEW_INDICES if overview else ())
     notes += more
+    data, more = _fill_levels(db, data, sectors, overview, period)
+    notes += more
+    data, more = _fill_wide(db, data, state["question"])
+    notes += more
+    data = {s: ({"sector": d["sector"]} if s in sectors and "sector" in d else d) for s, d in data.items()}   # the sector, not its fund's price
+    return _market_result(data, notes, how, markets, market_syms, period)
+
+
+# Basic mode (no LLM) for questions about the market as a whole that name no subject; with an LLM the model picks these tools.
+_MARKET_WIDE = [(re.compile(r"\bmost (?:active|traded)\b", re.I), "get_most_active", "MOST_ACTIVE"),
+                (re.compile(r"\b(?:biggest|largest) (?:\w+ )?(?:companies|stocks)\b", re.I), "get_largest_companies", "LARGEST"),
+                (re.compile(r"\b(?:markets? (?:is )?(?:open|closed)|is the (?:stock )?market open|trading hours)\b", re.I), "get_market_status",
+                 "MARKET_STATUS")]
+
+
+def _fill_wide(db, data: dict, question: str) -> tuple[dict, list[str]]:
+    """The market-wide figures the question's words ask for and the model didn't fetch (all of them without an LLM)."""
+    notes = []
+    for pattern, name, key in _MARKET_WIDE:
+        if pattern.search(question) and key not in data:
+            got, note = MT.run_tool(db, name, {})
+            notes.append(note)
+            data = MT.merge_market(data, got)
+    return data, notes
+
+
+def _market_wide(state: FinanceState, config: RunnableConfig) -> dict | None:
+    """A question about the market as a whole that names no company or market ("most active stocks today?", "biggest companies?",
+    "is the market open?"): the model picks the market-wide tools, or without one the words do. None when neither finds any."""
+    db = _db(config)
+    if db is None:
+        return None
+    period, llm, data, notes, how = _period_for(state), current_llm(), {}, [], "keywords"
+    if llm is not None and hasattr(llm, "bind_tools"):
+        try:
+            data, notes = _llm_fetch(llm, state, db, [], period)
+            how = "LLM tools"
+        except Exception as ex:  # noqa: BLE001
+            log.warning("market tool calling failed: %s", ex)
+    data, more = _fill_wide(db, data, state["question"])
+    notes += more
+    if not any(len(d) > 1 or "error" not in d for d in data.values()):
+        return None
+    return _market_result(data, notes, how, [], [], period)
+
+
+def _market_result(data: dict, notes: list[str], how: str, markets: list[dict], market_syms: list[str], period) -> dict:
+    """The market agent's output from the figures: the answer lines, data info, `market_data` and the saved context."""
     lines = MT.describe_lines(data)
     quotes = [d["quote"] for d in data.values() if "quote" in d]
     if quotes:
         lines.append("\n_“% vs previous close” compares today's price with yesterday's closing price. A single day's move says little about the long term._")
-    info = {"provider": quotes[0]["source"], "fetched_at": quotes[0]["as_of"], "freshness": quotes[0]["freshness"]} if quotes else None
-    res = _out("market", "\n".join(lines), data_info=info, confidence="high" if quotes else "low",
+    shown = quotes or [sec for d in data.values() for k in ("sector", "overview", *MT.YAHOO_LINES) if (sec := d.get(k)) and sec.get("as_of")]
+    info = {"provider": shown[0]["source"], "fetched_at": shown[0]["as_of"], "freshness": shown[0]["freshness"]} if shown else None
+    res = _out("market", "\n".join(lines), data_info=info, confidence="high" if shown else "low",
                trace=f"market ({how}): " + "; ".join(notes))
     res["market_data"] = data
-    used = next((d["period"] for d in data.values() if "period" in d), None)
-    res["turn_context"] = {"companies": [{"symbol": s, "name": MT._name(d, s)} for s, d in data.items() if "error" not in d or len(d) > 1][:CTX.MAX_COMPANIES],
+    used = next((d[k] for d in data.values() for k in ("period", "sector", "overview") if k in d), None)
+    companies = [{"symbol": s, "name": MT._name(d, s)} for s, d in data.items()
+                 if ("error" not in d or len(d) > 1) and s not in market_syms and not MT.is_subject_key(s)][:CTX.MAX_COMPANIES]
+    res["turn_context"] = {"companies": companies,
+                           "markets": [{"key": m["key"], "name": m["name"]} for m in markets],
+                           "levels": SYM.levels(companies, markets),
                            "facts": _key_facts(data),
                            **({"period": {"start": used["start"], "label": used["label"]}} if used else
                               {"period": {"start": period[0].isoformat(), "label": period[1]}} if period else {})}
     return res
 
 
-NEWS_LIVE_MAX = 6
+NEWS_LIVE_MAX = 6                # stories shown when the question asks for no number ("show the latest 5 news" asks for 5)
+NEWS_MAX_ASKED = 15              # the most stories one answer shows, whatever is asked
+NEWS_SCREEN_MAX = 30             # newest headlines the relevance check looks through
+NEWS_MARKET_READING = "the latest market-wide headlines, not news about any particular company"
+NEWS_MARKET_ALTERNATIVES = ["What's in the news about interest rates and the Fed this week?",
+                            "What's the latest technology sector news?", "What moved the stock market this week?"]
 
 
 def _news_none(days: int, tried: list[str], trace: str, *, unavailable: bool = False) -> dict:
@@ -558,14 +925,17 @@ def _news_none(days: int, tried: list[str], trace: str, *, unavailable: bool = F
     else:
         did = "; ".join(tried)
         msg = (f"I looked, and found no news matching that from the last {days} days ({did}). "
-               "If you name a company or ticker, for example “news on NVDA”, I can pull its latest headlines.")
+               "If you name a company, ticker or market, for example “news on NVDA” or “forex news”, I can pull its latest headlines.")
     return _out("news", msg, confidence="low", verbatim=True, no_results=True, trace=trace)
 
 
+NEWS_FEEDS_MAX = 4               # feeds fetched for one question (a market group has up to four news terms)
+
+
 def _live_envs(db, tickers: list[str]) -> list[tuple[str | None, dict]]:
-    """Live (5-minute cached) headline feeds for the named tickers, or the market feed when there are none."""
+    """Live (5-minute cached) headline feeds for the named tickers and market news terms, or the market feed when there are none."""
     envs = []
-    for sym in tickers[:3] or [None]:
+    for sym in tickers[:NEWS_FEEDS_MAX] or [None]:
         try:
             envs.append((sym, news_latest(db, sym)))
         except SymbolNotFound:
@@ -578,17 +948,150 @@ def _fetched_note(envs: list[tuple[str | None, dict]], label: str) -> str:
     return f"fetched {n} {label} headlines from Yahoo" if n else f"Yahoo returned no headlines for {label}"
 
 
-def _live_news(envs: list[tuple[str | None, dict]], label: str, intro: str = "") -> dict | None:
-    """The newest stories across the feeds, as an agent output; None if the feeds are empty."""
-    per = NEWS_LIVE_MAX if len(envs) <= 1 else max(2, NEWS_LIVE_MAX // len(envs))
-    items = {i["id"]: i for _, env in envs for i in env["data"]["items"][:per]}
-    if not items:
+def _with_articles(stories: list[dict]) -> tuple[list[dict], str]:
+    """The stories with what their pages say as the summary where Yahoo gave only the headline, and a note for the trace."""
+    try:
+        texts = story_articles(stories)
+    except Exception as e:  # noqa: BLE001 — without the articles the headlines still answer
+        log.warning("reading story pages failed: %s", e)
+        return stories, f"story pages → failed ({type(e).__name__})"
+    if not texts:
+        return stories, ""
+    return [{**s, "summary": texts.get(s.get("story_id") or s["id"]) or s.get("summary", "")} for s in stories], \
+        f"read {len(texts)} of {len(stories)} story pages"
+
+
+def _news_out(intro: str, stories: list[dict], **kw) -> dict:
+    """The stories, with their excerpts, as the agent's output."""
+    chars = get_config()["news_index"]["summary_chars"]
+    what = " with a summary of each story:" if current_llm() is not None else " with an excerpt of each story:"
+    head = intro + (what if any(s.get("summary") for s in stories) else ":")
+    return _out("news", head + "\n" + "\n".join(NEWS.format_story(s, chars) for s in stories),
+                sources=[NEWS.story_source(s) for s in stories], **kw)
+
+
+NEWS_ABOUT_SYSTEM = (
+    "You screen news headlines for a question about specific companies or markets. Yahoo tags stories loosely, so a feed "
+    "for a company also carries stories about other companies, general investing or the market. Keep a headline only if "
+    "the story is mainly about one of the named subjects, or clearly reports something that directly involves it (its "
+    "earnings, deals, executives, products, lawsuits, analyst calls on its stock). Drop stories about other companies that "
+    "merely mention it, market-wide commentary, and personal-finance articles. When a question is given, keep only stories "
+    "that answer it (for \"news related to the housing market\": home sales, mortgage rates, homebuilders, house prices), "
+    "with or without subjects. Reply with ONLY JSON: {\"keep\": [numbers]}")
+
+
+def _about(stories: list[dict], subjects: list[str], topic: str = "") -> tuple[list[dict], str]:
+    """The stories mainly about `subjects` (company or market names) and, if given, the question's `topic`, judged from the
+    headlines in one LLM call; all of them without an LLM or when the reply is unusable. Returns (stories, trace note)."""
+    if not (subjects or topic) or not stories or current_llm() is None:
+        return stories, ""
+    listing = "\n".join(f"{i}. {s['title']}" + (f" ({s['publisher']})" if s.get("publisher") else "") for i, s in enumerate(stories, 1))
+    ask = (f"Subjects: {', '.join(subjects)}\n" if subjects else "") + (f"Question: {topic}\n" if topic else "")
+    reply = _json(ask_llm(NEWS_ABOUT_SYSTEM, f"{ask}\nHeadlines:\n{listing}"))
+    keep = (reply or {}).get("keep") if isinstance(reply, dict) else None
+    if not isinstance(keep, list):
+        return stories, "relevance check → no usable reply, kept all"
+    picked = {int(k) for k in keep if isinstance(k, (int, float)) or str(k).isdigit()}
+    kept = [s for i, s in enumerate(stories, 1) if i in picked]
+    return kept, f"relevance check → {len(kept)} of {len(stories)} headlines about {', '.join(subjects) or repr(topic)}"
+
+
+def _ts(s: dict) -> float:
+    return s.get("published_ts") or (NEWS.parse_time(s.get("published")) or 0)
+
+
+def _day(s: dict) -> str:
+    return datetime.fromtimestamp(_ts(s), timezone.utc).strftime("%Y-%m-%d")
+
+
+def _by_day(stories: list[dict], n: int) -> list[dict]:
+    """Up to `n` stories taking turns across the days they were published (newest day first, newest story first within a
+    day), so a window of days shows each day's news rather than only the busiest, latest one."""
+    days: dict[str, list[dict]] = {}
+    for s in sorted(stories, key=_ts, reverse=True):
+        days.setdefault(_day(s), []).append(s)
+    out, queues = [], list(days.values())
+    while len(out) < n and any(queues):
+        for q in queues:
+            if q and len(out) < n:
+                out.append(q.pop(0))
+    return out
+
+
+def _newest(envs: list[tuple[str | None, dict]], extra: list[dict], days: int | None) -> list[dict]:
+    """The feeds' stories plus `extra` (indexed ones), one per story and title, within `days` if given, newest first; with
+    several feeds they take turns, so one busy feed can't crowd out the others."""
+    cutoff = datetime.now(timezone.utc).timestamp() - days * 86400 if days else None
+    lists = [list(env["data"]["items"]) for _, env in envs]
+    symbols = [sym for sym, _ in envs]
+    for story in extra:                                   # an indexed story joins the feed of a ticker it is tagged with
+        tags = set(story.get("tickers") or ())
+        i = next((k for k, sym in enumerate(symbols) if sym and sym.upper() in tags), 0)
+        if lists:
+            lists[i].append(story)
+        else:
+            lists.append([story])
+
+    ts = _ts
+    seen, out = set(), []
+    lists = [sorted((x for x in l if cutoff is None or ts(x) >= cutoff), key=ts, reverse=True) for l in lists]
+    for row in range(max((len(l) for l in lists), default=0)):
+        for l in lists:
+            if row < len(l):
+                s = l[row]
+                key = (s.get("story_id") or s.get("id"), " ".join(s["title"].lower().split()))
+                if key[0] in seen or key[1] in seen:
+                    continue
+                seen.update(key)
+                out.append(s)
+    return out if len(lists) > 1 else sorted(out, key=ts, reverse=True)
+
+
+def _live_news(envs: list[tuple[str | None, dict]], label: str, intro: str = "", *, count: int | None = None,
+               days: int | None = None, tags: list[str] = (), subjects: list[str] = ()) -> dict | None:
+    """The newest stories across the feeds as an agent output, None if there are none. `count`: how many the question asked
+    for (else NEWS_LIVE_MAX); `days`: the window it asked for, which also brings in the indexed stories for `tags` (the
+    feeds hold only Yahoo's ~30 latest); `subjects`: the companies or markets asked about, whose off-topic stories are
+    dropped before any page is read. Says so when fewer stories exist than were asked for."""
+    steps = []
+    extra = []
+    if days and tags:
+        try:
+            extra = news_recent(list(tags), days)
+            steps.append(f"news_recent({', '.join(tags)}, {days}d) → {len(extra)} indexed stories")
+        except Exception as e:  # noqa: BLE001 — the feeds still answer
+            log.warning("listing indexed news failed: %s", e)
+            steps.append(f"news_recent → failed ({type(e).__name__})")
+    candidates = _newest(envs, extra, days)
+    if not candidates:
         return None
-    stories = sorted(items.values(), key=lambda i: i.get("published") or "", reverse=True)[:NEWS_LIVE_MAX]
-    info = {k: envs[0][1][k] for k in ("provider", "fetched_at", "freshness")}
-    body = f"{intro}Latest headlines for {label} (Yahoo Finance, {info['freshness']}):\n" + "\n".join(NEWS.format_story(s) for s in stories)
-    return _out("news", body, sources=[NEWS.story_source(s) for s in stories], data_info=info,
-                trace=f"news_latest({label}) → {len(stories)} stories ({info['freshness']})")
+    spread = bool(days and days > 1 and not count)         # "the last 10 days of news": across the days, not just today's
+    want = count or (min(NEWS_MAX_ASKED, max(NEWS_LIVE_MAX, days)) if spread else NEWS_LIVE_MAX)
+    pool = _by_day(candidates, NEWS_SCREEN_MAX * 2) if spread else candidates[:max(NEWS_SCREEN_MAX, want * 2)]
+    screened, note = _about(pool, list(subjects))
+    if note:
+        steps.append(note)
+    if not screened:
+        return None
+    picked = _by_day(screened, want) if spread else screened[:want]
+    if spread:
+        steps.append(f"spread over {len({_day(s) for s in picked})} of the last {days} days")
+    stories, read = _with_articles(sorted(picked, key=lambda s: _ts(s), reverse=True))
+    span = f" from the last {days} day{'s' if days != 1 else ''}" if days else ""
+    if count and len(stories) < count:
+        intro += (f"You asked for {count} stories{span}; only {len(stories)} about {label} "
+                  f"{'was' if len(stories) == 1 else 'were'} available, so all of them are below. ")
+    elif spread:
+        intro += (f"{len(stories)} stories{span} about {label}, spread across the days, newest first"
+                  + ("; there are more, ask for a number to see more. " if len(screened) > len(stories) else ". "))
+    info = {k: envs[0][1][k] for k in ("provider", "fetched_at", "freshness")} if envs else \
+        {"provider": "yfinance", "fetched_at": datetime.now(timezone.utc).isoformat(), "freshness": "cached"}
+    fed = sum(len(env["data"]["items"]) for _, env in envs)
+    return _news_out(f"{intro}Latest headlines for {label} (Yahoo Finance, {info['freshness']}); cover every story listed", stories,
+                     data_info=info,
+                     trace="; ".join([f"news_latest({label}) → {fed} stories ({info['freshness']})", *steps,
+                                      f"showing {len(stories)}" + (f" of {count} asked" if count else "")]
+                                     + ([read] if read else [])))
 
 
 def _relevant_news(text: str, tickers: list[str], days: int) -> list[dict]:
@@ -627,26 +1130,73 @@ def news_node(state: FinanceState, config: RunnableConfig):
     cached feed; a question with a topic or a date range is answered from the indexed stories, and if none of that ticker's are indexed
     yet its headlines are fetched live, indexed on the spot and searched again. Only then does it say nothing was found, and it says
     what it tried. It never falls through to the Wikipedia research step."""
-    text, tried = state["question"], []                      # the proofread question: corrected, and completed for a follow-up
-    tickers = [t for t in NEWS.tickers_in(text, state["entities"]) if SYMBOL_OK.match(t)]
-    resolved = state["entities"].get("companies") or []      # looked up by the router, or carried from the previous answer
+    text, tried, e = state["question"], [], state["entities"]   # the proofread question: corrected, and completed for a follow-up
+    ruled_out = set(e.get("excluded") or ()) | SYM.excluded(text)     # "not looking for DHSB news": neither the ticker nor the topic
+    text = SYM.without_excluded(text)
+    tickers = [t for t in NEWS.tickers_in(text, e) if SYMBOL_OK.match(t) and t.lower() not in ruled_out]
+    resolved = e.get("companies") or []                      # looked up by the router, or carried from the previous answer
+    markets = e.get("markets") or []                         # "forex", "gold": fetched by their news terms
     if resolved:
         tickers = list(dict.fromkeys([*tickers, *(r["symbol"] for r in resolved)]))
-        tried.append("matched " + ", ".join(f"{r['name']} ({r['symbol']})" for r in resolved))
-    tickers = tickers or _view_symbols(state)
-    res = _news_answer(state, config, text, tickers, resolved, tried)
-    if tickers:                                               # so "what about their earnings?" knows who "their" is
+    if resolved or markets:
+        tried.append("matched " + ", ".join([*(f"{r['name']} ({r['symbol']})" for r in resolved), *(_market_label(m) for m in markets)]))
+    if not markets:
+        tickers = tickers or [t for t in _view_symbols(state) if t.lower() not in ruled_out]
+    res = _news_answer(state, config, text, tickers, resolved, markets, tried)
+    if tickers or markets:                                    # so "what about their earnings?" knows who "their" is
         names = {r["symbol"]: r.get("name") or r["symbol"] for r in resolved}
-        res["turn_context"] = {"companies": [{"symbol": t, "name": names.get(t, t)} for t in tickers[:CTX.MAX_COMPANIES]]}
+        res["turn_context"] = {"companies": [{"symbol": t, "name": names.get(t, t)} for t in tickers[:CTX.MAX_COMPANIES]],
+                               "markets": [{"key": m["key"], "name": m["name"]} for m in markets]}
     return res
 
 
-def _news_answer(state: FinanceState, config: RunnableConfig, text: str, tickers: list[str], resolved: list[dict], tried: list[str]) -> dict:
+SECTOR_NEWS_COMPANIES = 3        # a sector's news: its fund's feed plus its largest companies' (NEWS_FEEDS_MAX in all)
+
+
+def _sector_leaders(config: RunnableConfig, markets: list[dict], steps: list[str]) -> list[str]:
+    """A sector named as the subject ("tech sector news") is reported on through its largest companies too, not just its fund:
+    Yahoo's list for the sector, else the fund's top holdings. Empty for anything that isn't a sector, or with no data."""
+    funds = [m["symbol"] for m in markets if m.get("level") == "sector" and m["symbol"]]
+    db = _db(config)
+    if not funds or db is None:
+        return []
+    out = []
+    with DBSession(bind=db.get_bind(), autoflush=False, expire_on_commit=False) as own:     # agents run in parallel threads
+        for fund in funds:
+            top, _ = MT.largest_in_sector(own, fund)
+            picked = [c["symbol"] for c in top if SYMBOL_OK.match(str(c.get("symbol") or ""))][:SECTOR_NEWS_COMPANIES]
+            if picked:
+                steps.append(f"sector_companies({fund}) → {', '.join(picked)}")
+            out += picked
+    return out
+
+
+def _news_answer(state: FinanceState, config: RunnableConfig, text: str, tickers: list[str], resolved: list[dict], markets: list[dict],
+                 tried: list[str]) -> dict:
+    """Companies are fetched by ticker and markets by their news terms ("feeds"); stored stories are searched by ticker and by
+    market tag. The model's topic is used when there is one ("" = just the latest); without an LLM it is read from the words."""
     cfg, steps = get_config()["news_index"], []
-    label = ", ".join(tickers[:3]) if tickers else "the market"
-    if tickers and NEWS.asks_about_sector(text):
+    label = ", ".join([*tickers[:3], *(m["name"] for m in markets)][:4]) or "the market"
+    if tickers and not markets and NEWS.asks_about_sector(text):
         return _sector_news(tickers[0], config, steps)
-    topic = NEWS.topic_words(text, tickers, [x for r in resolved for x in (r["mention"], r["name"])])
+    leaders = _sector_leaders(config, markets, steps)
+    feeds = list(dict.fromkeys([*tickers, *(t for m in markets for t in m["news"]), *leaders]))
+    tags = list(dict.fromkeys([*tickers, *(t for m in markets for t in MK.search_tags(m)), *leaders]))
+    llm_topic = state["entities"].get("topic")
+    mentions = [x for r in resolved for x in (r["mention"], r["name"])] + [w for m in markets for w in MK.words(m)]
+    # topic or just the latest: by how similar what's left of the question is to a plain request for news (no word list
+    # and no model's say-so); without embeddings, by the words left over and the model's topic
+    carried = [c.get("name") or "" for c in CTX.carried(state).get("companies") or []]        # a follow-up's company, by name
+    named = [*mentions, *tickers, *leaders, *carried, *(r.get("name") or "" for r in resolved)]
+    generic = NEWS.generic_score(text, named)
+    if generic is None:
+        topic = NEWS.topic_words(text if llm_topic is None else llm_topic, tickers, mentions)     # "tech sector news" is only the subject again
+        query = (llm_topic if topic else "") or text                # the model's topic phrase searches better than the whole question
+    else:
+        rest = NEWS.residual(text, named)
+        topic = [] if generic >= NEWS.GENERIC_MIN else [rest]
+        query = (rest if tags and rest else text)                   # the ticker filter already names the company
+        steps.append(f"topic check: {'latest news' if not topic else repr(rest)} (similarity to a plain news request {generic:.2f})")
     days = NEWS.time_window(text, cfg["retention_days"]) or cfg["default_days"]
     db = _db(config)
     if db is None:
@@ -654,87 +1204,138 @@ def _news_answer(state: FinanceState, config: RunnableConfig, text: str, tickers
     envs = None
     if not topic:
         with DBSession(bind=db.get_bind(), autoflush=False, expire_on_commit=False) as own:     # agents run in parallel threads; a Session isn't shareable
-            envs = _live_envs(own, tickers)
-        live = _live_news(envs, label)
+            envs = _live_envs(own, feeds)
+        subjects = [*(r.get("name") or r["symbol"] for r in resolved), *(t for t in tickers if t not in {r["symbol"] for r in resolved}),
+                    *(m["name"] for m in markets), *leaders]
+        live = _live_news(envs, label, count=NEWS.count_asked(text, NEWS_MAX_ASKED), days=NEWS.time_window(text, cfg["retention_days"]),
+                          tags=tags, subjects=subjects if feeds else [])
         if live:
             live["trace"] = steps + live["trace"]
+            if not feeds:                                         # no company or market named or carried: say so rather than pick one
+                live["agent_outputs"]["news"].update(reading=NEWS_MARKET_READING, alternatives=NEWS_MARKET_ALTERNATIVES)
             return live
         tried.append(_fetched_note(envs, label))
     try:
-        hits = _relevant_news(text, tickers, days)
-        tried.append("searched the indexed stories" + (f" for {label}" if tickers else ""))
-        if not hits and tickers:                                  # not indexed yet: fetch the headlines now, index them, search again
+        hits = _relevant_news(query, tags, days)
+        tried.append("searched the indexed stories" + (f" for {label}" if tags else ""))
+        if not hits and feeds:                                    # not indexed yet: fetch the headlines now, index them, search again
             if envs is None:
                 with DBSession(bind=db.get_bind(), autoflush=False, expire_on_commit=False) as own:
-                    envs = _live_envs(own, tickers)
+                    envs = _live_envs(own, feeds)
                 tried.append(_fetched_note(envs, label))
             added = sum(news_index_now(sym, env["data"]["items"]) for sym, env in envs if sym and env["data"]["items"])
             steps.append(f"news_latest({label}) → {sum(len(e['data']['items']) for _, e in envs)} stories, {added} newly indexed")
-            hits = _relevant_news(text, tickers, days)
+            hits = _relevant_news(query, tags, days)
     except Exception as e:  # noqa: BLE001 — a broken index must not break chat
         log.warning("news search failed: %s", e)
         return _news_none(days, tried, f"news_search → failed ({type(e).__name__})", unavailable=True)
+    if hits and topic and generic is not None:              # similar is not the same as about: keep the stories on the topic
+        hits, note = _about(hits, [*[r.get("name") or r["symbol"] for r in resolved], *(m["name"] for m in markets)],
+                            topic=NEWS.residual(text, named))
+        if note:
+            steps.append(note)
+    web = []
+    if len(hits) < cfg.get("web_min_stories", 3) and web_news_enabled():        # too little in the index and on Yahoo: the web
+        web = _web_stories(" ".join(x for x in (label if feeds else "", llm_topic or text) if x), days, feeds, hits, steps, tried)
+        hits = (hits + web)[:cfg["top_k"]]
     if not hits:
-        fallback = _live_news(envs, label, f"I found no stories about that specifically in the last {days} days. ") if envs and tickers else None
+        fallback = _live_news(envs, label, f"I found no stories about that specifically in the last {days} days. ") if envs and feeds else None
         if fallback:                                              # the feed has stories, just none on this topic: show them, labelled
             fallback["confidence"] = "medium"
             fallback["trace"] = steps + [f"news_search({days}d, {label}) → no relevant stories; showing the latest headlines"]
             return fallback
         return _news_none(days, tried, "; ".join(steps + [f"news_search({days}d, {label}) → no relevant stories"]))
     fetched = datetime.fromtimestamp(max(h.get("ingested_at") or 0 for h in hits), timezone.utc).isoformat()
-    body = f"Stories from the last {days} days that match the question (Yahoo Finance headlines and short summaries):\n" + "\n".join(NEWS.format_story(h) for h in hits)
-    return _out("news", body, sources=[NEWS.story_source(h) for h in hits],
-                data_info={"provider": "yfinance", "fetched_at": fetched, "freshness": "cached"},
-                confidence="high" if hits[0]["score"] >= cfg["min_score"] + 0.1 else "medium",
-                trace="; ".join(steps + [f"news_search({days}d, {label}) → {len(hits)} stories, best {hits[0]['score']:.2f}"]))
+    where = "Yahoo Finance and web news search" if web else "Yahoo Finance"
+    stories, read = _with_articles(hits)
+    return _news_out(f"Stories from the last {days} days that match the question ({where})", stories,
+                     data_info={"provider": "yfinance+tavily" if web else "yfinance", "fetched_at": fetched, "freshness": "cached"},
+                     confidence="medium" if web else "high" if hits[0]["score"] >= cfg["min_score"] + 0.1 else "medium",
+                     trace="; ".join(steps + [f"news_search({days}d, {label}) → {len(hits)} stories, best {hits[0]['score']:.2f}"]
+                                     + ([read] if read else [])))
 
 
-def _signed_usd(n: float) -> str:
-    return f"{'+' if n >= 0 else '-'}${abs(n):,.0f}"
+def _web_stories(query: str, days: int, feeds: list[str], have: list[dict], steps: list[str], tried: list[str]) -> list[dict]:
+    """Recent articles from Tavily's news search that the index and Yahoo didn't have, indexed under the first feed (so the next
+    question finds them without another paid search). Never raises: a failed web search just adds nothing."""
+    try:
+        found = web_news(query, days)
+    except WebSearchUnavailable as e:
+        steps.append(f"web_news → unavailable ({e})")
+        return []
+    seen = {h.get("url") for h in have}
+    new = [{**w, "ingested_at": datetime.now(timezone.utc).timestamp()} for w in found if w["url"] not in seen]
+    tried.append("searched web news")
+    if new:
+        try:
+            news_index_now(feeds[0] if feeds else None, new)
+        except Exception:  # noqa: BLE001 — indexing is best-effort
+            log.warning("could not index web news stories", exc_info=True)
+    steps.append(f"web_news({query!r}, {days}d) → {len(new)} new stories")
+    return new
 
 
 @safe("portfolio")
 def portfolio_node(state: FinanceState, config: RunnableConfig):
+    """Sections chosen by the question (portfolio_report.focus); a general or 'analyse my portfolio' question gets the full
+    report, shown word for word so the synthesizer doesn't shorten it to a few headline numbers."""
     holdings = state.get("holdings") or []
     if not holdings:
         return _out("portfolio", "I don't see a portfolio yet. Add your holdings (or load a sample) on the **Portfolio** tab and ask me again.",
                     confidence="medium", trace="portfolio: no holdings")
     risk = state.get("profile", {}).get("risk_tolerance", "moderate")
     db = _db(config)                 # shared with the market agent's thread: every use goes through the market service, which serialises them
+    holdings = with_purchase_prices(db, holdings)
     instruments, info = portfolio_instruments(db, [h["ticker"] for h in holdings])
     a = analyze_portfolio(holdings, instruments, risk)
-    perf = portfolio_history(db, a["holdings"]) if db is not None and not a["empty"] else None
     if a["empty"]:
         return _out("portfolio", "None of your holdings could be priced, so I can't analyse them yet.", confidence="low", trace="portfolio: nothing priced")
-    lines = [f"Your portfolio is worth about **${a['total_value']:,.0f}** across {len(a['holdings'])} holdings."]
-    if a["total_gain_loss"] is not None:
-        lines.append(f"- Gain/loss against what you paid: **{_signed_usd(a['total_gain_loss'])}** ({a['total_return_pct']:+.1%}), for the holdings with a cost basis")
-    if a["day_change"] is not None:
-        lines.append(f"- Today: {_signed_usd(a['day_change'])} ({a['day_change_pct']:+.2%})")
-    lines += [f"- Diversification score: **{a['diversification_score']}/100** (about {a['effective_holdings']} effective holdings)",
-              f"- Risk level: **{a['risk_level']}/5** ({a['risk_label']}) against your stated {risk} tolerance",
-              f"- Fees: about ${a['annual_fee']:,.2f} a year ({a['weighted_expense_ratio'] * 100:.2f}% weighted)"]
-    if perf and perf["period_return"] is not None:
-        versus = f", against {perf['benchmark_return']:+.1%} for the {perf['benchmark']['name']}" if perf["benchmark_return"] is not None else ""
-        lines += [f"\nSince {perf['start']}, counting each holding from its purchase date:",
-                  f"- Return: **{perf['period_return']:+.1%}**{versus}",
-                  f"- Volatility: {perf['volatility']:.1%} a year; largest fall from a peak: {perf['max_drawdown']:.1%}",
-                  "_These figures assume each holding was bought in full on its purchase date"
-                  + (f" ({perf['default_start']} where none is set)._" if perf["assumed"] else "._")]
-    if a["warnings"]:
-        lines.append("\nThings worth a closer look:")
-        lines += [f"- {w}" for w in a["warnings"][:4]]
-        if any("of your portfolio" in w for w in a["warnings"]):
-            lines.append("\n_Concentration risk means a large share of your money depends on one holding or sector, so a bad stretch there "
-                         "hurts more. Diversifying spreads that risk._")
-    return _out("portfolio", "\n".join(lines), data_info=info,
-                trace=f"portfolio_analysis({len(holdings)} holdings) → score {a['diversification_score']} ({info['freshness']})")
+    sections = PR.focus(state["question"])
+    perf = portfolio_history(db, a["holdings"]) if db is not None else None
+    div = None
+    if db is not None and "income" in sections:
+        try:
+            div = portfolio_dividends(db, a["holdings"])
+        except Exception:  # noqa: BLE001 — dividends are optional: the section says they're unavailable
+            log.warning("portfolio dividends unavailable", exc_info=True)
+    full = sections == PR.SECTIONS
+    return _out("portfolio", PR.report(a, perf, div, sections, risk), data_info=info, verbatim=full,
+                trace=f"portfolio_analysis({len(holdings)} holdings, {'full report' if full else '+'.join(sections)}) "
+                      f"→ score {a['diversification_score']} ({info['freshness']})")
+
+
+def _saved_projection(state: FinanceState, g: dict) -> tuple[str, dict]:
+    risk = g.get("risk_tolerance") or state.get("profile", {}).get("risk_tolerance", "moderate")
+    return risk, project_goal(g["target_amount"], g["horizon_years"], g.get("current_savings", 0), g.get("monthly_contribution", 0),
+                              get_config()["risk_profiles"][risk])
+
+
+def saved_plan_figures(state: FinanceState) -> str:
+    """The saved plan's figures as lines for the calculator's prompt, when the message is about the user's plan: they are the
+    user's own numbers (so the calculator may use them as "user" inputs), and the projection is computed here in Python."""
+    g = state.get("saved_goal")
+    q = f"{state.get('original_question') or ''} {state['question']}"
+    if not g or not g.get("target_amount") or not g.get("horizon_years") or not (
+            R.refers_to_plan(q) or "goal" in (state.get("intent") or [])):
+        return ""
+    risk, r = _saved_projection(state, g)
+    current, monthly, years = g.get("current_savings", 0) or 0, g.get("monthly_contribution", 0) or 0, g["horizon_years"]
+    paid_in = current + monthly * 12 * years
+    # plain numbers (no "$" or thousands commas): the calculator copies them into its formulas
+    return (f"The user's saved {g['goal_type']} plan on the Goals tab (their own numbers, in dollars; already computed, "
+            f"use them as inputs):\n"
+            f"- target {r['target']:.0f} in {years} years\n"
+            f"- already saved {current:.0f}; contributing {monthly:.0f} a month\n"
+            f"- {risk} risk profile, assumed return {r['annual_return_assumption'] * 100:g}% a year, compounded monthly\n"
+            f"- projected value after {years} years: {r['projected_value']:.2f}\n"
+            f"- total paid in: {paid_in:.0f} ({current:.0f} + {monthly:.0f} x {12 * years} months)\n"
+            f"- investment growth (projected value minus paid in): {r['projected_value'] - paid_in:.2f}\n"
+            f"- not given: the account type (taxable, 401(k)/IRA or Roth are taxed differently) and any tax rate; a rate "
+            f"is an assumption to state (a sample value), not something to calculate")
 
 
 def _saved_goal_answer(state: FinanceState, g: dict) -> dict:
-    risk = g.get("risk_tolerance") or state.get("profile", {}).get("risk_tolerance", "moderate")
-    r = project_goal(g["target_amount"], g["horizon_years"], g.get("current_savings", 0), g.get("monthly_contribution", 0),
-                     get_config()["risk_profiles"][risk])
+    risk, r = _saved_projection(state, g)
     lines = [f"Based on your {g['goal_type']} plan on the **Goals** tab (${r['target']:,.0f} in {g['horizon_years']} years, "
              f"${g.get('current_savings', 0):,.0f} saved so far, ${g.get('monthly_contribution', 0):,.0f} a month, {risk} profile, "
              f"assuming a steady {r['annual_return_assumption'] * 100:.0f}% yearly return):",
@@ -787,9 +1388,11 @@ def calc_node(state: FinanceState, config: RunnableConfig):
     # a new topic starts clean: an earlier question's figures would otherwise become extra targets or "user" numbers
     recent = H.transcript(state.get("history")) if state.get("follow_up") else ""
     known = CTX.describe(CTX.carried(state))
+    plan = saved_plan_figures(state)            # "how much tax if the plan runs as planned?": the Goals tab's numbers are theirs
     prompt = (f"Recent conversation:\n{recent or '(none)'}\n\n"
-              + (f"Figures from the previous answer:\n{known}\n\n" if known else "") + f"Message: {q}")
-    out = calculate(q, prompt, f"{q}\n{recent}\n{known}")
+              + (f"Figures from the previous answer:\n{known}\n\n" if known else "")
+              + (f"{plan}\n\n" if plan else "") + f"Message: {q}")
+    out = calculate(q, prompt, f"{q}\n{recent}\n{known}\n{plan}")
     steps = [f"calc step {line}" for line in out.trace]
     if out.kind == "needs":
         res = _out("calc", CALC.needs_input_text(out.needs.label, out.needs.inputs), status="need_info",
@@ -903,6 +1506,18 @@ def read_only_node(state: FinanceState, config: RunnableConfig):
                 confidence="high", verbatim=True, trace=f"read_only: flagged a request to change something ({kind}); nothing was changed")
 
 
+OFF_TOPIC_FLAG = "🚫 **Off topic: Finnie only covers personal finance.**"
+OFF_TOPIC_MESSAGE = ("I can help with money, saving, investing, markets, taxes, and your own portfolio and goals, but not with "
+                     "other subjects. Ask me something about finance, or pick one of these.")
+
+
+def off_topic_node(state: FinanceState, config: RunnableConfig):
+    """The topic guardrail (mds/topic-guardrail.md): a message the LLM router finds is not about finance gets a fixed reply,
+    and no agent, research or web search runs for it."""
+    return _out("off_topic", f"{OFF_TOPIC_FLAG} {OFF_TOPIC_MESSAGE}", status="need_info", choices=STARTER_CHOICES,
+                confidence="high", verbatim=True, trace="off_topic: not about finance; declined without looking it up")
+
+
 # ---------------------------------------------------------------- verifier + research
 _json = first_json
 
@@ -910,7 +1525,14 @@ _json = first_json
 SUFFICIENCY_SYSTEM = (
     "You check whether retrieved SOURCES contain the information needed to answer a QUESTION from a personal-finance "
     "learner. Reply with ONLY JSON: {\"answers\": true} if the sources answer it fully or mostly, otherwise "
-    "{\"answers\": false, \"missing\": \"<what the question asks for that the sources lack, under 15 words>\"}.")
+    "{\"answers\": false, \"missing\": \"<what the question asks for that the sources lack, under 15 words>\"}. When ANSWERED BY "
+    "OTHER AGENTS is given and it already supplies everything the sources lack, reply {\"answers\": false, \"covered\": true}. "
+    "When the note says a calculator works out the figure, a number computed from the user's own figures is not the "
+    "sources' job: judge only whether they explain the rules or ideas the question needs (how the gains are taxed, say).")
+CALC_NOTE = "\n\nNOTE: a calculator agent works out the figure the question asks for from the user's numbers."
+CALC_QUESTION = ("{} (A calculator works out the figure itself. Judge only whether the sources explain the rules or ideas "
+                 "behind it, such as how and when this is taxed.)")
+OTHERS_CHARS = 1500                       # of each other agent's answer shown to the sufficiency check
 CHOICES_SYSTEM = (
     "A personal-finance education assistant needs more details before it can help. Write 2 or 3 short messages the USER "
     "could send next, each covering a likely thing they mean (for example learning the concepts versus planning the "
@@ -933,15 +1555,29 @@ def verifier_node(state: FinanceState, config: RunnableConfig):
       - a researched (Wikipedia) answer that doesn't answer it either becomes not_found and is kept as a `fallback`
         (→ web search, then replan looks for another agent; the fallback is used only if none answers);
       - a web answer that doesn't answer it becomes not_found too, but is never kept as the fallback;
+      - any of those whose gap another agent's answer already fills (the market figures for "how is the tech sector doing?")
+        is dropped as `covered`: no research, web search or replan for something already answered;
       - follow-up questions get choices the user can click."""
     llm_on = current_llm() is not None
     updates, trace = {}, []
-    for agent, o in (state.get("agent_outputs") or {}).items():
+    outputs = state.get("agent_outputs") or {}
+    for agent, o in outputs.items():
         if o.get("verified"):
             continue
         status = o.get("status", "answered")
         if status == "answered" and o.get("origin") in ("kb", "wikipedia", "web") and llm_on:
-            verdict = _json(ask_llm(SUFFICIENCY_SYSTEM, f"QUESTION: {state['question']}\n\nSOURCES:\n{o['content'][:6000]}"))
+            others = _answered_by_others(outputs, agent)
+            shown = "".join(f"\n[{a}]\n{c[:OTHERS_CHARS]}\n" for a, c in others.items())
+            calc_too = agent != "calc" and ("calc" in outputs or "calc" in (state.get("intent") or []))
+            question = CALC_QUESTION.format(state["question"]) if calc_too else state["question"]
+            verdict = _json(ask_llm(SUFFICIENCY_SYSTEM, f"QUESTION: {question}\n\nSOURCES:\n{o['content'][:6000]}"
+                                                        + (f"\n\nANSWERED BY OTHER AGENTS:{shown}" if others else "")
+                                                        + (CALC_NOTE if calc_too else "")))
+            if verdict is not None and verdict.get("answers") is False and verdict.get("covered") is True and others:
+                updates[agent] = {**o, "status": "not_found", "content": "", "sources": [], "fallback": None, "covered": True,
+                                  "verified": True, "researched": True, "web_searched": True, "handed_off": True}
+                trace.append(f"verifier: {agent} not needed, {', '.join(others)} already answer{'s' if len(others) == 1 else ''} the question")
+                continue
             if verdict is not None and verdict.get("answers") is False:
                 missing = str(verdict.get("missing") or "").strip()
                 if o["origin"] == "kb":
@@ -959,7 +1595,7 @@ def verifier_node(state: FinanceState, config: RunnableConfig):
             trace.append(f"verifier: {agent} sources answer the question" if verdict else f"verifier: {agent} check unavailable, kept")
         elif status == "need_info":
             choices = o.get("choices") or []
-            if llm_on and agent not in ("clarify", "read_only") and not o.get("readings"):   # calc's readings already confirm its reading
+            if llm_on and agent not in ("clarify", "read_only", "off_topic") and not o.get("readings"):   # calc's readings already confirm its reading
                 reply = _json(ask_llm(CHOICES_SYSTEM, f"User's message: {state['question']}\nWhat the assistant still needs: {o['content']}"))
                 picked = [c.strip() for c in (reply or {}).get("choices", [])
                           if isinstance(c, str) and c.strip() and not _ADDRESSES_USER.search(c)][:3]   # must be the user's words
@@ -971,6 +1607,13 @@ def verifier_node(state: FinanceState, config: RunnableConfig):
         elif status == "answered":
             updates[agent] = {**o, "verified": True}
     return {"agent_outputs": updates, "trace": trace or ["verifier: all agent outputs usable"]}
+
+
+def _answered_by_others(outputs: dict, agent: str) -> dict[str, str]:
+    """{agent: content} of the other agents that answered from their own data (market figures, news, a calculation): not
+    retrieved text, which is still being checked itself."""
+    return {a: o["content"] for a, o in outputs.items() if a != agent and o.get("status", "answered") == "answered"
+            and o.get("content") and o.get("origin") not in ("kb", "wikipedia", "web")}
 
 
 def _unresolved(o: AgentOutput) -> bool:
@@ -1006,8 +1649,11 @@ def _web_research(state: FinanceState, o: AgentOutput, words: int) -> tuple[Agen
     except WebSearchUnavailable as e:
         log.warning("web search failed: %s", e)
         return o, f"web_search → failed ({e})"
+    dropped = len(results)
+    results = [r for r in results if is_finance(r["title"], r["content"])]         # the web answers anything: keep to finance
+    dropped -= len(results)
     if not results:
-        return {**o, "content": NOT_FOUND_MESSAGE}, "web_search → no relevant results"
+        return {**o, "content": NOT_FOUND_MESSAGE}, "web_search → no relevant results" + (f" ({dropped} not about finance)" if dropped else "")
     used = results[:WEB_RESULTS_USED]
     cut = lambda t: " ".join(t.split()[:words]) + ("…" if len(t.split()) > words else "")          # noqa: E731
     content = o.get("prefix", "") + "\n\n".join(f"**{r['title']}** ({r['domain']})\n\n{cut(r['content'])}" for r in used)
@@ -1076,8 +1722,8 @@ REPLAN_SYSTEM = """You coordinate the specialist agents of a personal-finance ED
 
 AGENTS
 - qa: explains financial concepts from a finance knowledge base.
-- market: live prices, quotes and performance of named stocks, ETFs and indices; market, sector and asset-class trends.
-- news: recent headlines about a company, industry, sector, topic or the whole market.
+- market: live figures at every level: a company or fund (price, performance, valuation), a sector (return against the S&P 500 and its largest companies' moves), a region or country (its index), a sector's industries, the US market as a whole (indices, every sector ranked, the largest companies, today's most active stocks, market hours), asset classes (rates, commodities, currencies, crypto).
+- news: recent headlines about a company, sector, region, topic or the whole market.
 - portfolio: analyses the user's own holdings.
 - goal: a savings plan to reach a target amount by a date.
 - tax: tax rules and account types.
@@ -1087,6 +1733,7 @@ RULES
 - Choose only from the agents listed as AVAILABLE. Never choose an agent that was already tried.
 - goal, portfolio and tax only if the user explicitly asked for a savings plan, an analysis of their own holdings, or tax treatment; never because the question mentions retirement, saving or an amount.
 - Choose an agent only if its job directly supplies what is missing. If none can, return an empty list: an honest "not found" is better than an unrelated answer.
+- What the agents that already answered supplied (listed under ANSWERED) is not missing: never choose an agent to repeat it.
 - Usually 0-2 agents.
 
 Reply with ONLY JSON: {"intents": ["market"], "reason": "<one short sentence>"}."""
@@ -1105,10 +1752,12 @@ def replan_node(state: FinanceState, config: RunnableConfig):
     intents, reason = [], ""
     if available:
         missing = "\n".join(f"- {a}: {o.get('missing') or 'found nothing relevant'}" for a, o in unresolved.items())
+        done = {a: o["content"] for a, o in outputs.items() if o.get("status", "answered") == "answered" and o.get("content")}
+        answered = "".join(f"\n[{a}]\n{c[:OTHERS_CHARS]}\n" for a, c in done.items()) or " (none)"
         recent = H.transcript(state.get("history"))
         reply = _json(ask_llm(REPLAN_SYSTEM, f"Recent conversation:\n{recent or '(none)'}\n\nQuestion: {state['question']}\n\n"
                                              f"Already tried: {', '.join(tried)}\nWhat is missing:\n{missing}\n\n"
-                                             f"AVAILABLE: {', '.join(available)}"))
+                                             f"ANSWERED:{answered}\n\nAVAILABLE: {', '.join(available)}"))
         intents = list(dict.fromkeys(i for i in (reply or {}).get("intents", []) if i in available))
         reason = str((reply or {}).get("reason") or "").strip()
     res = {"replans": n, "replan_intents": intents, "tried_agents": tried + intents,
@@ -1116,10 +1765,14 @@ def replan_node(state: FinanceState, config: RunnableConfig):
            "trace": [f"replan {n}/{limit}: " + (f"{', '.join(intents)}" + (f" ({reason})" if reason else "")
                                                if intents else "no other agent can supply what is missing")]}
     e = state.get("entities") or {}
-    if {"market", "news"} & set(intents) and not (e.get("tickers") or e.get("indices") or e.get("companies")):
-        res["entities"] = {**e, "companies": SYM.resolve(state["question"], history=state.get("history"))}   # as the router does
-        if res["entities"]["companies"]:
-            res["trace"].append("resolved " + ", ".join(_resolved_label(c) for c in res["entities"]["companies"]))
+    if {"market", "news"} & set(intents) and not (e.get("tickers") or e.get("indices") or e.get("companies") or e.get("markets")):
+        subj = SYM.subjects(state["question"], history=state.get("history"))           # as the router does
+        res["entities"] = {**e, "companies": subj["companies"], "markets": subj["markets"], "levels": subj["levels"],
+                           "topic": subj["topic"], "excluded": sorted(subj["excluded"])}
+        if subj["companies"]:
+            res["trace"].append("resolved " + ", ".join(_resolved_label(c) for c in subj["companies"]))
+        if subj["markets"]:
+            res["trace"].append("markets: " + ", ".join(_market_label(m) for m in subj["markets"]))
     return res
 
 
@@ -1128,26 +1781,32 @@ def route_after_replan(state: FinanceState) -> list[str]:
 
 
 def illustrate_node(state: FinanceState, config: RunnableConfig):
-    """Add a worked example to conceptual answers: when a Q&A or tax answer is about something numeric, the LLM picks a
-    calculation with sample numbers and Python computes it exactly. Skipped for calculations, non-numeric topics and
-    basic mode (no LLM). Follow-up suggestions then let the user vary the numbers."""
+    """Add a worked example to conceptual answers: when a Q&A or tax answer is about something numeric, the LLM writes the
+    calculation that makes it concrete (with this turn's real figures where they fit, else sample numbers) and the
+    calculator works it out like any other question: equation from the knowledge base or the web, computed in Python.
+    Skipped for calculations, non-numeric topics and basic mode (no LLM). Follow-up suggestions then let the user vary the
+    numbers."""
     outputs = state.get("agent_outputs") or {}
     concept = [o for k, o in outputs.items() if k in ("qa", "tax") and o.get("status", "answered") == "answered" and o.get("content")]
     if not concept or "calc" in outputs or current_llm() is None:
         return {"trace": []}
-    reply = _json(ask_llm(CALC.EXAMPLE_SYSTEM, f"Question: {state['question']}\n\nAnswer so far:\n{concept[0]['content'][:2500]}"))
-    name, args = (reply or {}).get("function"), (reply or {}).get("args") or {}
-    if name not in CALC.CATALOG:
+    figures = CTX.describe({"facts": {**(CTX.carried(state).get("facts") or {}), **_key_facts(state.get("market_data") or {})}})
+    reply = _json(ask_llm(CALC.EXAMPLE_SYSTEM, f"Question: {state['question']}\n\nAnswer so far:\n{concept[0]['content'][:2500]}"
+                          + (f"\n\nFigures:\n{figures}" if figures else "")))
+    asked = (reply or {}).get("question")
+    if not isinstance(asked, str) or not asked.strip():
         return {"trace": ["illustrate: no calculation fits this topic"]}
-    try:
-        text = CALC.run(name, args)
-    except (TypeError, ValueError) as e:
-        return {"trace": [f"illustrate: {name} rejected sample inputs ({e})"]}
-    shown = ", ".join(f"{k}={v:g}" for k, v in args.items() if isinstance(v, (int, float)) and v)
-    return {"agent_outputs": {"example": {"agent": "example", "content": f"{CALC.EXAMPLE_HEADING}\n\n{text}", "sources": [],
+    asked = f"Show a worked example: {asked.strip()}"                   # the calculator's worked-example mode: samples allowed
+    out = calculate(asked, (f"Figures from this answer:\n{figures}\n\n" if figures else "") + f"Message: {asked}", f"{asked}\n{figures}")
+    steps = [f"illustrate: {asked}", *(f"illustrate calc step {line}" for line in out.trace)]
+    if out.kind != "answer":
+        return {"trace": [*steps, "illustrate: the calculator couldn't work it out → no example"]}
+    sources = [{"id": f"calc:{s['url']}", "title": s["title"], "url": s["url"]}
+               for q in out.result.get("quotes", []) for s in q["sources"] if s.get("url")]
+    return {"agent_outputs": {"example": {"agent": "example", "content": CALC.plan_text({**out.result, "example": True}), "sources": sources,
                                           "data_info": None, "confidence": "high", "error": None, "status": "answered",
                                           "verbatim": True}},
-            "trace": [f"illustrate: {name}({shown})"]}
+            "trace": [*steps, out.note or "illustrate calc: " + out.trace[-1]]}
 
 
 # ---------------------------------------------------------------- synthesizer + compliance
@@ -1155,11 +1814,79 @@ SYNTH_SYSTEM = (
     "You are Finnie, a friendly finance educator for beginners. Write the final answer using ONLY the context provided; "
     "do not add facts, numbers, tips or sources of your own, even well-known ones. If the context covers only part of the "
     "question, answer that part and say briefly what you couldn't cover. Match the user's knowledge level. Keep it concise "
-    "and in plain language. When the context lists several headlines or items, cover each one in a short bullet list (title, "
-    "publisher and a few words on what it says) instead of choosing one. Format with Markdown: **bold** for key figures, '- ' "
-    "bullets for lists, and when the context gives the same figures for several items or periods, a Markdown table "
-    "(| A | B | header row, then |---|---|) so the numbers line up. Never tell the user what to buy or sell and never promise returns. Do not include a disclaimer "
-    "(it is added separately). Keep any figures exactly as given.")
+    "and in plain language. Never say figures are unavailable when the context or data gives them, and never say a price "
+    "moved because of the news, or that the news did or didn't affect it. When the context lists several headlines or "
+    "items, cover each one in a bullet list (title, publisher and, only if the context gives the story's summary, that "
+    "summary in 2-3 sentences, keeping its facts and figures; never guess what a story says from its title) instead of choosing one. Format with Markdown: "
+    "**bold** for key figures, '- ' "
+    "bullets for lists. Whenever the answer gives the same figures for two or more items or periods (companies, funds, "
+    "indices, sectors, a company against the market), put them in a Markdown table, one row per item and one column per "
+    "figure (| A | B | header row, then |---|---|), never as a bullet list per item, so the numbers line up. Never tell the user what to buy or sell and never promise returns. Do not include a disclaimer "
+    "(it is added separately). Keep any figures exactly as given. When comparing, compare figures for the same period (today's "
+    "change with today's change), never one item's day with another's month. The conversation only explains what the question refers to: "
+    "answer the Question from the context, never by repeating an earlier answer or its subject.")
+
+
+READING_NOTE = "_I took this as {}. If you meant something else, pick an option below or name the company or topic._"
+SCREEN_NOTE = ("_I took this as {}, since you switched from {}. If you meant what we discussed before, "
+               "name it (for example “my portfolio” or the ticker)._")
+
+
+LIST_ITEM_RE = re.compile(r"^\s*(?:[-•*]|\d+[.)])\s+")
+
+
+def link_sources(text: str, sources: list[dict]) -> str:
+    """Appends each source's link to the end of the bullet that names it (a headline the answer lists with its summary), so
+    the link sits next to what it supports. Sources the answer doesn't name are left for the list under the answer."""
+    lines = text.split("\n")
+    for s in sources:
+        if not s.get("url") or any(s["url"] in line for line in lines):
+            continue
+        names = {n.lower() for n in (s["title"], re.sub(r"\s*\([^()]*\)$", "", s["title"])) if len(n) >= 12}
+        named = lambda line: any(n in line.lower() for n in names) or ((h := _headline(line)) is not None and h.lower() in s["title"].lower())  # noqa: E731
+        start = next((i for i, line in enumerate(lines) if LIST_ITEM_RE.match(line) and named(line)), None)
+        if start is None:
+            continue
+        end = start                                  # the item runs on over indented summary lines until a blank line or the next item
+        while end + 1 < len(lines) and lines[end + 1].strip() and not LIST_ITEM_RE.match(lines[end + 1]):
+            end += 1
+        lines[end] = f"{lines[end].rstrip()} [Source]({s['url']})"
+    return "\n".join(lines)
+
+
+HEADLINE_ITEM_RE = re.compile(r"^\s*(?:[-•*]|\d+[.)])\s+\*\*([^*]+)\*\*\s*(?:\(|[-–—]\s)")   # "- **Title** (AFP, Oct 30…)", "- **Title** - AFP…"; a short bold label isn't one
+HEADLINE_MIN_WORDS = 5
+
+
+def _headline(line: str) -> str | None:
+    """The story title a bullet starts with, or None when the bullet isn't a headline."""
+    m = HEADLINE_ITEM_RE.match(line)
+    return m.group(1).strip() if m and len(m.group(1).split()) >= HEADLINE_MIN_WORDS else None
+
+
+def drop_unknown_headlines(reply: str, sources: list[dict]) -> str:
+    """Removes headline bullets (with their summary lines) that aren't one of this answer's stories: the model copies earlier
+    answers' headlines from the conversation however it's asked. A shortened title still counts as the story's."""
+    titles = [x["title"].lower() for x in sources]
+    lines, kept, i = reply.split("\n"), [], 0
+    while i < len(lines):
+        title = _headline(lines[i])
+        if title is None or any(title.lower() in t for t in titles):
+            kept.append(lines[i])
+            i += 1
+            continue
+        i += 1
+        while i < len(lines) and lines[i].strip() and lines[i][:1].isspace() and not LIST_ITEM_RE.match(lines[i]):
+            i += 1                                   # its indented summary lines
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
+
+
+def _sector_lines(state: FinanceState) -> str:
+    """The sector's performance a news question didn't ask for by name (`_with_sector_figures`), to show word for word: the
+    model leaves out figures the question doesn't need."""
+    if not state["entities"].get("sector_figures"):
+        return ""
+    return "\n".join(MT.describe_lines({s: {"sector": d["sector"]} for s, d in (state.get("market_data") or {}).items() if "sector" in d}))
 
 
 def synthesizer_node(state: FinanceState, config: RunnableConfig):
@@ -1169,28 +1896,50 @@ def synthesizer_node(state: FinanceState, config: RunnableConfig):
     answered = [o for o in outputs if o.get("status", "answered") == "answered" and o.get("content")]
     asks = [o for o in outputs if o.get("status") == "need_info" and o.get("content")]
     missing = [o for o in outputs if o.get("status") == "not_found" and o.get("content")]
-    partial = [] if answered or asks else [o["fallback"] for o in outputs if o.get("fallback")]
+    # nothing answered: write from the research the verifier found incomplete, also when another agent asks for details
+    # (the tax rules, then the calculator's question about the missing rate)
+    partial = [] if answered else [o["fallback"] for o in outputs if o.get("fallback")]
     answered = answered or partial                  # nothing better turned up: write from the research the verifier found incomplete
     choices = list(dict.fromkeys(c for o in asks for c in o.get("choices") or []))[:3]
     if answered:
         exact = [o for o in answered if o.get("verbatim")]          # calculator results: never reworded
-        prose = [o for o in answered if not o.get("verbatim")]
+        sector_lines = _sector_lines(state)
+        prose = [o for o in answered if not o.get("verbatim") and not (sector_lines and o["agent"] == "market")]
         text, mode = "\n\n".join(o["content"] for o in prose), "extractive" if prose else "verbatim"
         if prose and current_llm() is not None:
-            history = H.transcript(state.get("history"))
+            history = H.transcript(state.get("history")) if state.get("follow_up") else ""     # a new question can only be misled by it
             context = "\n\n".join(f"[{o['agent']}]\n{o['content']}" for o in prose)
             level = state.get("profile", {}).get("knowledge_level", "beginner")
-            shown_after = ("\n\nA worked calculation is shown separately right after your answer; don't do arithmetic and "
-                           "don't say that calculations or examples are missing." if exact else "")
-            data = MT.data_block(state.get("market_data") or {})        # exact figures the market tools fetched (volume, P/E...)
+            shown_after = ("\n\nA worked calculation is shown separately right after your answer and gives the figure the "
+                           "question asks for: don't do arithmetic, and never say that the figure, calculations, examples "
+                           "or details are missing from the context. Explain the ideas behind it (for a tax figure: what "
+                           "is taxed and when, and what changes the amount) and say the calculation below works it out."
+                           if exact else "")
+            data = "" if sector_lines else MT.data_block(state.get("market_data") or {})        # exact figures the market tools fetched (volume, P/E...)
             figures = (f"\n\nData (exact figures from the market tools; use only those the question needs, and keep them "
                        f"exactly as given):\n{data}" if data else "")
             style = LENGTH_BY_LEVEL.get(level, LENGTH_BY_LEVEL["beginner"])
-            reply = ask_llm(SYNTH_SYSTEM, f"Knowledge level: {level} ({style})\nConversation so far:\n{history or '(none)'}\n\n"
-                                          f"Question: {state['question']}\n\nContext:\n{context}{figures}{shown_after}")
+            earlier = state.get("topic_background") or ""             # earlier chats (topic memory): what was discussed, dated
+            earlier = (f"\n\n{earlier}\nYou may mention that the user discussed this before, with its date. Take every current "
+                       "figure from the Context or Data above; a figure in these notes may only be quoted with its date, as "
+                       "what it was then." if earlier else "")
+            # The question is repeated last: after a long context the model once answered the conversation's previous message
+            # ("summary of my portfolio?") instead of the one asked ("how about nvda vs market trending today?").
+            reply = ask_llm(SYNTH_SYSTEM, f"Knowledge level: {level} ({style})\nConversation so far (already answered):\n"
+                                          f"{history or '(none)'}\n\nQuestion: {state['question']}\n\nContext:\n{context}{figures}"
+                                          f"{shown_after}{earlier}\n\nAnswer this question, the user's latest message, and only "
+                                          f"it: {state['question']}")
             if reply:
-                text, mode = reply, "llm"
-        text = "\n\n".join(t for t in [text] + [o["content"] for o in exact] if t)
+                text, mode = drop_unknown_headlines(reply, [x for o in prose for x in o.get("sources", [])]), "llm"
+        text = link_sources(text, [s for o in prose for s in o.get("sources", [])])
+        text = "\n\n".join(t for t in [sector_lines, text] + [o["content"] for o in exact] if t)
+        readings = [o for o in answered if o.get("reading")]       # answered on a guess: say how it was read, never left to the LLM
+        if readings:
+            text += "\n\n" + "\n".join(READING_NOTE.format(o["reading"]) for o in readings)
+            choices = choices or list(dict.fromkeys(c for o in readings for c in o.get("alternatives") or []))[:3]
+        on_screen = state.get("screen") or {}
+        if on_screen.get("switched"):                               # the tab, not the earlier answer, decided what "this" meant: say so
+            text += "\n\n" + SCREEN_NOTE.format(on_screen["label"], on_screen["switched"])
         if asks:
             text += "\n\n" + "\n\n".join(o["content"] for o in asks)
     elif asks:

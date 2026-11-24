@@ -22,8 +22,8 @@ failures seen in Langfuse all came from the menu:
 The LLM writes a **plan**: the inputs (each with where it came from), the formulas, equations or period-by-period rules
 that compute the answer, and test cases the formulas must pass. It never writes a result. Python validates the plan,
 executes it and renders the answer with a generic layout. There is no library of finance functions at runtime;
-`src/core/calculators.py` stays only for basic mode (no LLM, keyword extraction), the `illustrate` node's worked
-examples, and as the reference answers of the eval set.
+`src/core/calculators.py` stays only for basic mode (no LLM, keyword extraction) and as the reference answers of the eval
+set; the `illustrate` node's worked examples go through the calculator pipeline.
 
 ```
 question ─► LLM writes plan (JSON) ─► Python validates ─┬─► Python executes ─► Python renders ─► answer (verbatim)

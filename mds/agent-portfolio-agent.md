@@ -46,7 +46,8 @@ LLM. The Portfolio agent answers chat questions from the same functions, so the 
 | Price and classify each holding | `portfolio_instruments` in [src/core/portfolio_data.py](../src/core/portfolio_data.py) |
 | Allocation, sectors, geography, risk, fees, gain/loss, today's change, winners and losers | `analyze_portfolio` in [src/core/calculators.py](../src/core/calculators.py) |
 | Return, volatility, drawdown, Sharpe, Sortino, comparison with the S&P 500 | `portfolio_history` → `portfolio_performance` |
-| Dividend income (Portfolio tab only) | `portfolio_dividends` |
+| Dividend income | `portfolio_dividends` |
+| The agent's answer: sections and explanations | `focus` / `report` in [src/workflow/portfolio_report.py](../src/workflow/portfolio_report.py) |
 
 Settings are under `portfolio:` in `config.yaml` (benchmark index, risk-free rate, trading days per year, default purchase date).
 
@@ -62,6 +63,7 @@ history, so each holding is treated as bought in full on its purchase date.
 | Value over time | Each holding's shares × daily close, counted from its purchase date | A purchase shows as a step up in value. Price history reaches back 10 years at most; a holding bought before its own first price (an older purchase, or a recent listing) counts from that first price, without holding the others back |
 | Period and annualized return (CAGR), volatility, max drawdown, Sharpe, Sortino | Time-weighted: each day's return is taken over the holdings already owned the day before, so a purchase is not counted as a gain | Under 30 trading days only the period return and drawdown are shown. Differs from total return on cost basis, which uses the price the user paid |
 | Comparison with the S&P 500 | The index's return over the same period; the chart line puts the same money into the index on the same dates | Yahoo's fund prices are adjusted for dividends and the index is not, which favours the portfolio slightly |
+| Contribution to return | Each day's return split into the holdings' moves (a holding's change / the previous day's portfolio value), scaled by the growth so far, so the contributions add up exactly to the period return | Same purchase-date assumption as the return |
 | Dividend income | Last 12 months of payments per share × current shares, by month | Trailing income, not a forecast calendar |
 | Sector exposure | Fund sector weights (look-through) and each stock's sector | Bundled funds use coarser sector names than Yahoo, so a mixed portfolio can show both "Other" and specific sectors |
 | Geographic exposure | US stocks / International stocks / Bonds / Cash, from the asset type | Funds report no country split; a single stock counts as US |
@@ -71,9 +73,28 @@ Asset type for a ticker outside the bundled instruments comes from its Yahoo fun
 cash → cash, a "real estate" category → real estate, a foreign/emerging/world category → international, one sector above
 50% → thematic, otherwise a broad stock fund. A ticker with no fund profile is an individual stock.
 
+### The agent's answer
+
+`portfolio_report.focus` reads the question and picks sections: diversification ("diversified", "tech-heavy", "sector",
+"allocation"), performance ("doing", "return", "beat", "winners"), risk ("risky", "volatile", "drawdown", "Sharpe"), fees
+and dividend income. A question that matches none of them, or asks for an analysis, review, summary or breakdown, gets all
+five plus a holdings table (value, weight, gain/loss on cost, contribution to return). The full report is marked
+`verbatim` so the synthesizer passes it through unshortened; a focused answer goes through the synthesizer, which answers
+the question from it. Every answer ends with the warnings and, when a holding or sector is concentrated, the concentration note.
+
+Each figure comes with a fixed-rule explanation, so the answer is the same without an LLM:
+
+| Section | What it explains |
+|---|---|
+| Diversification | The score's three parts (holdings 40, asset classes 30, largest sector 30), which asset classes are missing, the breakdowns by asset class, sector and region, and which part holds the score back most |
+| Performance | Return and annualized return, points ahead of or behind the S&P 500, which holdings drove it (and whether one produced most of it), best and worst holdings |
+| Risk | Risk level against the tolerance limit and how it is built, bonds and cash as a cushion, volatility and largest fall against the S&P 500, that fall in dollars from today's value, Sharpe ratio in words |
+| Fees | Weighted expense ratio banded low/typical/high, the cost per $10,000, the holdings with the largest fees |
+| Dividend income | Trailing 12-month income and yield, the largest payers, that it is not a forecast |
+
 ### Not built yet
 
-- Knowledge-base explanations with citations in the agent's answer (section 3 above): the agent still uses one fixed
-  sentence on concentration risk.
+- Knowledge-base explanations with citations in the agent's answer (section 3 above): the explanations are fixed rules,
+  and concentration risk still has one fixed sentence.
 - Investment horizon, goals and target age in the fit check: only risk tolerance is used.
 - Transaction history (several purchases or sales of one holding): each holding has one purchase date for all its shares.

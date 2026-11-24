@@ -47,7 +47,7 @@ A false positive can be listed by its fingerprint in `.gitleaksignore`.
 | `src/core/` | config, deterministic calculators (portfolio metrics, goal projection), cached market service |
 | `src/workflow/` | keyword intent router (fallback; LangGraph router comes in M5) |
 | `src/api/` | FastAPI app + routers under `/api` |
-| `frontend/` | React app: Portfolio, Market, Research, Live, Goals tabs, a chat dock + profile sidebar |
+| `frontend/` | React app: Portfolio, Live Market, Research, Goals tabs, a chat dock + profile sidebar |
 | `src/rag/` | knowledge-base cleaning, section chunker, Qdrant build and search |
 | `src/data/` | sample portfolios, mock market data, knowledge-base articles (Markdown + front-matter), raw Wikipedia pages |
 
@@ -182,6 +182,7 @@ flowchart LR
     router -- calc --> calc_agent[calc_agent<br/><i>LLM plan, Python computes</i>]
     router -- clarify only --> clarify[clarify<br/><i>unreadable message</i>]
     router -- asks to change something --> read_only[read_only<br/><i>flag: Finnie is read-only</i>]
+    router -- not about finance --> off_topic[off_topic<br/><i>decline: finance only</i>]
 
     qa_agent --> verifier
     tax_agent --> verifier
@@ -192,6 +193,7 @@ flowchart LR
     calc_agent --> verifier
     clarify --> verifier
     read_only --> verifier
+    off_topic --> verifier
 
     verifier{verifier<br/>recheck each new output once:<br/>answered / not_found / need_info}
     verifier -- not_found,<br/>not yet researched --> research[research<br/>LLM picks Wikipedia topics<br/>exact-title lookup]
@@ -200,7 +202,7 @@ flowchart LR
     replan -. picked agents run,<br/>then back to the verifier .-> qa_agent & tax_agent & market_agent & news_agent & portfolio_agent & goal_agent & calc_agent
     replan -- no agent can help --> illustrate
     verifier -- otherwise --> illustrate
-    illustrate[illustrate<br/>worked example with sample numbers<br/>for numeric concepts] --> synthesizer
+    illustrate[illustrate<br/>worked example by the calculator<br/>for numeric concepts] --> synthesizer
 
     synthesizer[synthesizer<br/>writes only from answered outputs;<br/>calculations + follow-ups passed through] --> followups[followups<br/>suggest a calculation, an example,<br/>a related question]
     followups --> compliance[compliance<br/>strip advice + add disclaimer]
@@ -211,7 +213,7 @@ flowchart LR
 Which tools each agent calls, and the data source behind each tool, are mapped in [Agent tools](mds/agent-tools.md). Where each agent lives in the code (function, file, helpers) is in [Agent code map](mds/agent-code-map.md).
 
 The router can pick several agents for one question; they run in parallel. If no intent matches, it falls back to
-`qa_agent`; `clarify` and `read_only` run only when they are the sole intent (`route_after_router` in `src/workflow/nodes.py`).
+`qa_agent`; `clarify`, `read_only` and `off_topic` run only when they are the sole intent (`route_after_router` in `src/workflow/nodes.py`).
 
 ### Guardrails
 
@@ -222,6 +224,11 @@ The router can pick several agents for one question; they run in parallel. If no
   10 AAPL to my portfolio", "sell half my TSLA", "delete my goal", "drop table holdings"): it goes to the `read_only` node
   alone, and the reply starts with **⚠️ Request flagged: Finnie is read-only.** It runs with or without an LLM. The audit
   of each node, the detection rules and the tests are in [mds/read-only-guardrail.md](mds/read-only-guardrail.md).
+- **Finance only.** With an LLM, the router sends a message that isn't about finance ("who won the World Cup?",
+  "a recipe for banana bread") to the `off_topic` node alone: the reply starts with **🚫 Off topic: Finnie only covers
+  personal finance.** and nothing is looked up. A message with a finance part is still answered for that part. In every
+  mode, Wikipedia pages and web results that aren't about finance are dropped, so an off-topic question that gets past
+  the router ends in "I'd rather not guess". Details in [mds/topic-guardrail.md](mds/topic-guardrail.md).
 - **No personal advice.** Compliance removes advice-like sentences ("you should buy…", promised returns) and appends the
   disclaimer to every answer (`src/workflow/safety.py`). Questions like "should I buy X?" are answered with facts and
   concepts, plus a note that Finnie can't say what to buy or sell.

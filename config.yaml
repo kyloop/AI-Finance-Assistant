@@ -14,6 +14,12 @@ workflow:
   wiki_max_words: 150       # extract length per knowledge lookup (scaled by knowledge level: shorter for advanced readers)
   proofread: true           # fix spelling/grammar/abbreviations before routing (proofread node; needs an LLM)
   max_replans: 3            # times per question the graph may send an unanswered question to other agents (replan node)
+topics:                     # topic memory (mds/topic-memory.md, src/workflow/topics.py)
+  embeddings: true          # embed topic summaries (bge-small) for messages that name no company, market or concept (rule 4)
+  same_chat_similarity: 0.80      # provisional: cosine to continue a topic of this chat on wording alone
+  earlier_chat_similarity: 0.86   # provisional, stricter: a wrong link to an old chat is worse than none
+  max_linked: 3             # earlier chats' topics given to one answer as background
+  earlier_candidates: 50    # the session's most recently updated topics from other chats that a message is matched against
 wolfram:                    # Calculator fallback for calculations the Python calculators don't cover (src/core/wolfram.py)
   enabled: true             # also needs WOLFRAM_APP_ID in .env; without it the Calculator solves its equations numerically
   timeout_seconds: 10
@@ -32,6 +38,12 @@ market:
   news_cache_ttl_seconds: 300   # 5 min; headlines change faster than the default
   fund_cache_ttl_seconds: 86400  # 1 day; fund holdings, sector weights and fees change slowly (Research tab)
   stock_cache_ttl_seconds: 21600 # 6 h; statements change quarterly, but estimates and earnings dates move during the day
+  sector_cache_ttl_seconds: 21600   # 6 h; a sector's industries, largest companies and weights change slowly
+  industry_cache_ttl_seconds: 21600 # 6 h; likewise for an industry (its best performers move, but slowly)
+  screen_cache_ttl_seconds: 300     # 5 min; most active stocks and the day's movers change through the session
+  market_status_cache_ttl_seconds: 300  # 5 min; open or closed
+  boards_refresh_seconds: 60        # Live Market charts: the poller asks Yahoo for new quotes and the most-active list this often
+  boards_industry_refresh_seconds: 300  # ...and for the ~145 industry indices this often (one request each, so less often)
   primary_provider: yfinance
   secondary_provider: alpha_vantage
 portfolio:                  # Portfolio tab report and Portfolio agent (src/core/portfolio_data.py)
@@ -72,10 +84,14 @@ news_index:                 # news stories embedded for the News agent's topic /
   retention_days: 14                # older stories are deleted
   default_days: 7                   # search window when the question names none
   top_k: 6
+  web_min_stories: 3                # fewer relevant stories than this from the index and Yahoo: also search web news (Tavily)
   min_score: 0.60                   # a story scoring below this is not relevant (hand-written headlines: on-topic >= 0.62, off-topic <= 0.61)
   score_margin: 0.08                # ...and neither is one this far below the best match, which drops the weak tail of a short list
   max_tracked_symbols: 30
   recent_view_days: 7               # a ticker quoted or opened within this many days stays in the poll
+  article_ttl_days: 3               # a story page's text, read when the story is shown (Yahoo gives headlines only), is kept this long
+  article_chars: 6000               # ...cut to this many characters of the article, which the LLM summarizes in 2-3 sentences
+  summary_chars: 800                # of which the answer's context shows each story this much (a summary fits; basic mode shows the excerpt)
 symbols_index:              # every US-listed stock and ETF (symbol + company name) so names and mistyped tickers resolve without Yahoo; src/rag/tickers.py
   collection: finnie_symbols        # one point per listing, vector = the company name; exact and mistyped-ticker lookups use src/data/raw/tickers.csv instead
   min_score: 0.80                   # provisional: a name scoring below this is not the company the user meant

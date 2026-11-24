@@ -167,6 +167,10 @@ def test_yfinance_provider_shapes_and_fallback(client, monkeypatch):
     assert r["provider"] == "yfinance" and r["freshness"] == "live" and len(pts) == 250
     assert pts[-1]["close"] == 399 and pts[-1]["ma200"] is not None and pts[0]["ma50"] is not None
 
+    df.loc[df.index[-1], "Close"] = float("nan")            # after the close: today's bar has a volume but no Close yet
+    r = client.get("/api/market/history/NVDA").json()
+    assert r["data"]["points"][-1]["close"] == 398           # the last real close, never NaN
+
     monkeypatch.setattr(ms, "_yf_ticker", lambda s: FakeTicker(empty=True))
     r = client.get("/api/market/history/MSFT?refresh=true").json()
     assert r["provider"] == "sample" and r["freshness"] == "sample"          # provider empty/down -> flagged sample fallback
@@ -191,6 +195,7 @@ def test_news_stock_and_market_merge_dedupe_and_fallback(client, monkeypatch):
 
     monkeypatch.setattr(ms, "PROVIDERS", {"yfinance": {"news": ms._yf_news}, "sample": ms.PROVIDERS["sample"]})
     monkeypatch.setattr(ms, "_yf_ticker", FakeTicker)
+    monkeypatch.setattr(ms, "_search_news", lambda sym, count: [])              # the search endpoint has nothing: the ticker feed
     r = client.get("/api/market/news").json()
     assert r["provider"] == "yfinance" and [i["title"] for i in r["data"]["items"]] == ["New", "Old"]
     assert client.get("/api/market/news?symbol=AAPL").json()["data"]["items"][0]["url"] == "https://x.test/c"

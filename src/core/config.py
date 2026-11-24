@@ -43,5 +43,14 @@ def database_url() -> str:
     return os.getenv("DATABASE_URL", f"sqlite:///{ROOT / 'finnie.db'}")
 
 
+def market_cache_url() -> str | None:
+    """A local database for the market cache when the main one is remote (Turso), else None (the cache shares the main database).
+    The cache is disposable and on the hottest path (every quote, chart and headline), and each statement against Turso is an
+    HTTPS round trip. MARKET_CACHE_URL overrides the local market_cache.db."""
+    if not database_url().startswith("sqlite+turso"):
+        return None
+    return os.getenv("MARKET_CACHE_URL", f"sqlite:///{ROOT / 'market_cache.db'}")
+
+
 def cors_origins() -> list[str]:
     return os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")

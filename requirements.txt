@@ -13,6 +13,7 @@ langchain-openai>=1.0   # or langchain-anthropic / langchain-google-genai; see R
 langfuse>=4.0           # optional tracing; only used when LANGFUSE_* keys are in .env
 langchain>=1.0          # needed by langfuse's LangChain callback handler
 qdrant-client>=1.12     # knowledge-base vector store (mds/rag-data-design.md)
+beautifulsoup4>=4.12   # reading Yahoo story pages for the News agent (src/core/articles.py)
 fastembed>=0.5          # bge-small embeddings + tokenizer, no PyTorch
 numpy>=1.26             # Goals Monte Carlo simulation (src/core/calculators.py)
 # dev

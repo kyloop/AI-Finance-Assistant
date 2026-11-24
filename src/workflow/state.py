@@ -23,6 +23,8 @@ class AgentOutput(TypedDict, total=False):
     choices: list[str]           # need_info: follow-up questions the user can pick
     readings: bool               # need_info: the choices are the calculator's readings of the question, kept as is
     no_results: bool             # answered "nothing found" (news): shown, but not a real answer to follow up on
+    reading: str                 # answered on a guess: how the question was read, shown to the user ("the latest market-wide headlines")
+    alternatives: list[str]      # ...and other readings they can pick instead (clickable choices)
     verbatim: bool               # shown word for word, never rewritten by the LLM (calculator results)
     verified: bool               # the verifier has checked this output; later passes skip it
     researched: bool             # the research node has already looked this up
@@ -30,6 +32,25 @@ class AgentOutput(TypedDict, total=False):
     missing: str                 # not_found: what the verifier says the sources lack (for replan)
     handed_off: bool             # replan has already looked for other agents to cover this output
     fallback: dict               # a researched answer the verifier rejected; used only if nothing better turns up
+
+
+class TurnContext(TypedDict, total=False):
+    """What one answer saves in `messages.context` (context.build) and the next turn reads as `context_in`.
+    Rows written before topic memory lack the last three fields; read them with .get()."""
+    question: str                 # the corrected question
+    intents: list[str]
+    companies: list[dict]         # [{symbol, name}], at most 3
+    markets: list[dict]           # [{key, name}], at most 3
+    levels: list[str]             # company | sector | region | market | asset class
+    tab: str | None
+    symbol: str | None
+    period: dict | None           # {label, start}
+    facts: dict[str, dict]        # per symbol: price, return, start_price, end_price, as_of, period
+    topic_id: str | None          # "t1": carried from the previous turn, else assigned after the turn (topics.record_turn)
+    summary: str                  # one sentence on what was discussed, no figures; written after the reply
+    source_ids: list[str]         # kb:… | wikipedia:… | web:… | news:… (mds/topic-memory.md)
+    related: list[str]            # topics.uid of earlier chats' topics this turn was linked to (topic node)
+    linked: list[dict]            # the same, for the UI: [{uid, date, label}]
 
 
 class FinanceState(TypedDict, total=False):
@@ -42,7 +63,13 @@ class FinanceState(TypedDict, total=False):
     profile: dict
     holdings: list[dict]
     view: dict | None                                      # {tab, selected, watchlist} from the UI
+    screen: dict | None                                    # proofread: the message is about the tab on screen (context.screen)
     saved_goal: dict | None                                # the user's latest plan from the Goals tab
+    topics_in: dict | None                                 # {"current": [...], "earlier": [...]}: topics the message may belong to
+                                                           # (topics.candidates); None (run_chat without it) = no topic memory
+    # topic node output (mds/topic-memory.md)
+    topic: dict                                            # {action, topic_id, related, linked, note}
+    topic_background: str                                  # earlier chats' dated summaries for the synthesizer
     # router output
     intent: list[str]
     entities: dict
@@ -59,7 +86,7 @@ class FinanceState(TypedDict, total=False):
     market_data: Annotated[dict, merge_market]             # {"TSLA": {"quote": {...}, "period": {...}, "profile": {...}}}: every figure
                                                            # the market tools fetched this turn, for the synthesizer
     # final
-    context: dict                                          # saved with the answer; the next turn's context_in
+    context: TurnContext                                   # saved with the answer; the next turn's context_in
     final_response: str
     choices: list[str]                                     # clickable follow-ups; a pick is sent back through the router
     answered: bool                                         # the reply answers the question (so follow-ups can be offered)

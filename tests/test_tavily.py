@@ -14,9 +14,9 @@ PROFILE = {"knowledge_level": "beginner", "risk_tolerance": "moderate", "horizon
 
 RESULTS = [
     {"title": "What Is a Flibbertigibbet Fund?", "url": "https://www.investopedia.com/terms/f/flibbertigibbet-fund.asp",
-     "content": "A flibbertigibbet fund is an imaginary fund used in examples. It changes strategy often.", "score": 0.91},
+     "content": "A flibbertigibbet fund is an imaginary fund used in examples. It changes its investment strategy often.", "score": 0.91},
     {"title": "Flibbertigibbet funds explained", "url": "https://www.morningstar.com/articles/flibbertigibbet",
-     "content": "Morningstar explains why frequent strategy changes raise costs.", "score": 0.74},
+     "content": "Morningstar explains why frequent strategy changes raise a fund's costs for investors.", "score": 0.74},
     {"title": "r/investing: anyone own a flibbertigibbet fund?", "url": "https://old.reddit.com/r/investing/abc",
      "content": "lol no", "score": 0.88},
     {"title": "Unrelated page", "url": "https://example.com/x", "content": "Something else entirely.", "score": 0.1},
@@ -100,6 +100,15 @@ def test_when_wikipedia_has_nothing_the_web_answers_with_cited_sources():
     assert s["sources"][0]["title"] == "What Is a Flibbertigibbet Fund? (investopedia.com)"
     trace = " | ".join(s["trace"])
     assert trace.index("wiki_search") < trace.index("web_search → 2 results, using investopedia.com, morningstar.com")
+
+
+def test_web_results_not_about_finance_are_dropped():
+    T.set_web_searcher(lambda q: [
+        {"title": "2022 FIFA World Cup final", "url": "https://www.fifa.com/final",
+         "content": "Argentina beat France on penalties in Lusail to win the 2022 World Cup.", "score": 0.95}])
+    s = ask("Who won the 2022 World Cup?")
+    assert "rather not guess" in s["final_response"] and "Argentina" not in s["final_response"]
+    assert "web_search → no relevant results (1 not about finance)" in s["trace"]
 
 
 def test_without_a_key_research_stops_at_wikipedia_as_before():

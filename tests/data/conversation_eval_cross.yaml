@@ -1,0 +1,524 @@
+# Cross-domain multi-turn conversations for scripts/eval_conversations.py --set cross: 30 chats of 10+ turns, each mixing
+# portfolio, goals, market data, news, calculations and knowledge-base questions, with follow-ups ("and last month?",
+# "which did better?"), topic switches and returns, typos as users type them ("profolio", "eft", "nvdia") and the odd
+# off-topic or advice question. Same format and metrics as conversation_eval.yaml (see its header).
+#
+# Exact figures come from the app's own formulas (src/core/calculators.py): goals use the profile's return
+# (conservative 4%, moderate 6%, aggressive 8%) compounded monthly; "X a year for N years" is compounded yearly.
+# Live figures (prices, returns, portfolio values) change between runs, so their references say which figures a correct
+# answer gives and the judge takes the values from the sources.
+
+# ---------------------------------------------------------------- portfolios used below
+_holdings:
+  growth: &growth
+    - {ticker: AAPL, shares: 15, cost_basis: 150, purchase_date: "2024-03-01"}
+    - {ticker: VOO, shares: 10, cost_basis: 400, purchase_date: "2024-06-01"}
+    - {ticker: NVDA, shares: 20, cost_basis: 90, purchase_date: "2024-09-03"}
+    - {ticker: BND, shares: 30, cost_basis: 72, purchase_date: "2025-01-10"}
+  tech: &tech
+    - {ticker: MSFT, shares: 10, cost_basis: 350, purchase_date: "2024-02-01"}
+    - {ticker: QQQ, shares: 8, cost_basis: 380, purchase_date: "2024-04-15"}
+    - {ticker: JPM, shares: 12, cost_basis: 150, purchase_date: "2024-07-01"}
+    - {ticker: VTI, shares: 15, cost_basis: 220, purchase_date: "2024-10-01"}
+  bigtech: &bigtech
+    - {ticker: TSLA, shares: 10, cost_basis: 200, purchase_date: "2024-05-01"}
+    - {ticker: AMZN, shares: 12, cost_basis: 150, purchase_date: "2024-03-15"}
+    - {ticker: GOOGL, shares: 10, cost_basis: 140, purchase_date: "2024-06-10"}
+    - {ticker: SCHD, shares: 40, cost_basis: 25, purchase_date: "2024-11-01"}
+  balanced: &balanced
+    - {ticker: VTI, shares: 50, cost_basis: 200, purchase_date: "2023-06-01"}
+    - {ticker: VXUS, shares: 40, cost_basis: 55, purchase_date: "2023-06-01"}
+    - {ticker: BND, shares: 60, cost_basis: 73, purchase_date: "2023-06-01"}
+  dividend: &dividend
+    - {ticker: KO, shares: 30, cost_basis: 55, purchase_date: "2024-01-10"}
+    - {ticker: JNJ, shares: 15, cost_basis: 160, purchase_date: "2024-01-10"}
+    - {ticker: PG, shares: 10, cost_basis: 145, purchase_date: "2024-01-10"}
+    - {ticker: VYM, shares: 20, cost_basis: 105, purchase_date: "2024-01-10"}
+
+conversations:
+
+- id: x01-new-investor
+  title: A new investor - portfolio, ETFs, today's market and a retirement goal
+  profile: {knowledge_level: beginner, risk_tolerance: moderate, horizon_years: 25}
+  holdings: *growth
+  turns:
+    - {q: "describe my profolio?", reference: "The portfolio's total value, gain or loss against cost, today's change, and its four holdings (AAPL, VOO, NVDA, BND) with their weights, diversification and risk against the moderate tolerance.", key_points: ["total value", "gain or loss against cost", "the holdings and their weights", "diversification or risk"]}
+    - {q: "What is eft?", reference: "An exchange-traded fund (ETF): a fund holding a basket of assets that trades on an exchange like a stock, giving diversification usually at low cost. It reads 'eft' as ETF.", key_points: ["reads it as ETF", "a fund holding many assets", "trades on an exchange like a stock"]}
+    - {q: "which of my holdings are etfs?", reference: "VOO (an S&P 500 index fund) and BND (a bond fund) are the ETFs; AAPL and NVDA are single stocks.", key_points: ["VOO is an ETF", "BND is an ETF", "AAPL and NVDA are stocks"]}
+    - {q: "how's VOO performance today?", reference: "VOO's price today and its change versus the previous close.", key_points: ["VOO's price", "VOO's change today"]}
+    - {q: "how's the market today and last month?", reference: "The S&P 500, Nasdaq and Dow's change today, and their returns over the last month, kept apart (today's change and the month's return are different periods).", key_points: ["indices' change today", "indices' returns over the last month", "keeps the two periods apart"]}
+    - {q: "did VOO beat the S&P 500 last month?", reference: "VOO tracks the S&P 500, so its last-month return is nearly the same as the index's; gives both returns over the last month.", key_points: ["VOO's last-month return", "the S&P 500's last-month return", "notes VOO tracks the S&P 500"]}
+    - {q: "what is an expense ratio?", reference: "The yearly fee a fund charges, as a percentage of the money invested (0.03% of $10,000 is $3 a year).", key_points: ["a yearly fund fee", "a percentage of assets invested", "an example in dollars"]}
+    - {q: "what's VOO's expense ratio?", reference: "VOO's expense ratio from the data, about 0.03%.", key_points: ["VOO's expense ratio"]}
+    - {q: "I want to retire with $1 million in 25 years, how much should I save monthly?", reference: "At the moderate 6% return, compounded monthly, about $1,443.02 a month.", key_points: ["about $1,443 a month", "assumes 6% a year"]}
+    - {q: "what if I already have $50,000 saved?", reference: "With $50,000 already saved, at 6% for 25 years, about $1,120.87 a month.", key_points: ["about $1,121 a month", "accounts for the $50,000"]}
+    - {q: "is my portfolio too risky for that goal?", reference: "Compares the portfolio's risk level and concentration (NVDA, tech) with the moderate tolerance stated for the goal, without telling the user what to buy or sell.", key_points: ["the portfolio's risk level", "against the moderate tolerance", "concentration noted", "no buy/sell advice"]}
+
+- id: x02-tech-holder
+  title: Tech-heavy portfolio - concentration, sectors and a comparison
+  profile: {knowledge_level: intermediate, risk_tolerance: aggressive, horizon_years: 20}
+  holdings: *tech
+  turns:
+    - {q: "how is my portfolio doing?", reference: "Total value, gain or loss against cost, today's change, the four holdings (MSFT, QQQ, JPM, VTI), diversification and risk.", key_points: ["total value", "gain or loss", "today's change", "covers MSFT, QQQ, JPM and VTI"]}
+    - {q: "how much of it is tech?", reference: "The technology share of the portfolio once the funds' holdings are counted (QQQ and VTI hold large tech weights).", key_points: ["the technology percentage", "counts tech inside QQQ and VTI"]}
+    - {q: "what does QQQ track?", reference: "QQQ tracks the Nasdaq-100: the 100 largest non-financial companies on the Nasdaq, heavy in technology.", key_points: ["the Nasdaq-100", "large non-financial Nasdaq companies", "tech-heavy"]}
+    - {q: "how is the tech sector doing?", reference: "The technology sector's return over the last month (its sector fund) against the S&P 500, and its largest companies' moves.", key_points: ["tech sector's return", "against the S&P 500", "largest companies' moves"]}
+    - {q: "and financials?", reference: "The financial sector's return over the same period against the S&P 500, with its largest companies.", key_points: ["financial sector's return", "against the S&P 500", "same period as before"]}
+    - {q: "how did JPM do over the last 6 months?", reference: "JPMorgan's total return over the last 6 months with start and end prices, high and low.", key_points: ["JPM's 6-month return", "start and end prices"]}
+    - {q: "compare it to MSFT", reference: "JPM's and Microsoft's 6-month returns side by side, as a table.", key_points: ["JPM's 6-month return", "MSFT's 6-month return", "same period for both"]}
+    - {q: "which did better?", reference: "Names whichever of JPM and MSFT had the higher 6-month return, with both returns.", key_points: ["names the better one", "both returns"]}
+    - {q: "what is diversification?", reference: "Spreading money across many investments, sectors or asset types so one bad holding hurts less.", key_points: ["spreading across investments", "reduces the impact of any one holding"]}
+    - {q: "am i diversified enough?", reference: "The portfolio's diversification score and what it means, its overlap between QQQ, VTI and MSFT, and its tech concentration.", key_points: ["the diversification score", "overlap or concentration", "what the score means"]}
+    - {q: "should I sell MSFT?", reference: "Declines to say whether to sell, and explains the ideas behind such a decision (concentration, goals, taxes) with facts about the holding.", key_points: ["declines buy/sell advice", "explains what to consider"]}
+
+- id: x03-dividends
+  title: Dividend portfolio - yield, income maths and dividend stocks
+  profile: {knowledge_level: beginner, risk_tolerance: conservative, horizon_years: 15}
+  holdings: *dividend
+  turns:
+    - {q: "show me a summary of my portfolio", reference: "Total value, gain or loss against cost, today's change, the holdings (KO, JNJ, PG, VYM), diversification, risk and dividends.", key_points: ["total value", "gain or loss", "the four holdings", "dividends or income"]}
+    - {q: "what is a dividend yield?", reference: "Yearly dividends per share divided by the share price, as a percentage (a $2 dividend on a $50 share is 4%).", key_points: ["annual dividends divided by price", "a percentage", "an example"]}
+    - {q: "what's KO's dividend yield?", reference: "Coca-Cola's dividend yield from the data.", key_points: ["KO's dividend yield"]}
+    - {q: "how much income would $50,000 make at a 3.5% yield?", reference: "$50,000 × 3.5% = $1,750 a year (about $146 a month).", key_points: ["$1,750 a year"]}
+    - {q: "how is KO doing today?", reference: "Coca-Cola's price today and its change versus the previous close.", key_points: ["KO's price", "KO's change today"]}
+    - {q: "and over the last year?", reference: "Coca-Cola's total return over the last year with start and end prices.", key_points: ["KO's 1-year return", "start and end prices"]}
+    - {q: "what does VYM hold?", reference: "VYM is Vanguard's High Dividend Yield ETF: US stocks with above-average dividend yields; gives its top holdings or sectors and yield from the data.", key_points: ["a high-dividend-yield stock fund", "top holdings or sectors", "its yield or expense ratio"]}
+    - {q: "are dividends taxed?", reference: "In the US, qualified dividends are taxed at the lower long-term capital-gains rates (0%, 15% or 20%); ordinary dividends at income-tax rates; not taxed inside tax-advantaged accounts like a Roth IRA.", key_points: ["qualified vs ordinary dividends", "qualified at capital-gains rates", "ordinary at income rates"]}
+    - {q: "how did the consumer staples sector do last month?", reference: "The consumer staples sector's return over the last month against the S&P 500, with its largest companies.", key_points: ["consumer staples return", "against the S&P 500", "largest companies"]}
+    - {q: "I want $500,000 in 20 years, how much do I need to save each month?", reference: "At the conservative 4% return, compounded monthly, about $1,363.24 a month.", key_points: ["about $1,363 a month", "assumes 4% a year"]}
+    - {q: "what if I gave it 25 years instead?", reference: "Over 25 years at 4%, about $972.52 a month.", key_points: ["about $973 a month", "25 years"]}
+
+- id: x04-market-day
+  title: A day in the market - indices, movers, news and a company
+  profile: {knowledge_level: intermediate, risk_tolerance: moderate, horizon_years: 10}
+  turns:
+    - {q: "how's the stock market today?", reference: "The S&P 500, Nasdaq and Dow's change today versus the previous close, and whether the market is up or down overall.", key_points: ["S&P 500 today", "Nasdaq today", "Dow today", "up or down overall"]}
+    - {q: "and over the last month?", reference: "The same indices' returns over the last month, with the sectors ranked if given.", key_points: ["indices' last-month returns", "a month, not today"]}
+    - {q: "which sectors did best?", reference: "The sectors ranked by return over the last month, naming the best and worst.", key_points: ["names the best sectors", "names the worst", "their returns"]}
+    - {q: "what are today's most active stocks?", reference: "Today's most traded US stocks by volume, with price and change.", key_points: ["lists the most active stocks", "price and change"]}
+    - {q: "any news about the market today?", reference: "Today's market headlines with publishers, summarised only from the stories.", key_points: ["several market headlines", "publishers"]}
+    - {q: "how is nvdia doing today?", reference: "NVIDIA's price today and change versus the previous close (reads 'nvdia' as NVIDIA).", key_points: ["reads it as NVIDIA", "NVDA's price", "NVDA's change today"]}
+    - {q: "how does that compare with the nasdaq?", reference: "NVIDIA's change today against the Nasdaq's change today, in a table, and which did better today.", key_points: ["NVDA's change today", "Nasdaq's change today", "which did better today"]}
+    - {q: "what is market cap?", reference: "Market capitalisation: share price times shares outstanding, the market value of a company.", key_points: ["price times shares outstanding", "a company's market value"]}
+    - {q: "what's nvidia's market cap?", reference: "NVIDIA's market capitalisation from the data.", key_points: ["NVDA's market cap"]}
+    - {q: "is the market open right now?", reference: "Whether the US stock market is open or closed now, with its trading hours.", key_points: ["open or closed", "trading hours"]}
+    - {q: "what are the 10 biggest US companies?", reference: "The 10 largest US-listed companies by market value and how each moved.", key_points: ["lists the largest companies", "by market value"]}
+
+- id: x05-retirement-mix
+  title: Retirement planning with tax accounts, a calculation and the market
+  profile: {knowledge_level: beginner, risk_tolerance: moderate, horizon_years: 30}
+  holdings: *balanced
+  turns:
+    - {q: "what is a 401k?", reference: "A US employer-sponsored retirement account: contributions are usually pre-tax, often with an employer match, and taxed when withdrawn in retirement.", key_points: ["employer-sponsored retirement account", "pre-tax contributions", "taxed on withdrawal", "employer match"]}
+    - {q: "roth or traditional - what's the difference?", reference: "Traditional: tax deduction now, taxed on withdrawal. Roth: after-tax contributions, qualified withdrawals tax-free.", key_points: ["traditional taxed on withdrawal", "Roth contributions after-tax", "Roth qualified withdrawals tax-free"]}
+    - {q: "describe my portfolio", reference: "Total value, gain or loss against cost, today's change, the three funds (VTI, VXUS, BND) and their weights, diversification and risk.", key_points: ["total value", "gain or loss", "VTI, VXUS and BND with weights", "diversification or risk"]}
+    - {q: "what's the stock/bond split?", reference: "The share in stocks (VTI, VXUS) versus bonds (BND) from the portfolio data.", key_points: ["stock percentage", "bond percentage"]}
+    - {q: "how much will $500 a month grow to over 30 years at 7%?", reference: "$500 a month for 30 years at 7%, compounded monthly, grows to about $609,985.50.", key_points: ["about $609,986", "monthly contributions compounding"]}
+    - {q: "I want $1.5 million in 30 years and I have $25,000 saved - how much a month?", reference: "At the moderate 6% return, about $1,343.38 a month.", key_points: ["about $1,343 a month", "uses the $25,000 saved", "6% a year"]}
+    - {q: "and if I'm conservative?", reference: "At the conservative 4% return, about $2,041.88 a month, more than at 6%.", key_points: ["about $2,042 a month", "4% conservative return", "higher than before"]}
+    - {q: "how did bonds do last month?", reference: "BND's (or the bond market's) return over the last month with start and end prices.", key_points: ["the bond fund's last-month return"]}
+    - {q: "and the S&P 500?", reference: "The S&P 500's return over the same last month.", key_points: ["S&P 500's last-month return", "same period"]}
+    - {q: "what is rebalancing?", reference: "Bringing a portfolio back to its target mix by selling what grew above target and buying what fell below, keeping risk where intended.", key_points: ["back to a target mix", "sell above target, buy below", "keeps risk on target"]}
+    - {q: "rebalance my portfolio to 60/40 for me", reference: "Declines to change the portfolio (read-only) and may explain how to do it.", key_points: ["can't change the portfolio"]}
+
+- id: x06-house-goal
+  title: Saving for a house - goal, mortgage maths and rates
+  profile: {knowledge_level: beginner, risk_tolerance: moderate, horizon_years: 5}
+  turns:
+    - {q: "I need $100,000 for a house down payment in 5 years, how much should I save monthly?", reference: "At the moderate 6% return, about $1,433.29 a month.", key_points: ["about $1,433 a month", "6% a year"]}
+    - {q: "I already have $10,000 put away", reference: "With $10,000 already saved, about $1,239.96 a month for 5 years at 6%.", key_points: ["about $1,240 a month", "uses the $10,000"]}
+    - {q: "what's the monthly payment on a $300,000 30-year mortgage at 6.5%?", reference: "About $1,896.20 a month (principal and interest).", key_points: ["about $1,896 a month"]}
+    - {q: "what is APR?", reference: "Annual percentage rate: the yearly cost of a loan including interest and certain fees, for comparing loans.", key_points: ["yearly cost of borrowing", "includes fees", "for comparing loans"]}
+    - {q: "what are the 10-year treasury yields today?", reference: "The 10-year US Treasury yield today and its change.", key_points: ["10-year yield", "its change"]}
+    - {q: "how do treasury yields affect mortgage rates?", reference: "Mortgage rates tend to follow the 10-year Treasury yield: when yields rise, mortgage rates usually rise too.", key_points: ["mortgage rates track the 10-year yield", "move in the same direction"]}
+    - {q: "what's a high-yield savings account?", reference: "A savings account paying a higher interest rate than standard savings, usually online, and insured by the FDIC.", key_points: ["higher interest than standard savings", "insured / low risk"]}
+    - {q: "should I keep the down payment in stocks?", reference: "Declines to advise; explains that money needed in a few years is usually exposed to stock swings, and the trade-off of risk and return.", key_points: ["no personal advice", "short horizon vs stock volatility"]}
+    - {q: "how much would $20,000 at 4% compounded monthly be after 5 years?", reference: "About $24,419.93.", key_points: ["about $24,420"]}
+    - {q: "how is the real estate sector doing?", reference: "The real estate sector's return over the last month against the S&P 500, with its largest companies.", key_points: ["real estate sector's return", "against the S&P 500"]}
+    - {q: "what is a REIT?", reference: "A real estate investment trust: a company that owns income-producing property and pays out most of its income as dividends; shares trade like stocks.", key_points: ["owns income-producing real estate", "pays most income as dividends", "trades like a stock"]}
+
+- id: x07-big-tech
+  title: Big tech holdings - prices, profiles, news and a what-if
+  profile: {knowledge_level: intermediate, risk_tolerance: aggressive, horizon_years: 15}
+  holdings: *bigtech
+  turns:
+    - {q: "how are my holdings doing today?", reference: "The portfolio's change today and each holding's move (TSLA, AMZN, GOOGL, SCHD).", key_points: ["today's portfolio change", "covers TSLA, AMZN, GOOGL and SCHD"]}
+    - {q: "which one did best since I bought it?", reference: "Names the holding with the best return since its purchase date, with each holding's return.", key_points: ["names the best holding", "each holding's return"]}
+    - {q: "what's tesla's P/E?", reference: "Tesla's P/E ratio from the data.", key_points: ["TSLA's P/E"]}
+    - {q: "what does P/E mean?", reference: "Price-to-earnings ratio: share price divided by earnings per share; how much investors pay per dollar of earnings.", key_points: ["price divided by earnings per share", "what investors pay per dollar of earnings"]}
+    - {q: "any news on amazon?", reference: "Recent Amazon headlines with publishers.", key_points: ["Amazon headlines", "publishers"]}
+    - {q: "how did GOOGL do over the last year?", reference: "Alphabet's total return over the last year with start and end prices.", key_points: ["GOOGL's 1-year return", "start and end prices"]}
+    - {q: "compare that with amazon and tesla", reference: "GOOGL, AMZN and TSLA's 1-year returns side by side in a table.", key_points: ["three 1-year returns", "same period", "a comparison"]}
+    - {q: "what is SCHD?", reference: "Schwab U.S. Dividend Equity ETF: a fund of US dividend-paying stocks; gives its yield, expense ratio or holdings from the data.", key_points: ["a dividend stock ETF", "its yield or expense ratio"]}
+    - {q: "how much would $15,000 grow to at 5% a year for 15 years?", reference: "About $31,183.92.", key_points: ["about $31,184"]}
+    - {q: "what's the communication services sector doing this month?", reference: "The communication services sector's return over the last month against the S&P 500, with its largest companies (GOOGL among them).", key_points: ["communication services return", "against the S&P 500"]}
+    - {q: "how concentrated is my portfolio?", reference: "The concentration by holding and sector, and the diversification score.", key_points: ["largest holding weights", "sector concentration", "diversification score"]}
+
+- id: x08-crypto-forex
+  title: Crypto, currencies and commodities mixed with basics
+  profile: {knowledge_level: beginner, risk_tolerance: moderate, horizon_years: 10}
+  turns:
+    - {q: "how is bitcoin doing today?", reference: "Bitcoin's price today and its change versus the previous close.", key_points: ["bitcoin's price", "its change today"]}
+    - {q: "and ethereum?", reference: "Ethereum's price today and change.", key_points: ["ethereum's price", "its change today"]}
+    - {q: "what is cryptocurrency?", reference: "Digital money recorded on a blockchain, not issued by a government; prices are very volatile.", key_points: ["digital currency on a blockchain", "not government-issued", "volatile"]}
+    - {q: "what's the euro to dollar rate?", reference: "The EUR/USD rate and its change today.", key_points: ["EUR/USD rate", "its change"]}
+    - {q: "and the yen?", reference: "The USD/JPY rate (yen per dollar) and its change today.", key_points: ["USD/JPY rate", "its change"]}
+    - {q: "how's gold today?", reference: "Gold's price today and its change.", key_points: ["gold's price", "its change today"]}
+    - {q: "how did gold do over the last year?", reference: "Gold's return over the last year with start and end prices.", key_points: ["gold's 1-year return"]}
+    - {q: "why do people buy gold?", reference: "As a store of value and a hedge against inflation, currency weakness and market stress; it pays no income.", key_points: ["store of value", "hedge against inflation or crises", "pays no income"]}
+    - {q: "what's oil at?", reference: "Crude oil's price today and its change.", key_points: ["oil's price", "its change"]}
+    - {q: "how does the dollar's strength affect stocks?", reference: "A stronger dollar makes US exports dearer and lowers the dollar value of foreign earnings, which can weigh on large multinationals.", key_points: ["exports become more expensive", "foreign earnings worth less in dollars"]}
+    - {q: "who will win the next election?", decline: true, reference: "Declines politely as off topic (not personal finance).", key_points: ["declines as off topic"]}
+
+- id: x09-compound-learning
+  title: Learning compounding with calculations, then applying it to a real fund
+  profile: {knowledge_level: beginner, risk_tolerance: moderate, horizon_years: 20}
+  turns:
+    - {q: "What is compound interest?", reference: "Interest earned on the principal and on interest already added, so growth speeds up over time.", key_points: ["interest on interest", "grows faster than simple interest"]}
+    - {q: "How much will $10,000 grow to at 7% a year for 20 years?", reference: "$38,696.84.", key_points: ["about $38,697"]}
+    - {q: "and $5,000 at 6% for 10 years?", reference: "$8,954.24.", key_points: ["about $8,954"]}
+    - {q: "how long does it take to double my money at 8%?", reference: "About 9 years (rule of 72: 72 / 8 = 9; exactly about 9.01 years).", key_points: ["about 9 years", "rule of 72"]}
+    - {q: "what is the rule of 72?", reference: "Divide 72 by the yearly return to estimate the years to double money.", key_points: ["72 divided by the rate", "years to double"]}
+    - {q: "what is an index fund?", reference: "A fund that tracks a market index (like the S&P 500) instead of picking stocks, usually with low fees.", key_points: ["tracks an index", "low fees", "passive"]}
+    - {q: "how has the S&P 500 done this year?", reference: "The S&P 500's year-to-date return.", key_points: ["S&P 500 year-to-date return"]}
+    - {q: "and over the last 5 years?", reference: "The S&P 500's return over the last 5 years, with the annualised return if given.", key_points: ["5-year return", "annualised if given"]}
+    - {q: "what's the CAGR if $10,000 grew to $15,000 in 5 years?", reference: "About 8.45% a year.", key_points: ["about 8.45%"]}
+    - {q: "what is inflation?", reference: "The general rise in prices over time, which lowers what money buys.", key_points: ["prices rising", "money buys less"]}
+    - {q: "what's the real return if I earn 7% and inflation is 3%?", reference: "About 3.88% ((1.07 / 1.03) - 1), roughly 4%.", key_points: ["about 3.9%"]}
+
+- id: x10-switching-topics
+  title: Jumping between topics and coming back
+  profile: {knowledge_level: intermediate, risk_tolerance: moderate, horizon_years: 15}
+  holdings: *growth
+  turns:
+    - {q: "how's apple doing today?", reference: "Apple's price today and its change versus the previous close.", key_points: ["AAPL's price", "AAPL's change today"]}
+    - {q: "what is a bond?", reference: "A loan to a government or company that pays interest and returns the principal at maturity.", key_points: ["a loan to an issuer", "pays interest", "principal back at maturity"]}
+    - {q: "back to apple - how did it do last month?", reference: "Apple's return over the last month with start and end prices.", key_points: ["AAPL's last-month return"]}
+    - {q: "how many apple shares do I own?", reference: "15 shares of AAPL, with their current value.", key_points: ["15 shares", "their value"]}
+    - {q: "what's my total gain on apple?", reference: "The gain or loss on the AAPL holding against its $150 cost basis.", key_points: ["AAPL gain or loss", "against cost basis"]}
+    - {q: "what is a stock split?", reference: "A company divides each share into several, lowering the price per share without changing the total value.", key_points: ["more shares at a lower price", "same total value"]}
+    - {q: "how's BND doing today?", reference: "BND's price today and its change.", key_points: ["BND's price", "its change today"]}
+    - {q: "why would bonds go down when rates go up?", reference: "Existing bonds pay fixed coupons; when new bonds pay more, older bonds' prices fall to match.", key_points: ["fixed coupons", "new bonds pay more", "older bond prices fall"]}
+    - {q: "how's my whole portfolio today?", reference: "The portfolio's value and change today, with the holdings' moves.", key_points: ["today's portfolio change", "holdings' moves"]}
+    - {q: "and since I bought everything?", reference: "Total gain or loss against cost, and performance since purchase against the benchmark if given.", key_points: ["gain since purchase", "against the benchmark if given"]}
+    - {q: "thanks, what's the weather tomorrow?", decline: true, reference: "Declines as off topic.", key_points: ["declines as off topic"]}
+
+- id: x11-etf-deep-dive
+  title: ETFs in depth - types, costs and live comparisons
+  profile: {knowledge_level: beginner, risk_tolerance: moderate, horizon_years: 20}
+  turns:
+    - {q: "whats an etf vs a mutual fund?", reference: "Both pool money into many assets; ETFs trade on an exchange all day at market prices, mutual funds trade once a day at NAV; ETFs often have lower fees and are more tax-efficient.", key_points: ["both pool money", "ETFs trade all day, funds once a day", "fees or tax differences"]}
+    - {q: "what are the cheapest S&P 500 etfs?", reference: "Names S&P 500 ETFs such as VOO, IVV and SPY with expense ratios from the data or knowledge base; does not invent figures.", key_points: ["names S&P 500 ETFs", "their expense ratios"]}
+    - {q: "compare VOO and SPY expense ratios", reference: "VOO's and SPY's expense ratios side by side from the data (about 0.03% vs about 0.09%).", key_points: ["VOO's expense ratio", "SPY's expense ratio"]}
+    - {q: "how did they do over the last year?", reference: "VOO and SPY's 1-year returns, nearly identical because they track the same index.", key_points: ["VOO 1-year return", "SPY 1-year return", "near-identical"]}
+    - {q: "what is tracking error?", reference: "How much a fund's return differs from its index's return.", key_points: ["difference between fund and index returns"]}
+    - {q: "what's in QQQ?", reference: "QQQ's top holdings and sector weights from the data (Nasdaq-100, tech-heavy).", key_points: ["top holdings", "sector weights or tech focus"]}
+    - {q: "how's QQQ today?", reference: "QQQ's price today and its change.", key_points: ["QQQ's price", "its change today"]}
+    - {q: "and over the last 3 months?", reference: "QQQ's return over the last 3 months.", key_points: ["QQQ's 3-month return"]}
+    - {q: "what is a bond etf?", reference: "An ETF holding many bonds, giving bond exposure that trades like a stock; examples like BND.", key_points: ["holds many bonds", "trades like a stock"]}
+    - {q: "BND's yield?", reference: "BND's yield from the data.", key_points: ["BND's yield"]}
+    - {q: "what's the difference between dividend yield and SEC yield?", reference: "Dividend yield is past distributions over price; SEC yield is a standardised 30-day measure of a fund's income after expenses.", key_points: ["dividend yield uses past payouts", "SEC yield is standardised 30-day income after expenses"]}
+
+- id: x12-goal-revisions
+  title: A college savings goal revised several times
+  profile: {knowledge_level: beginner, risk_tolerance: moderate, horizon_years: 18}
+  turns:
+    - {q: "I want to save $150,000 for my kid's college in 18 years, how much per month?", reference: "At 6% moderate, about $387.25 a month.", key_points: ["about $387 a month", "6% a year"]}
+    - {q: "what if I'm more conservative?", reference: "At the conservative 4% return, about $475.30 a month.", key_points: ["about $475 a month", "4% return"]}
+    - {q: "what is a 529 plan?", reference: "A US tax-advantaged education savings plan: growth is tax-free when used for qualified education costs.", key_points: ["education savings account", "tax-free growth for education"]}
+    - {q: "how is the market doing today?", reference: "The main indices' change today.", key_points: ["indices' change today"]}
+    - {q: "should I invest the college money in stocks?", reference: "Declines to advise; explains the trade-off between growth and risk over an 18-year horizon, and that risk is often reduced as the date nears.", key_points: ["no personal advice", "risk vs time horizon"]}
+    - {q: "what's an age-based portfolio?", reference: "A mix that shifts from stocks to bonds and cash as the target date approaches (like target-date funds).", key_points: ["shifts toward bonds as the date nears"]}
+    - {q: "how much would $200 a month grow to over 10 years at 6%?", reference: "About $32,775.87.", key_points: ["about $32,776"]}
+    - {q: "what does inflation do to college costs?", reference: "Inflation raises future costs, so the same goal needs more money later; college costs have often risen faster than general inflation.", key_points: ["future costs higher", "need to save more"]}
+    - {q: "how much is $100 in 10 years with 3% inflation, in today's money?", reference: "About $74.41.", key_points: ["about $74.41"]}
+    - {q: "go back to the college goal - what was the moderate monthly amount?", reference: "About $387.25 a month at 6% for $150,000 in 18 years (as computed earlier).", key_points: ["about $387 a month"]}
+
+- id: x13-news-heavy
+  title: News across companies, sectors and the market
+  profile: {knowledge_level: intermediate, risk_tolerance: moderate, horizon_years: 10}
+  turns:
+    - {q: "what's the latest news on tesla?", reference: "Recent Tesla headlines with publishers, summarised from the stories only.", key_points: ["Tesla headlines", "publishers"]}
+    - {q: "how did the stock react today?", reference: "Tesla's price and change today, without claiming the news caused the move.", key_points: ["TSLA's change today", "no causal claim"]}
+    - {q: "any news about the fed?", reference: "Recent headlines about the Federal Reserve with publishers.", key_points: ["Fed headlines", "publishers"]}
+    - {q: "what does the fed do?", reference: "The US central bank: sets interest rates (the federal funds rate) to keep inflation in check and employment high, and supervises banks.", key_points: ["US central bank", "sets interest rates", "inflation and employment goals"]}
+    - {q: "news on the energy sector", reference: "Recent energy-sector headlines with publishers.", key_points: ["energy headlines"]}
+    - {q: "how did energy do last month?", reference: "The energy sector's last-month return against the S&P 500.", key_points: ["energy's last-month return", "against the S&P 500"]}
+    - {q: "what's happening with apple?", reference: "Recent Apple headlines with publishers.", key_points: ["Apple headlines"]}
+    - {q: "and microsoft?", reference: "Recent Microsoft headlines with publishers.", key_points: ["Microsoft headlines"]}
+    - {q: "how are both doing today?", reference: "Apple's and Microsoft's change today, side by side.", key_points: ["AAPL today", "MSFT today"]}
+    - {q: "what is an earnings report?", reference: "A company's quarterly report of revenue, profit and earnings per share, often with guidance.", key_points: ["quarterly results", "revenue and earnings per share"]}
+    - {q: "when does nvidia report earnings next?", reference: "NVIDIA's next earnings date from the data.", key_points: ["next earnings date"]}
+
+- id: x14-risk-profile
+  title: Risk, volatility and my portfolio's risk
+  profile: {knowledge_level: beginner, risk_tolerance: conservative, horizon_years: 10}
+  holdings: *growth
+  turns:
+    - {q: "what does risk tolerance mean?", reference: "How much ups and downs in value an investor can accept, emotionally and financially.", key_points: ["acceptance of losses or swings", "personal"]}
+    - {q: "how risky is my portfolio?", reference: "The portfolio's risk level against the conservative tolerance, and what drives it (NVDA, tech concentration).", key_points: ["risk level", "against conservative tolerance", "what drives it"]}
+    - {q: "what is volatility?", reference: "How much a price moves up and down, often measured by standard deviation.", key_points: ["size of price swings", "standard deviation"]}
+    - {q: "what's beta?", reference: "How much a stock tends to move relative to the market: above 1 swings more, below 1 less.", key_points: ["sensitivity to the market", "above/below 1 meaning"]}
+    - {q: "what's nvda's beta?", reference: "NVIDIA's beta from the data.", key_points: ["NVDA's beta"]}
+    - {q: "and BND's?", reference: "BND's beta or risk measure from the data, or says it is not available; notes bonds tend to swing less.", key_points: ["BND's risk measure or says unavailable"]}
+    - {q: "how did nvda move this month vs bnd?", reference: "NVDA's and BND's returns over the last month, side by side.", key_points: ["NVDA's month return", "BND's month return"]}
+    - {q: "what is a max drawdown?", reference: "The largest fall from a peak to a low before a new peak.", key_points: ["peak-to-trough fall"]}
+    - {q: "what was my portfolio's largest drop?", reference: "The portfolio's largest fall from a peak from the performance data.", key_points: ["the portfolio's max drawdown"]}
+    - {q: "I want $50,000 in 3 years, how much monthly?", reference: "At the conservative 4% return, about $1,309.54 a month.", key_points: ["about $1,310 a month", "4% a year"]}
+    - {q: "make my profile aggressive", reference: "Declines: it cannot change the profile (read-only); the user can change it in the profile panel.", key_points: ["can't change the profile"]}
+
+- id: x15-sectors-industries
+  title: Sectors and industries, then a company inside them
+  profile: {knowledge_level: intermediate, risk_tolerance: moderate, horizon_years: 10}
+  turns:
+    - {q: "which sectors are doing best this month?", reference: "Sectors ranked by last-month return, best and worst named.", key_points: ["best sectors", "worst sectors", "returns"]}
+    - {q: "what's in the healthcare sector?", reference: "Healthcare's industries and largest companies with weights from the data.", key_points: ["its industries", "largest companies"]}
+    - {q: "how did healthcare do vs the S&P 500 last month?", reference: "Healthcare's last-month return against the S&P 500's.", key_points: ["healthcare return", "S&P 500 return"]}
+    - {q: "which healthcare industries did best?", reference: "Healthcare's industries ranked by return, best named.", key_points: ["best healthcare industries"]}
+    - {q: "how's JNJ doing today?", reference: "Johnson & Johnson's price and change today.", key_points: ["JNJ's price", "JNJ's change today"]}
+    - {q: "what is a defensive stock?", reference: "A stock whose business holds up in downturns (staples, healthcare, utilities), so it tends to fall less.", key_points: ["steady demand in downturns", "examples of sectors"]}
+    - {q: "tell me about the semiconductor industry", reference: "Semiconductors' size, share of tech, largest companies and best performers from the data.", key_points: ["size or share", "largest companies"]}
+    - {q: "how did semis do over the last 3 months?", reference: "The semiconductor industry's (or tech's industries') return over 3 months, or the closest data with the period stated.", key_points: ["semiconductor return", "period stated"]}
+    - {q: "how did utilities do this year?", reference: "The utilities sector's year-to-date return against the S&P 500.", key_points: ["utilities YTD return", "against the S&P 500"]}
+    - {q: "what's a sector ETF?", reference: "An ETF holding the companies of one sector (like XLK for technology).", key_points: ["one sector's companies", "an example"]}
+    - {q: "which sector should I buy?", reference: "Declines to recommend; explains what to consider.", key_points: ["no recommendation", "what to consider"]}
+
+- id: x16-global-markets
+  title: Markets around the world and currency effects
+  profile: {knowledge_level: intermediate, risk_tolerance: moderate, horizon_years: 15}
+  holdings: *balanced
+  turns:
+    - {q: "how are markets around the world doing?", reference: "Major countries' main indices over the last month, ranked.", key_points: ["several countries' indices", "returns", "ranked"]}
+    - {q: "how's japan doing today?", reference: "The Nikkei 225's level and change today.", key_points: ["Nikkei level", "Nikkei change"]}
+    - {q: "what about europe this year?", reference: "European indices' (e.g. Euro Stoxx 50, DAX) year-to-date returns.", key_points: ["European index YTD returns"]}
+    - {q: "what is VXUS?", reference: "Vanguard Total International Stock ETF: stocks outside the US, developed and emerging; gives its expense ratio or holdings.", key_points: ["non-US stocks", "developed and emerging", "expense ratio or holdings"]}
+    - {q: "how much of my portfolio is international?", reference: "The share in VXUS (international) from the portfolio data.", key_points: ["international share"]}
+    - {q: "did VXUS beat VTI over the last year?", reference: "VXUS's and VTI's 1-year returns side by side, naming the better.", key_points: ["VXUS 1-year return", "VTI 1-year return", "which did better"]}
+    - {q: "what is currency risk?", reference: "Losses or gains from exchange-rate moves when holding assets priced in another currency.", key_points: ["exchange-rate moves", "affect foreign assets' value"]}
+    - {q: "how's the euro vs the dollar?", reference: "EUR/USD rate and change today.", key_points: ["EUR/USD", "its change"]}
+    - {q: "what are emerging markets?", reference: "Developing economies (e.g. China, India, Brazil) with faster growth but higher risk.", key_points: ["developing economies", "higher growth and risk"]}
+    - {q: "how's india's market today?", reference: "India's main index (Nifty 50 or Sensex) change today.", key_points: ["Indian index change"]}
+    - {q: "is my portfolio diversified globally?", reference: "The US vs international split with the diversification score.", key_points: ["US vs international split", "diversification score"]}
+
+- id: x17-loans-debt
+  title: Debt, loans and interest, with the market in between
+  profile: {knowledge_level: beginner, risk_tolerance: conservative, horizon_years: 5}
+  turns:
+    - {q: "what's the payment on a $25,000 car loan over 5 years at 5%?", reference: "About $471.78 a month.", key_points: ["about $472 a month"]}
+    - {q: "how much interest is that in total?", reference: "About $3,306.80 in interest ($471.78 × 60 − $25,000).", key_points: ["about $3,307 interest"]}
+    - {q: "what is amortization?", reference: "Paying a loan off in regular payments that cover interest and part of the principal, with the interest share falling over time.", key_points: ["regular payments", "interest share falls over time"]}
+    - {q: "a $400,000 mortgage at 7% - 30 years vs 15 years payment?", reference: "About $2,661.21 a month over 30 years vs about $3,595.31 over 15 years.", key_points: ["about $2,661 for 30 years", "about $3,595 for 15 years"]}
+    - {q: "what's a credit score?", reference: "A number (e.g. 300-850 FICO) estimating how likely someone is to repay debt, used by lenders.", key_points: ["measures creditworthiness", "used by lenders"]}
+    - {q: "should I pay off debt or invest?", reference: "No personal advice; explains comparing the debt's interest rate with expected investment returns and risk.", key_points: ["no personal advice", "compare interest rate vs expected return"]}
+    - {q: "how's the stock market today?", reference: "Main indices' change today.", key_points: ["indices' change today"]}
+    - {q: "what's the 10 year treasury at?", reference: "The 10-year Treasury yield and its change.", key_points: ["10-year yield"]}
+    - {q: "what is the federal funds rate?", reference: "The overnight rate banks charge each other, targeted by the Fed; it steers other borrowing costs.", key_points: ["overnight interbank rate", "set by the Fed"]}
+    - {q: "how do rate cuts affect stocks?", reference: "Lower rates cut borrowing costs and make bonds pay less, which tends to support stock prices.", key_points: ["cheaper borrowing", "supports stock prices"]}
+
+- id: x18-typos
+  title: Questions with typos and shorthand throughout
+  profile: {knowledge_level: beginner, risk_tolerance: moderate, horizon_years: 20}
+  holdings: *tech
+  turns:
+    - {q: "hows my protfolio", reference: "Reads it as 'how's my portfolio': total value, gain or loss, today's change and the holdings.", key_points: ["reads as portfolio", "total value", "holdings covered"]}
+    - {q: "whats a etf", reference: "Explains ETFs.", key_points: ["explains ETF"]}
+    - {q: "msft price?", reference: "Microsoft's price and change today.", key_points: ["MSFT's price"]}
+    - {q: "nvdia vs amd last mnth", reference: "NVIDIA's and AMD's returns over the last month side by side.", key_points: ["NVDA's month return", "AMD's month return"]}
+    - {q: "wich did beter", reference: "Names whichever of NVDA and AMD had the higher last-month return.", key_points: ["names the better one", "both returns"]}
+    - {q: "s&p500 ytd?", reference: "The S&P 500's year-to-date return.", key_points: ["S&P 500 YTD"]}
+    - {q: "wat is a roth ira", reference: "Explains a Roth IRA (after-tax contributions, tax-free qualified withdrawals).", key_points: ["after-tax contributions", "tax-free qualified withdrawals"]}
+    - {q: "10k at 7 percent for 20 yrs?", reference: "$38,696.84.", key_points: ["about $38,697"]}
+    - {q: "retire w 1 mil in 25 yrs how much a month", reference: "About $1,443.02 a month at 6% moderate.", key_points: ["about $1,443 a month"]}
+    - {q: "news on jpm", reference: "Recent JPMorgan headlines with publishers.", key_points: ["JPM headlines"]}
+    - {q: "is mkt open", reference: "Whether the US stock market is open now, with hours.", key_points: ["open or closed"]}
+
+- id: x19-watchlist-screen
+  title: Questions about what is on screen and the watchlist
+  profile: {knowledge_level: intermediate, risk_tolerance: moderate, horizon_years: 10}
+  turns:
+    - {q: "how are the stocks on my watchlist doing today?", view: {tab: Live Market, watchlist: [AAPL, MSFT, NVDA, AMZN]}, reference: "Today's price and change for AAPL, MSFT, NVDA and AMZN, as a table.", key_points: ["covers the four watchlist stocks", "today's changes"]}
+    - {q: "which of them did best this month?", view: {tab: Live Market, watchlist: [AAPL, MSFT, NVDA, AMZN]}, reference: "The four stocks' last-month returns, naming the best.", key_points: ["last-month returns", "names the best"]}
+    - {q: "what about this stock?", view: {tab: Live Market, selected: MSFT, watchlist: [AAPL, MSFT, NVDA, AMZN]}, reference: "Microsoft (the selected stock): price, change and key figures.", key_points: ["about MSFT", "price and change"]}
+    - {q: "what's its P/E?", view: {tab: Live Market, selected: MSFT, watchlist: [AAPL, MSFT, NVDA, AMZN]}, reference: "Microsoft's P/E from the data.", key_points: ["MSFT's P/E"]}
+    - {q: "explain forward P/E", view: {tab: Live Market, selected: MSFT}, reference: "P/E using expected next-year earnings instead of past earnings.", key_points: ["uses expected future earnings"]}
+    - {q: "how's this fund?", view: {tab: Research, selected: VTI}, reference: "VTI (the selected fund): price, change, expense ratio or holdings.", key_points: ["about VTI", "price or fund figures"]}
+    - {q: "what does it hold?", view: {tab: Research, selected: VTI}, reference: "VTI's top holdings and sector weights.", key_points: ["top holdings", "sector weights"]}
+    - {q: "how did it do this year?", view: {tab: Research, selected: VTI}, reference: "VTI's year-to-date return.", key_points: ["VTI YTD return"]}
+    - {q: "what's a total market fund?", reference: "A fund owning nearly every listed stock in a market (small, mid and large).", key_points: ["nearly all stocks in a market"]}
+    - {q: "compare it with VOO over the last year", view: {tab: Research, selected: VTI}, reference: "VTI's and VOO's 1-year returns side by side.", key_points: ["VTI 1-year", "VOO 1-year"]}
+
+- id: x20-retiree-income
+  title: A retiree living on investment income
+  profile: {knowledge_level: intermediate, risk_tolerance: conservative, horizon_years: 10}
+  holdings: *dividend
+  turns:
+    - {q: "I'm retired, how is my portfolio?", reference: "Value, gain or loss, today's change, holdings and income/dividends, against the conservative tolerance.", key_points: ["value", "gain or loss", "dividends or income"]}
+    - {q: "what's the 4% rule?", reference: "Withdraw about 4% of savings in the first retirement year and adjust for inflation after; designed to last about 30 years.", key_points: ["withdraw about 4% a year", "inflation-adjusted", "about 30 years"]}
+    - {q: "how much income would $800,000 give with the 4% rule?", reference: "$32,000 in the first year.", key_points: ["$32,000"]}
+    - {q: "what are RMDs?", reference: "Required minimum distributions: yearly withdrawals the IRS requires from traditional retirement accounts after a set age (73).", key_points: ["required yearly withdrawals", "traditional accounts", "starting age"]}
+    - {q: "how are social security benefits taxed?", reference: "Up to 85% of benefits can be taxable, depending on combined income.", key_points: ["up to 85% taxable", "depends on income"]}
+    - {q: "how's PG doing today?", reference: "Procter & Gamble's price and change today.", key_points: ["PG price", "PG change"]}
+    - {q: "and JNJ and KO?", reference: "JNJ's and KO's price and change today, side by side.", key_points: ["JNJ today", "KO today"]}
+    - {q: "what is sequence of returns risk?", reference: "The risk that poor returns early in retirement, while withdrawing, deplete savings faster than the same returns later.", key_points: ["early poor returns", "while withdrawing"]}
+    - {q: "how did bonds do this year?", reference: "A bond fund's (e.g. BND) year-to-date return.", key_points: ["bond YTD return"]}
+    - {q: "what is an annuity?", reference: "An insurance contract paying a stream of income, often for life, in exchange for a lump sum or payments.", key_points: ["insurance contract", "income stream"]}
+    - {q: "should I buy an annuity?", reference: "No personal advice; explains pros and cons.", key_points: ["no personal advice"]}
+
+- id: x21-first-job
+  title: First job - budgeting, emergency fund, 401k and starting to invest
+  profile: {knowledge_level: beginner, risk_tolerance: moderate, horizon_years: 40}
+  turns:
+    - {q: "what's an emergency fund?", reference: "Savings set aside for unexpected costs, usually 3-6 months of expenses, kept easy to reach.", key_points: ["unexpected costs", "3-6 months of expenses"]}
+    - {q: "what's the 50/30/20 budget?", reference: "50% of take-home pay on needs, 30% on wants, 20% on saving and debt.", key_points: ["50 needs", "30 wants", "20 savings"]}
+    - {q: "what's an employer 401k match?", reference: "The employer adds money to your 401k when you contribute, up to a limit; free money.", key_points: ["employer contributes too", "up to a limit"]}
+    - {q: "how much will $200 a month grow to in 10 years at 6%?", reference: "About $32,775.87.", key_points: ["about $32,776"]}
+    - {q: "and $1,000 a month over 20 years at 8%?", reference: "About $589,020.42.", key_points: ["about $589,020"]}
+    - {q: "I want $2 million in 30 years, how much should I put away monthly?", reference: "At the moderate 6% return, about $1,991.02 a month.", key_points: ["a monthly figure", "assumes 6% moderate"]}
+    - {q: "how is the market doing today?", reference: "Main indices' change today.", key_points: ["indices today"]}
+    - {q: "what's dollar-cost averaging?", reference: "Investing a fixed amount at regular intervals regardless of price, buying more shares when prices are low.", key_points: ["fixed amount regularly", "more shares when cheap"]}
+    - {q: "how has VTI done over 5 years?", reference: "VTI's 5-year return, annualised if given.", key_points: ["VTI 5-year return"]}
+    - {q: "is crypto a good first investment?", reference: "No personal advice; explains crypto's volatility and risks.", key_points: ["no personal advice", "volatility/risk"]}
+
+- id: x22-company-research
+  title: Researching one company from many angles
+  profile: {knowledge_level: intermediate, risk_tolerance: moderate, horizon_years: 10}
+  turns:
+    - {q: "tell me about costco", reference: "Costco's profile: sector, business, market cap and valuation from the data.", key_points: ["sector or business", "market cap or valuation"]}
+    - {q: "how is it doing today?", reference: "COST's price and change today.", key_points: ["COST price", "COST change"]}
+    - {q: "and this year?", reference: "COST's year-to-date return.", key_points: ["COST YTD return"]}
+    - {q: "what's its P/E and dividend yield?", reference: "COST's P/E and dividend yield from the data.", key_points: ["COST P/E", "COST dividend yield"]}
+    - {q: "is that P/E high?", reference: "Explains what a high P/E suggests and compares with figures in the data (no invented averages).", key_points: ["what a high P/E means", "no invented benchmarks"]}
+    - {q: "any recent news on costco?", reference: "Recent Costco headlines with publishers.", key_points: ["Costco headlines"]}
+    - {q: "compare costco with walmart over the last year", reference: "COST's and WMT's 1-year returns side by side.", key_points: ["COST 1-year", "WMT 1-year"]}
+    - {q: "which sector are they in?", reference: "Consumer staples (Walmart) / consumer defensive; Costco in consumer staples too, per the data.", key_points: ["names the sector"]}
+    - {q: "how did that sector do last month?", reference: "Consumer staples' last-month return against the S&P 500.", key_points: ["staples return", "against S&P 500"]}
+    - {q: "what is free cash flow?", reference: "Cash a company generates from operations after capital spending.", key_points: ["operating cash minus capital spending"]}
+    - {q: "when are costco's next earnings?", reference: "COST's next earnings date from the data.", key_points: ["next earnings date"]}
+
+- id: x23-market-timeframes
+  title: The same market across many time frames
+  profile: {knowledge_level: intermediate, risk_tolerance: moderate, horizon_years: 10}
+  turns:
+    - {q: "how's today's market today and last month?", reference: "Main indices' change today and, separately, their last-month returns.", key_points: ["indices today", "indices last month", "periods kept apart"]}
+    - {q: "and year to date?", reference: "The indices' year-to-date returns.", key_points: ["indices YTD"]}
+    - {q: "and over the last year?", reference: "The indices' 1-year returns.", key_points: ["indices 1-year"]}
+    - {q: "which index did best over the year?", reference: "Names the index with the highest 1-year return.", key_points: ["names the best index"]}
+    - {q: "how about the last 5 years for the S&P 500?", reference: "The S&P 500's 5-year return, annualised if given.", key_points: ["S&P 5-year return"]}
+    - {q: "what's a bear market?", reference: "A fall of 20% or more from a recent high.", key_points: ["20% fall from a high"]}
+    - {q: "and a correction?", reference: "A fall of 10% to 20% from a recent high.", key_points: ["10-20% fall"]}
+    - {q: "is the nasdaq in a correction?", reference: "Uses the Nasdaq's recent high and current level from the data, or says it can't tell without the high.", key_points: ["uses data or says it can't tell"]}
+    - {q: "how's the russell 2000 this month?", reference: "The Russell 2000's last-month return.", key_points: ["Russell month return"]}
+    - {q: "what are small caps?", reference: "Smaller companies by market value (roughly $300M-$2B), typically more volatile.", key_points: ["smaller companies", "more volatile"]}
+    - {q: "small caps vs large caps this year?", reference: "The Russell 2000's and S&P 500's YTD returns side by side.", key_points: ["Russell YTD", "S&P YTD"]}
+
+- id: x24-tax-mix
+  title: Taxes on investing mixed with portfolio questions
+  profile: {knowledge_level: intermediate, risk_tolerance: moderate, horizon_years: 15}
+  holdings: *bigtech
+  turns:
+    - {q: "how are capital gains taxed?", reference: "Short-term (held a year or less) at income-tax rates; long-term at 0%, 15% or 20%.", key_points: ["short vs long term", "long-term 0/15/20%"]}
+    - {q: "which of my holdings have gains?", reference: "Each holding's gain or loss against cost basis.", key_points: ["per-holding gains or losses"]}
+    - {q: "which have I held over a year?", reference: "Holdings bought more than a year ago by purchase date (all four bought in 2024).", key_points: ["by purchase date"]}
+    - {q: "what's tax-loss harvesting?", reference: "Selling investments at a loss to offset taxable gains, subject to the wash-sale rule.", key_points: ["sell at a loss to offset gains", "wash-sale rule"]}
+    - {q: "what's the wash sale rule?", reference: "A loss is disallowed if you buy a substantially identical security within 30 days before or after the sale.", key_points: ["30 days", "substantially identical"]}
+    - {q: "how's tesla doing today?", reference: "TSLA's price and change today.", key_points: ["TSLA today"]}
+    - {q: "and over the last 6 months?", reference: "TSLA's 6-month return.", key_points: ["TSLA 6-month"]}
+    - {q: "are ETF dividends taxed differently?", reference: "ETF dividends are taxed like other dividends (qualified at capital-gains rates, others as income).", key_points: ["same dividend rules", "qualified vs ordinary"]}
+    - {q: "what's an IRA contribution limit?", reference: "The yearly IRS limit on IRA contributions (with a catch-up for 50+), from the knowledge base.", key_points: ["yearly limit", "catch-up for 50+"]}
+    - {q: "sell my tesla shares", reference: "Declines: it can't trade or change the portfolio.", key_points: ["can't trade"]}
+
+- id: x25-commodities-macro
+  title: Commodities, inflation and rates
+  profile: {knowledge_level: intermediate, risk_tolerance: moderate, horizon_years: 10}
+  turns:
+    - {q: "how is oil doing this month?", reference: "Crude oil's last-month return.", key_points: ["oil month return"]}
+    - {q: "and natural gas today?", reference: "Natural gas's price and change today.", key_points: ["natural gas today"]}
+    - {q: "what's CPI?", reference: "Consumer price index: the average price change of a basket of consumer goods, the main inflation measure.", key_points: ["basket of consumer prices", "measures inflation"]}
+    - {q: "how does inflation affect bonds?", reference: "Higher inflation erodes fixed payments and pushes rates up, lowering bond prices.", key_points: ["erodes fixed payments", "prices fall as rates rise"]}
+    - {q: "what are TIPS?", reference: "Treasury Inflation-Protected Securities: principal adjusts with CPI.", key_points: ["inflation-adjusted principal"]}
+    - {q: "how's gold vs silver this year?", reference: "Gold's and silver's YTD returns side by side.", key_points: ["gold YTD", "silver YTD"]}
+    - {q: "what's the 2-year treasury yield?", reference: "The 2-year yield and change today, or says it isn't available.", key_points: ["2-year yield or unavailable"]}
+    - {q: "what is a yield curve inversion?", reference: "When short-term yields are above long-term yields, often seen as a recession signal.", key_points: ["short above long", "recession signal"]}
+    - {q: "how's the energy sector vs the market this year?", reference: "Energy's YTD return against the S&P 500.", key_points: ["energy YTD", "S&P YTD"]}
+    - {q: "copper price?", reference: "Copper's price and change.", key_points: ["copper price"]}
+
+- id: x26-goal-to-portfolio
+  title: From a goal back to the portfolio that should fund it
+  profile: {knowledge_level: intermediate, risk_tolerance: moderate, horizon_years: 20}
+  holdings: *balanced
+  turns:
+    - {q: "I want $750,000 in 20 years and have $100,000 saved. monthly?", reference: "At 6%, about $906.81 a month.", key_points: ["about $907 a month"]}
+    - {q: "what if I chose aggressive?", reference: "At 8%, about $436.87 a month.", key_points: ["about $437 a month", "8%"]}
+    - {q: "what's my portfolio worth now?", reference: "The portfolio's current total value.", key_points: ["total value"]}
+    - {q: "is it on track with how it's invested?", reference: "Describes the portfolio's mix and risk relative to a moderate goal; no advice.", key_points: ["mix and risk", "no advice"]}
+    - {q: "how did my portfolio do vs the S&P 500 since I bought?", reference: "Performance since purchase against the benchmark.", key_points: ["portfolio return", "benchmark return"]}
+    - {q: "what is a target-date fund?", reference: "A fund that shifts from stocks to bonds as a target year nears.", key_points: ["glide path toward bonds"]}
+    - {q: "how's VTI today?", reference: "VTI's price and change today.", key_points: ["VTI today"]}
+    - {q: "and BND this month?", reference: "BND's last-month return.", key_points: ["BND month"]}
+    - {q: "what's the expected return of a 60/40 portfolio?", reference: "Uses only the knowledge base; no invented percentages, or says the sources don't give one.", key_points: ["no invented figure"]}
+    - {q: "redo the goal with 25 years instead", reference: "$750,000 in 25 years with $100,000 saved, at 6%: about $437.96 a month, lower than for 20 years.", key_points: ["a lower monthly figure", "25 years"]}
+
+- id: x27-advice-boundaries
+  title: Pushing on advice boundaries between real questions
+  profile: {knowledge_level: beginner, risk_tolerance: moderate, horizon_years: 10}
+  holdings: *growth
+  turns:
+    - {q: "should I buy more nvidia?", reference: "Declines buy advice; gives facts about NVDA and what to consider.", key_points: ["no buy advice", "facts about NVDA"]}
+    - {q: "ok how is it doing today then?", reference: "NVDA's price and change today.", key_points: ["NVDA today"]}
+    - {q: "what's the analyst consensus?", reference: "Analyst ratings or targets from the data stated as information, not as a recommendation, or says unavailable.", key_points: ["presented as information, not advice"]}
+    - {q: "will it go up tomorrow?", reference: "Declines to predict; prices can't be forecast.", key_points: ["no prediction"]}
+    - {q: "what's the best stock to buy now?", reference: "Declines; explains how to evaluate investments.", key_points: ["no recommendation"]}
+    - {q: "what is a P/E ratio?", reference: "Explains P/E.", key_points: ["price over earnings per share"]}
+    - {q: "my portfolio's biggest risk?", reference: "Names the largest concentration or risk factor from the portfolio data.", key_points: ["names the main risk from the data"]}
+    - {q: "should I sell everything and buy bonds?", reference: "Declines; explains trade-offs.", key_points: ["no advice", "trade-offs"]}
+    - {q: "what are bonds yielding?", reference: "Treasury yields (e.g. 10-year) or BND's yield from the data.", key_points: ["a yield figure from the data"]}
+    - {q: "guarantee me 10% returns", reference: "Says no returns can be guaranteed.", key_points: ["no guarantees"]}
+
+- id: x28-short-followups
+  title: Very short follow-ups that rely on context
+  profile: {knowledge_level: intermediate, risk_tolerance: moderate, horizon_years: 10}
+  turns:
+    - {q: "how's amd doing over the last 3 months?", reference: "AMD's 3-month return.", key_points: ["AMD 3-month"]}
+    - {q: "and intel?", reference: "Intel's 3-month return (same period).", key_points: ["INTC 3-month"]}
+    - {q: "which did better?", reference: "Names the better of AMD and INTC over 3 months with both returns.", key_points: ["names the better", "both returns"]}
+    - {q: "today?", reference: "AMD's and INTC's change today.", key_points: ["AMD today", "INTC today"]}
+    - {q: "news?", reference: "Recent AMD and/or Intel headlines.", key_points: ["AMD or Intel headlines"]}
+    - {q: "P/E?", reference: "AMD's and/or Intel's P/E from the data.", key_points: ["P/E figures"]}
+    - {q: "what does that mean?", reference: "Explains P/E.", key_points: ["explains P/E"]}
+    - {q: "semis sector?", reference: "Semiconductor industry or tech sector performance.", key_points: ["semiconductor or tech performance"]}
+    - {q: "vs the market?", reference: "Against the S&P 500 over the same period.", key_points: ["S&P 500 comparison"]}
+    - {q: "biggest one?", reference: "The largest semiconductor company by market value (NVIDIA) from the data.", key_points: ["names the largest"]}
+
+- id: x29-portfolio-deep
+  title: Going deep into one portfolio
+  profile: {knowledge_level: intermediate, risk_tolerance: aggressive, horizon_years: 20}
+  holdings: *bigtech
+  turns:
+    - {q: "full breakdown of my portfolio please", reference: "Value, gain or loss, today's change, holdings with weights, diversification, risk and fees.", key_points: ["value", "gain or loss", "weights", "diversification and risk"]}
+    - {q: "what are my fees?", reference: "The portfolio's yearly fees and weighted expense ratio.", key_points: ["yearly fees", "weighted expense ratio"]}
+    - {q: "dividends?", reference: "Dividend income from the holdings (SCHD mainly).", key_points: ["dividend income"]}
+    - {q: "how does it compare with the S&P 500?", reference: "Performance since purchase against the benchmark.", key_points: ["portfolio vs benchmark"]}
+    - {q: "volatility?", reference: "The portfolio's volatility from the performance data.", key_points: ["volatility figure"]}
+    - {q: "what's sharpe ratio?", reference: "Return above the risk-free rate per unit of volatility.", key_points: ["excess return per unit of risk"]}
+    - {q: "amazon today?", reference: "AMZN's price and change today.", key_points: ["AMZN today"]}
+    - {q: "my amazon gain?", reference: "The AMZN holding's gain against its $150 cost basis.", key_points: ["AMZN gain"]}
+    - {q: "what % is amazon of my portfolio?", reference: "AMZN's weight from the portfolio data.", key_points: ["AMZN weight"]}
+    - {q: "risk vs my tolerance?", reference: "Risk level against the aggressive tolerance.", key_points: ["risk vs aggressive tolerance"]}
+
+- id: x30-everything
+  title: Everything in one chat - kb, market, news, calc, goal and portfolio
+  profile: {knowledge_level: beginner, risk_tolerance: moderate, horizon_years: 25}
+  holdings: *growth
+  turns:
+    - {q: "what is a stock?", reference: "A share of ownership in a company.", key_points: ["ownership share"]}
+    - {q: "how's the market today?", reference: "Main indices' change today.", key_points: ["indices today"]}
+    - {q: "describe my portfolio", reference: "Value, gain or loss, today's change, holdings.", key_points: ["value", "holdings"]}
+    - {q: "news about my holdings", reference: "Headlines on AAPL, NVDA, VOO or BND.", key_points: ["holdings headlines"]}
+    - {q: "$5,000 at 6% for 10 years?", reference: "$8,954.24.", key_points: ["about $8,954"]}
+    - {q: "retire with $1 million in 25 years monthly?", reference: "About $1,443.02 a month.", key_points: ["about $1,443"]}
+    - {q: "what's a bond fund?", reference: "A fund holding many bonds.", key_points: ["holds many bonds"]}
+    - {q: "how did BND do last month?", reference: "BND's last-month return.", key_points: ["BND month"]}
+    - {q: "compare NVDA and AAPL this year", reference: "NVDA's and AAPL's YTD returns side by side.", key_points: ["NVDA YTD", "AAPL YTD"]}
+    - {q: "which did better?", reference: "Names the better YTD return.", key_points: ["names the better"]}
+    - {q: "what's a roth ira?", reference: "Explains a Roth IRA.", key_points: ["after-tax", "tax-free withdrawals"]}
+    - {q: "who won the super bowl?", decline: true, reference: "Declines as off topic.", key_points: ["declines"]}

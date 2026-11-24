@@ -10,6 +10,7 @@ from src.core.market_service import set_peer_finder, set_symbol_resolver
 from src.workflow import news as NEWS
 from src.workflow import symbols as SYM
 from src.workflow.graph import run_chat
+from src.workflow.nodes import _own_subject, _proofread_ok, _sector_lines, _with_sector_figures, drop_unknown_headlines
 from tests.test_news import PROFILE, db, fake_feed, story  # noqa: F401  (db is a fixture)
 
 NVIDIA = {"symbol": "NVDA", "name": "NVIDIA Corporation"}
@@ -85,6 +86,30 @@ def test_its_means_the_company_discussed_last_but_them_means_all():
     assert [r["symbol"] for r in SYM.resolve("compare their stock prices", history=hist)] == ["NVDA", "NU"]
 
 
+class CrowdedLLM(MentionLLM):
+    """The company prompt finds `mentions` in the message alone, but nothing once the earlier conversation is included."""
+    def invoke(self, messages):
+        if "publicly traded companies" in messages[0][1] and "Recent conversation:" in messages[1][1]:
+            self.prompts.append(messages[1][1])
+            return type("R", (), {"content": json.dumps({"companies": []})})()
+        return super().invoke(messages)
+
+
+def test_a_company_the_conversation_crowded_out_is_found_in_the_message_alone():
+    """"can you show Google news?" after a run of Apple answers: with the conversation the model named nothing, so the news
+    agent showed the market feed; the message read on its own names Google."""
+    google = {"symbol": "GOOGL", "name": "Alphabet Inc."}
+    set_symbol_resolver(lambda name: google if name.lower() == "google" else None)
+    fake = CrowdedLLM(["news"], ["Google"])
+    llm_module.set_llm(fake)
+    hist = [{"role": "user", "content": "news for appl"}, {"role": "assistant", "content": "Here are the latest headlines for Apple."}]
+    assert [r["symbol"] for r in SYM.resolve("can you show Google news?", history=hist)] == ["GOOGL"]
+    assert len(fake.prompts) == 2 and "Recent conversation:" not in fake.prompts[1]
+    fake.prompts.clear()
+    assert SYM.resolve("and what about its earnings?", history=hist) == []           # points back: the empty answer stands
+    assert len(fake.prompts) == 1
+
+
 def test_without_an_llm_them_means_the_company_in_the_last_question():
     hist = [{"role": "user", "content": "Any news on NVIDIA?"}]
     assert [r["symbol"] for r in SYM.resolve("and what about them?", use_llm=False, history=hist)] == ["NVDA"]
@@ -147,3 +172,77 @@ def test_industry_peers_fall_back_to_bundled_sector_when_yahoo_fails(monkeypatch
     monkeypatch.setattr(ms, "_yf_peers", lambda sym: (_ for _ in ()).throw(RuntimeError("offline")))
     info = ms.industry_peers("NVDA")
     assert info["sector"] == "Technology" and {p["symbol"] for p in info["peers"]} == {"AAPL", "MSFT"}
+
+
+TECH_NEWS = "What's the latest technology sector news?"
+EARLIER_ANSWER = [{"role": "user", "content": "what about take two software doing?"},
+                  {"role": "assistant", "content": "Take-Two (TTWO): the Communication Services sector fell 9.1% against 1.1% for the S&P 500."}]
+
+
+class ReadsEarlierAnswer:
+    """Takes the subjects from the conversation when it is given one; on the message alone, finds what `alone` says."""
+    def __init__(self, alone):
+        self.alone = alone
+
+    def invoke(self, messages):
+        with_history = "Recent conversation" in messages[1][1]
+        reply = json.dumps({"companies": ["Take-Two Interactive Software"] if with_history else [],
+                            "markets": ["Communication Services Sector", "S&P 500"] if with_history else self.alone,
+                            "topic": "technology sector news", "excluded": []})
+        return type("R", (), {"content": reply})()
+
+
+@pytest.mark.parametrize("alone", [["technology sector"], []])
+def test_a_named_sector_is_not_replaced_by_the_subjects_of_the_answer_before(alone):
+    """Read again on its own the message gives its sector; if the model misses it even then, the market directory finds it."""
+    SYM.clear_cache()
+    llm_module.set_llm(ReadsEarlierAnswer(alone))
+    got = SYM.subjects(TECH_NEWS, history=EARLIER_ANSWER)
+    assert [m["key"] for m in got["markets"]] == ["XLK"] and got["companies"] == [] and got["levels"] == ["sector"]
+
+
+def test_a_sector_named_in_a_message_that_points_back_is_kept_with_the_earlier_subject():
+    SYM.clear_cache()
+    llm_module.set_llm(ReadsEarlierAnswer([]))
+    got = SYM.subjects("how does it compare to the tech sector?", history=EARLIER_ANSWER)
+    assert [m["key"] for m in got["markets"]][0] == "XLK"
+
+
+def test_a_subject_the_conversation_supplies_is_kept_when_the_message_alone_finds_none():
+    SYM.clear_cache()
+    set_symbol_resolver(lambda name: {"symbol": "TTWO", "name": name})
+    llm_module.set_llm(ReadsEarlierAnswer([]))
+    assert [c["symbol"] for c in SYM.subjects("grab the recent news", history=EARLIER_ANSWER)["companies"]] == ["TTWO"]
+
+
+def test_proofread_cannot_swap_the_sector_a_message_names_for_an_earlier_subject():
+    assert not _proofread_ok(TECH_NEWS, "What is the latest news related to the Pentagon?", {}, "user: any news related to Pentagon?")
+    assert _proofread_ok(TECH_NEWS, "What is the latest technology sector news?", {}, "")
+
+
+def test_a_message_naming_its_own_market_is_not_a_follow_up_unless_it_points_back():
+    assert _own_subject(TECH_NEWS)
+    assert not _own_subject("what about the tech sector?") and not _own_subject("and gold too?")
+
+
+def test_a_headline_copied_from_an_earlier_answer_is_dropped_however_it_is_written():
+    mine = {"title": "Technology Tops Sector Charts Ahead of Earnings (MT Newswires)"}
+    reply = ("- **Why Merck Stock Flew Higher on Friday** - Motley Fool (Oct 31): results.\n"
+             "- **Technology Tops Sector Charts Ahead of Earnings** - MT Newswires (Oct 27): tech rose.")
+    assert drop_unknown_headlines(reply, [mine]).startswith("- **Technology Tops") and "Merck" not in drop_unknown_headlines(reply, [mine])
+
+
+def test_sector_news_also_runs_the_market_agent():
+    e = {"levels": ["sector"]}
+    assert _with_sector_figures({"intent": ["news"], "entities": e, "trace": []})["intent"] == ["news", "market"]
+    assert _with_sector_figures({"intent": ["news"], "entities": {"levels": ["company"]}, "trace": []})["intent"] == ["news"]
+    both = _with_sector_figures({"intent": ["market", "news"], "entities": {"levels": ["sector"]}, "trace": []})
+    assert both["intent"] == ["market", "news"] and both["entities"]["sector_figures"]
+
+
+def test_sector_figures_are_shown_word_for_word_only_for_sector_news():
+    sector = {"name": "Technology sector", "fund": "XLK", "label": "last month", "return": -0.092, "start_date": "2026-10-01",
+              "end_date": "2026-10-30", "benchmark": {"name": "S&P 500", "return": -0.011}, "top": [], "top_of": "sector"}
+    data = {"XLK": {"sector": sector}, "AAPL": {"quote": {}}}
+    assert "Technology sector" in _sector_lines({"entities": {"sector_figures": True}, "market_data": data})
+    assert _sector_lines({"entities": {}, "market_data": data}) == ""

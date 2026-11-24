@@ -10,6 +10,10 @@ const tone = (n: number | null | undefined) => (n == null || n === 0 ? "" : n > 
 const ratio = (n: number | null | undefined) => (n == null ? "n/a" : n.toFixed(2));
 const mdy = (iso: string) => iso.replace(/^(\d{4})-(\d{2})-(\d{2})$/, "$2-$3-$1");      // 2026-01-01 -> 01-01-2026
 
+const localToday = () => new Date().toLocaleDateString("en-CA");      // YYYY-MM-DD, local
+/** A real calendar date written YYYY-MM-DD (rejects 2026-02-30 and the like). */
+const isIsoDate = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s) && new Date(`${s}T00:00:00Z`).toISOString().startsWith(s);
+
 function parseCsv(text: string): Holding[] {
   const [head, ...lines] = text.trim().split(/\r?\n/);
   const cols = head.split(",").map((c) => c.trim().toLowerCase());
@@ -46,6 +50,11 @@ export default function PortfolioTab({ sid, onAsk }: { sid: string; onAsk: (q: s
     setError(null);
     const bad = next.find((r) => !r.ticker.trim() || !(r.shares > 0));
     if (bad) return setError("Each row needs a ticker and a number of shares greater than 0.");
+    const today = localToday();
+    const badDate = next.find((r) => r.purchase_date && !isIsoDate(r.purchase_date));
+    if (badDate) return setError(`${badDate.ticker || "A holding"}: "${badDate.purchase_date}" is not a valid purchase date (use YYYY-MM-DD).`);
+    const future = next.find((r) => r.purchase_date && r.purchase_date > today);
+    if (future) return setError(`${future.ticker || "A holding"}: the purchase date ${mdy(future.purchase_date!)} is in the future. Pick today or an earlier date.`);
     setBusy(true);
     try { await api.savePortfolio(sid, next); setAnalysis(await api.analysis(sid)); } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
@@ -60,21 +69,21 @@ export default function PortfolioTab({ sid, onAsk }: { sid: string; onAsk: (q: s
     const parsed = parseCsv(text); setRows(parsed); await analyze(parsed);
   }
 
-  const today = new Date().toLocaleDateString("en-CA");       // YYYY-MM-DD, local
+  const today = localToday();
   const perf = analysis?.performance, divs = analysis?.dividends, movers = analysis?.movers;
 
   return (
     <section>
       <h2>Your holdings</h2>
       <table className="grid">
-        <thead><tr><th>Ticker</th><th>Shares</th><th>Cost basis / share (optional)</th><th>Purchase date (optional)</th><th /></tr></thead>
+        <thead><tr><th>Ticker</th><th>Shares</th><th>Purchase price</th><th>Purchase date (optional)</th><th /></tr></thead>
         <tbody>
           {rows.map((r, i) => (
             <tr key={i}>
               <td><input value={r.ticker} onChange={(e) => update(i, { ticker: e.target.value.toUpperCase() })} aria-label="Ticker" /></td>
               <td><input type="number" min={0} value={r.shares || ""} onChange={(e) => update(i, { shares: Number(e.target.value) })} aria-label="Shares" /></td>
-              <td><input type="number" min={0} value={r.cost_basis ?? ""} onChange={(e) => update(i, { cost_basis: e.target.value === "" ? null : Number(e.target.value) })} aria-label="Cost basis" /></td>
-              <td><DateInput value={r.purchase_date} max={today} placeholder={mdy(defaultDate)} onChange={(d) => update(i, { purchase_date: d })} /></td>
+              <td><input type="number" min={0} value={r.cost_basis ?? ""} onChange={(e) => update(i, { cost_basis: e.target.value === "" ? null : Number(e.target.value) })} aria-label="Purchase price" /></td>
+              <td><DateInput value={r.purchase_date} max={today} invalid={!!r.purchase_date && (!isIsoDate(r.purchase_date) || r.purchase_date > today)} placeholder={mdy(defaultDate)} onChange={(d) => update(i, { purchase_date: d })} /></td>
               <td><button className="link" onClick={() => setRows(rows.filter((_, j) => j !== i))}>Remove</button></td>
             </tr>
           ))}
@@ -96,7 +105,7 @@ export default function PortfolioTab({ sid, onAsk }: { sid: string; onAsk: (q: s
           <div className="cards metrics">
             <Card label="Total value" value={usd(analysis.total_value)} sub={`${analysis.holdings.length} holdings`} />
             {analysis.total_gain_loss != null && <Card label="Total return" value={signedUsd(analysis.total_gain_loss)} tone={tone(analysis.total_gain_loss)}
-              sub={analysis.total_return_pct != null ? `${signedPct(analysis.total_return_pct)} on cost basis` : undefined} />}
+              sub={analysis.total_return_pct != null ? `${signedPct(analysis.total_return_pct)} on purchase price` : undefined} />}
             {analysis.day_change != null && <Card label="Today" value={signedUsd(analysis.day_change)} tone={tone(analysis.day_change)}
               sub={analysis.day_change_pct != null ? signedPct(analysis.day_change_pct, 2) : undefined} />}
             <Card label="Diversification" value={`${analysis.diversification_score}/100`} sub={`${analysis.effective_holdings} effective holdings`} />
@@ -182,7 +191,9 @@ export default function PortfolioTab({ sid, onAsk }: { sid: string; onAsk: (q: s
               {analysis.holdings.map((h) => (
                 <tr key={h.ticker}><td>{h.name}</td><td>{h.ticker}</td><td>{h.asset_class}</td><td>{usd(h.value)}</td><td>{pct(h.weight)}</td>
                   <td className={tone(h.day_change)}>{h.day_change_pct != null ? signedPct(h.day_change_pct, 2) : "n/a"}</td>
-                  <td className={tone(h.gain_loss)}>{h.gain_loss != null ? `${signedUsd(h.gain_loss)}${h.gain_loss_pct != null ? ` (${signedPct(h.gain_loss_pct)})` : ""}` : "n/a"}</td></tr>
+                  <td className={tone(h.gain_loss)}>{h.gain_loss != null ? `${signedUsd(h.gain_loss)}${h.gain_loss_pct != null ? ` (${signedPct(h.gain_loss_pct)})` : ""}` : "n/a"}
+                    {h.cost_basis_source === "purchase_close" && h.cost_basis_date &&
+                      <div className="muted small" title="No purchase price entered: measured from the closing price on the purchase date">since {mdy(h.cost_basis_date)} close</div>}</td></tr>
               ))}
               <tr><td><b>Total</b></td><td /><td /><td><b>{usd(analysis.total_value)}</b></td><td><b>100%</b></td>
                 <td className={tone(analysis.day_change)}>{analysis.day_change_pct != null ? signedPct(analysis.day_change_pct, 2) : "n/a"}</td>
@@ -196,9 +207,10 @@ export default function PortfolioTab({ sid, onAsk }: { sid: string; onAsk: (q: s
 }
 
 /** A date field that shows a placeholder while empty (a date input cannot), becoming a date picker once focused or filled. */
-function DateInput({ value, max, placeholder, onChange }: { value?: string | null; max: string; placeholder: string; onChange: (d: string | null) => void }) {
+function DateInput({ value, max, invalid, placeholder, onChange }: { value?: string | null; max: string; invalid?: boolean; placeholder: string; onChange: (d: string | null) => void }) {
   const [focused, setFocused] = useState(false);
   return <input type={value || focused ? "date" : "text"} max={max} value={value ?? ""} placeholder={placeholder} aria-label="Purchase date"
+    aria-invalid={invalid || undefined} className={invalid ? "invalid" : undefined} title={invalid ? "Purchase date can't be in the future" : undefined}
     onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} onChange={(e) => onChange(e.target.value || null)} />;
 }
 

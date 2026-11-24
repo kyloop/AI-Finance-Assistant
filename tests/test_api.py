@@ -56,6 +56,39 @@ def test_portfolio_report_has_performance_cash_and_skips_unknown(client, sid):
     assert a["dividends"] == {"total": 0, "yield": 0, "by_month": [], "by_holding": []}      # the sample data has no dividend history
 
 
+def test_portfolio_rejects_future_purchase_dates(client, sid):
+    from datetime import date, timedelta
+    future = (date.today() + timedelta(days=3)).isoformat()
+    r = client.put(f"/api/sessions/{sid}/portfolio", json={"holdings": [{"ticker": "VTI", "shares": 1, "purchase_date": future}]})
+    assert r.status_code == 422 and "future" in r.text
+    assert client.get(f"/api/sessions/{sid}/portfolio").json()["holdings"] == []
+    today = date.today().isoformat()
+    assert client.put(f"/api/sessions/{sid}/portfolio", json={"holdings": [{"ticker": "VTI", "shares": 1, "purchase_date": today}]}).status_code == 200
+
+
+def test_gain_loss_runs_from_the_purchase_date_without_a_cost_basis(client, sid):
+    from datetime import date, timedelta
+    bought = (date.today() - timedelta(days=100)).isoformat()
+    client.put(f"/api/sessions/{sid}/portfolio", json={"holdings": [
+        {"ticker": "VTI", "shares": 10, "purchase_date": bought}, {"ticker": "BND", "shares": 20, "cost_basis": 70, "purchase_date": bought},
+        {"ticker": "QQQ", "shares": 5}, {"ticker": "CASH", "shares": 500, "purchase_date": bought}]})
+    a = client.get(f"/api/sessions/{sid}/portfolio/analysis").json()
+    h = {x["ticker"]: x for x in a["holdings"]}
+    closes = {p["date"]: p["close"] for p in client.get("/api/market/history/VTI").json()["data"]["points"]}
+    on = min(d for d in closes if d >= bought)                    # the purchase date or the next trading day
+    vti = h["VTI"]
+    assert vti["cost_basis_source"] == "purchase_close" and vti["cost_basis_date"] == on and vti["cost_basis"] == closes[on]
+    assert vti["gain_loss"] == pytest.approx((vti["price"] - closes[on]) * 10)
+    assert h["BND"]["cost_basis"] == 70 and h["BND"]["cost_basis_source"] == "entered"          # an entered cost basis wins
+    assert h["QQQ"]["cost_basis"] is None and h["QQQ"]["gain_loss"] is None                    # no date, no cost basis: unknown
+    assert h["CASH"]["cost_basis"] == 1 and h["CASH"]["gain_loss"] == 0                          # cash counts at cost, no gain
+    assert a["total_gain_loss"] == pytest.approx(vti["gain_loss"] + h["BND"]["gain_loss"], abs=0.02)
+    assert a["total_cost"] == pytest.approx(10 * closes[on] + 20 * 70 + 500, abs=0.02)
+    assert "VTI" not in a["performance"]["assumed"]
+    client.put(f"/api/sessions/{sid}/portfolio", json={"holdings": [{"ticker": "VTI", "shares": 10, "purchase_date": bought}]})
+    assert client.get(f"/api/sessions/{sid}/portfolio/analysis").json()["performance"]["start"] == on   # the chart starts there too
+
+
 def test_market_quote_cache_and_unknown(client):
     first = client.get("/api/market/quote/AAPL").json()
     second = client.get("/api/market/quote/AAPL").json()
@@ -171,6 +204,33 @@ def test_market_cache_survives_a_concurrent_writer(tmp_path, monkeypatch):
     assert env["data"] == {"price": 1.0} and env["freshness"] == "cached"
 
 
+def test_market_cache_uses_its_own_database_when_the_main_one_is_remote(tmp_path, monkeypatch):
+    """With Turso as the main database, quotes, charts and news are cached in a local database instead (one HTTPS round trip per
+    statement on the hottest path otherwise), and the news poll's recently-viewed symbols are read from there too."""
+    from sqlalchemy import inspect
+    from sqlalchemy.orm import sessionmaker
+
+    from src.core import market_service as ms
+    from src.db import session as S
+    from src.db.base import Base
+    from src.db.models import MarketCache
+    from src.rag import news as news_index
+    main, local = (S.make_engine(f"sqlite:///{tmp_path / n}") for n in ("main.db", "cache.db"))
+    Base.metadata.create_all(main)
+    Base.metadata.create_all(local, tables=[MarketCache.__table__])
+    monkeypatch.setattr(S, "CacheSessionLocal", sessionmaker(bind=local, autoflush=False, expire_on_commit=False))
+    calls = []
+    monkeypatch.setattr(ms, "PROVIDERS", {"fake": {"quote": lambda symbol, **_: calls.append(symbol) or {"price": 2.0}}})
+    with sessionmaker(bind=main)() as db:
+        assert ms.get_market_data(db, "quote", "ZZ")["freshness"] == "live"
+        assert ms.get_market_data(db, "quote", "ZZ")["freshness"] == "cached" and calls == ["ZZ"]
+        assert db.query(MarketCache).count() == 0
+        assert "ZZ" in news_index.tracked_symbols(db)
+    with sessionmaker(bind=local)() as cache:
+        assert [r.symbol for r in cache.query(MarketCache)] == ["ZZ"]
+    assert inspect(local).get_table_names() == ["market_cache"]
+
+
 def test_chat_cannot_change_portfolio_goals_or_profile(client, sid):
     client.put(f"/api/sessions/{sid}/portfolio", json={"holdings": [{"ticker": "VTI", "shares": 10}]})
     client.post(f"/api/sessions/{sid}/goals/project", json={"goal_type": "retirement", "target_amount": 500000, "horizon_years": 30,
@@ -181,3 +241,14 @@ def test_chat_cannot_change_portfolio_goals_or_profile(client, sid):
         r = client.post(f"/api/sessions/{sid}/chat", json={"message": m}).json()
         assert r["agents"] == ["Read-only guard"] and "Request flagged" in r["content"]
     assert state() == before
+
+
+def test_quotes_keep_symbol_without_intraday(client, monkeypatch):
+    """A mutual fund (VFIAX) has a quote but no 1-minute bars: it stays in the batch with an empty sparkline, not in `errors`."""
+    from src.core import market_service as M
+
+    def no_bars(symbol, **_):
+        raise M.SymbolNotFound(symbol)
+    monkeypatch.setitem(M.PROVIDERS["sample"], "intraday", no_bars)
+    q = client.get("/api/market/quotes?symbols=AAPL").json()
+    assert q["errors"] == [] and q["items"][0]["data"]["symbol"] == "AAPL" and q["items"][0]["spark"] == []
