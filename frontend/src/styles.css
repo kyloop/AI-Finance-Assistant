@@ -80,6 +80,9 @@ table.watch .spark-cell { width:70px; } .right { text-align:right; } .ellipsis {
 .tabs-small .tab.active { background:color-mix(in srgb, var(--brand) 12%, transparent); border-bottom:0; }
 .stats { display:grid; grid-template-columns:repeat(auto-fit, minmax(130px,1fr)); gap:12px; margin-top:12px; padding-top:12px; border-top:1px solid var(--line); }
 .live .charts { margin-bottom:8px; }
+.boards { margin:20px 0 8px; } .boards .charts { margin-bottom:16px; }
+.boards-head { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:8px; } .boards-head h3 { margin:0; font-size:1.05rem; }
+.board p.small { margin:0 0 6px; } .board button.small { margin-top:6px; font-size:.8rem; padding:4px 10px; }
 @media (max-width: 800px) { .live-grid { grid-template-columns:1fr; } }
 /* Chat page */
 .chat-status { padding:6px 10px; border:1px dashed var(--line); border-radius:8px; margin-bottom:8px; }

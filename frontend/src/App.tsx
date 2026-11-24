@@ -4,17 +4,16 @@ import AgentFlow from "./components/AgentFlow";
 import ChatTab from "./components/ChatTab";
 import { DISCLAIMER, ErrorBanner } from "./components/common";
 import GoalsTab from "./components/GoalsTab";
-import LiveTab, { loadWatchlist } from "./components/LiveTab";
-import MarketTab from "./components/MarketTab";
+import LiveMarketTab, { loadWatchlist } from "./components/LiveMarketTab";
 import PortfolioTab from "./components/PortfolioTab";
 import ResearchTab from "./components/ResearchTab";
 import Sidebar from "./components/Sidebar";
 import { useFlowRunner } from "./flow";
 import type { ChatView, Message, Profile } from "./types";
 
-const TABS = ["Portfolio", "Market", "Research", "Live", "Goals"] as const;
+const TABS = ["Portfolio", "Live Market", "Research", "Goals"] as const;
 type Tab = (typeof TABS)[number];
-const SYMBOL_TABS: readonly Tab[] = ["Market", "Research", "Live"];     // tabs that show one symbol the chat can call "this"
+const SYMBOL_TABS: readonly Tab[] = ["Live Market", "Research"];     // tabs that show one symbol the chat can call "this"
 const DEFAULT_PROFILE: Profile = { knowledge_level: "beginner", risk_tolerance: "moderate", horizon_years: 10 };
 const CHAT_W_KEY = "finnie_chat_w", CHAT_MIN_W = 320, CHAT_DEFAULT_W = 400;
 const chatMaxW = () => Math.max(CHAT_MIN_W, Math.min(1000, window.innerWidth - 480));
@@ -45,22 +44,34 @@ export default function App() {
   const [profileCollapsed, setProfileCollapsed] = useState(() => localStorage.getItem("finnie_profile_collapsed") === "1");
   const [chatW, setChatW] = useState(() => { const n = Number(localStorage.getItem(CHAT_W_KEY)); return n ? clampChatW(n) : CHAT_DEFAULT_W; });
   const drag = useRef<{ x: number; w: number } | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);         // the symbol open on the Market, Research or Live tab
+  const [selected, setSelected] = useState<string | null>(null);         // the symbol open on the Live Market or Research tab
   const [pendingQ, setPendingQ] = useState<string | null>(null);
   const timer = useRef<number>();
   const [flow, flowState] = useFlowRunner();
 
+  // Start-up retries while the server is unreachable (e.g. the backend restarting) and clears the banner once it answers,
+  // so a moment of downtime doesn't leave "Can't reach the Finnie server" on every tab.
   useEffect(() => {
-    (async () => {
+    let cancelled = false, retry: number | undefined;
+    const start = (delay: number) => load().then(() => { if (!cancelled) setError(null); }).catch(() => {
+      if (cancelled) return;
+      setError("Can't reach the Finnie server. Is the backend running on port 8000? Retrying…");
+      retry = window.setTimeout(() => start(Math.min(delay * 2, 10_000)), delay);
+    });
+    start(1000);
+    return () => { cancelled = true; window.clearTimeout(retry); };
+    async function load() {
       const id = await ensureSession();
+      if (cancelled) return;
       setSid(id);
       const saved = Number(localStorage.getItem("finnie_conversation"));
       const known = saved ? (await api.conversations(id)).some((c) => c.id === saved) : false;
       const conv = known ? { id: saved } : await api.newConversation(id);    // reuses an empty thread if one exists
       const [p, m] = await Promise.all([api.getProfile(id), api.messages(id, conv.id)]);
+      if (cancelled) return;
       localStorage.setItem("finnie_conversation", String(conv.id));
       setProfile(p); setCid(conv.id); setMessages(m);
-    })().catch(() => setError("Can't reach the Finnie server. Is the backend running on port 8000?"));
+    }
   }, []);
 
   const onProfile = useCallback((p: Profile) => {
@@ -111,9 +122,8 @@ export default function App() {
         </header>
         <ErrorBanner message={error} />
         {tab === "Portfolio" && <PortfolioTab sid={sid} onAsk={askInChat} />}
-        {tab === "Market" && <MarketTab onSelect={setSelected} />}
+        {tab === "Live Market" && <LiveMarketTab onSelect={setSelected} />}
         {tab === "Research" && <ResearchTab onAsk={askInChat} onSelect={setSelected} />}
-        {tab === "Live" && <LiveTab onSelect={setSelected} />}
         {tab === "Goals" && <GoalsTab sid={sid} profile={profile} />}
         <footer className="muted small">{DISCLAIMER}</footer>
       </main>

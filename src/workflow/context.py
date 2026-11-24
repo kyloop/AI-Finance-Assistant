@@ -6,7 +6,8 @@ and period the agents used, and the figures they reported. The next turn starts 
 messages: the proofread node rewrites a follow-up ("compare to starbucks") into a complete question with it, and the
 router, market agent and calculator fill what the new message leaves out (`carried`). A message that isn't a
 follow-up starts afresh, so companies and periods don't leak into unrelated questions. A message that points at the screen
-("what about this?") after the user switched tabs is about the tab they are on, not the earlier answer (`screen`)."""
+("what about this?") after the user switched tabs, or picked another symbol on the same tab, is about what they are now
+looking at, not the earlier answer (`screen`)."""
 from __future__ import annotations
 
 import re
@@ -40,6 +41,7 @@ POINTS_AT_SCREEN = re.compile(
     r"\b(this|these)\b(?=\s*([?.!,]|$|\s+(mean|means|say|says|show|shows|tell|is|are|look|looks|doing|going|work|works|"
     r"good|bad|ok|okay|right|normal|high|low)\b))|"
     r"\b(here|on screen|how am i doing|am i on track)\b", re.I)
+SYMBOL_TABS = ("Live Market", "Research")     # tabs that show one symbol the chat can call "this" (App.tsx SYMBOL_TABS)
 SCREEN_SHORT_WORDS = 6        # a message this short that points at the screen is only about the screen ("what about this?")
 
 
@@ -51,20 +53,26 @@ def screen_subject(state: dict) -> dict | None:
         return {"intents": ["portfolio"], "label": "your portfolio on the Portfolio tab", "symbol": None}
     if tab == "Goals" and state.get("saved_goal"):
         return {"intents": ["goal"], "label": "your saved plan on the Goals tab", "symbol": None}
-    if tab in ("Market", "Research", "Live") and symbol:
+    if tab in SYMBOL_TABS and symbol:
         return {"intents": ["market"], "label": f"{symbol} on the {tab} tab", "symbol": symbol}
     return None
 
 
 def screen(state: dict, text: str) -> dict | None:
     """The screen subject when this message is about what is on screen rather than the conversation: it points at the screen and
-    either the user has switched tabs since the last answer or there is no earlier answer to follow on from. A follow-up on the
-    same tab keeps the conversation's context. `switched` is the tab the last answer was given on, when it differs."""
+    either the user has moved since the last answer (another tab, or another symbol on the same tab) or there is no earlier
+    answer to follow on from. A follow-up on the same tab and symbol keeps the conversation's context. `switched` says what
+    the last answer was given on ("the Portfolio tab", "AAPL"), when the user has moved away from it."""
     if not POINTS_AT_SCREEN.search(text):
         return None
     subject = screen_subject(state)
-    prev_tab, tab = (state.get("context_in") or {}).get("tab"), (state.get("view") or {}).get("tab")
-    switched = prev_tab if prev_tab and tab and prev_tab != tab else None
+    prev = state.get("context_in") or {}
+    prev_tab, tab = prev.get("tab"), (state.get("view") or {}).get("tab")
+    switched = None
+    if prev_tab and tab and prev_tab != tab:
+        switched = f"the {prev_tab} tab"
+    elif subject and subject["symbol"] and prev.get("symbol") and prev["symbol"] != subject["symbol"]:
+        switched = prev["symbol"]
     if subject is None or not (switched or not state.get("context_in")):
         return None
     return {**subject, "switched": switched}

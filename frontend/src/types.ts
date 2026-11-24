@@ -52,6 +52,20 @@ export interface IntradayData { symbol: string; prev_close: number; points: Intr
 export interface IntradayPoint { t: string; close: number; volume: number }
 export interface LiveQuote extends Envelope<Quote> { spark: number[] }
 export interface SymbolInfo { symbol: string; name: string }
+/** Live Market tab boards (src/core/market_boards.py): sectors, a sector's industries, the largest companies, regions, most active. */
+export type BoardRange = "1D" | "1M" | "3M" | "YTD" | "1Y";
+export interface BoardItem {
+  symbol: string; name: string; return?: number;
+  key?: string; weight?: number | null;             // sectors and industries: Yahoo key; industries: share of the sector
+  market_cap?: number | null; region?: string;       // largest companies; regions
+  price?: number | null; change_pct?: number | null; volume?: number | null;   // most active
+}
+export interface Board {
+  range: BoardRange; label: string; start_date: string | null; end_date: string | null; as_of: string | null;
+  freshness: Freshness | null; provider: string | null; items: BoardItem[]; missing: string[];
+  title?: string; sector?: { symbol: string; name: string };
+}
+export interface SectorNews { symbol: string; sector: string; feeds: string[]; items: NewsItem[] }
 export interface GoalInput {
   goal_type: "retirement" | "house" | "education" | "other"; target_amount: number; horizon_years: number;
   current_savings: number; monthly_contribution: number; risk_tolerance: Risk;

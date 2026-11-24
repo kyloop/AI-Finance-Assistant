@@ -138,7 +138,7 @@ def search(client: QdrantClient, query: str, *, tickers: list[str] | None = None
 # ---- background poll -----------------------------------------------------------------------------------------
 def tracked_symbols(db) -> list[str]:
     """What the poll covers: the market feed, every portfolio holding, and any ticker whose quote or news was fetched recently
-    (the Live-tab watchlist, Market-tab searches and chat questions all go through those), most recently fetched first, capped.
+    (the Live Market watchlist and look-ups and chat questions all go through those), most recently fetched first, capped.
     A market someone asked about is polled by its news term ("DXY" for DX-Y.NYB, "^TNX"), or not at all when it has none."""
     from sqlalchemy import select
 

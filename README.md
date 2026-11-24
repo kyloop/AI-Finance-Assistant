@@ -47,7 +47,7 @@ A false positive can be listed by its fingerprint in `.gitleaksignore`.
 | `src/core/` | config, deterministic calculators (portfolio metrics, goal projection), cached market service |
 | `src/workflow/` | keyword intent router (fallback; LangGraph router comes in M5) |
 | `src/api/` | FastAPI app + routers under `/api` |
-| `frontend/` | React app: Portfolio, Market, Research, Live, Goals tabs, a chat dock + profile sidebar |
+| `frontend/` | React app: Portfolio, Live Market, Research, Goals tabs, a chat dock + profile sidebar |
 | `src/rag/` | knowledge-base cleaning, section chunker, Qdrant build and search |
 | `src/data/` | sample portfolios, mock market data, knowledge-base articles (Markdown + front-matter), raw Wikipedia pages |
 

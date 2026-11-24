@@ -146,7 +146,7 @@ def _yf_quote(symbol: str, **_) -> dict:
 
 def _yf_intraday(symbol: str, **_) -> dict:
     t = _yf_ticker(symbol)
-    df = t.history(period="1d", interval="1m")
+    df = t.history(period="1d", interval="1m").dropna(subset=["Close"])
     if df.empty:
         raise ProviderEmpty(symbol)
     try:
@@ -159,8 +159,8 @@ def _yf_intraday(symbol: str, **_) -> dict:
 
 def _yf_history(symbol: str, days: int = 250, **_) -> dict:
     period = "2y" if days <= 250 else "5y" if days <= 1250 else "10y"   # 2y so the 200-day average is full across the last year
-    df = _yf_ticker(symbol).history(period=period, interval="1d")
-    if df.empty:
+    df = _yf_ticker(symbol).history(period=period, interval="1d").dropna(subset=["Close"])  # after the close Yahoo adds today's bar
+    if df.empty:                                                                                  # with volume but no Close yet
         raise ProviderEmpty(symbol)
     df["ma50"], df["ma200"] = df["Close"].rolling(50).mean(), df["Close"].rolling(200).mean()
     nz = lambda v: None if v != v else round(float(v), 2)          # NaN -> null
@@ -507,9 +507,108 @@ def _sample_stock(symbol: str, **_) -> dict:
                          "eps_revisions": [], "growth": []}}
 
 
+# ---- sectors, industries, screens and market hours (Live Market tab boards, market agent) ---------------------------
+# Yahoo-only: the bundled sample data has none of these, so offline they raise SymbolNotFound like an unknown symbol.
+SCREENS = {"most_actives": "Most active stocks today", "day_gainers": "Biggest gainers today", "day_losers": "Biggest losers today",
+           "top_etfs_us": "Largest US ETFs", "top_performing_etfs": "Best performing ETFs"}       # Yahoo's predefined screens offered
+LARGEST_US = "largest_us"                                   # our own screen: US-listed companies by market cap
+SCREEN_MAX = 25
+_US_EXCHANGES = ["NMS", "NYQ", "NGM", "NCM", "ASE"]         # Nasdaq and NYSE listings: no foreign duplicate lines (NVD.DE)
+
+
+def _company_rows(df, n: int) -> list[dict]:
+    """Sector / Industry `top_companies`: [{symbol, name, rating, weight}] (weight = share of the sector or industry)."""
+    if df is None or df.empty:
+        return []
+    return [{"symbol": str(sym), "name": str(r.get("name") or sym), "rating": r.get("rating") if isinstance(r.get("rating"), str) else None,
+             "weight": _num(r.get("market weight"))} for sym, r in df.head(n).iterrows()]
+
+
+def _overview(ov: dict | None) -> dict:
+    ov = ov or {}
+    return {"companies_count": ov.get("companies_count"), "market_cap": _num(ov.get("market_cap")),
+            "market_weight": _num(ov.get("market_weight")), "industries_count": ov.get("industries_count"),
+            "description": ov.get("description") or ""}
+
+
+def _yf_sector(key: str, **_) -> dict:
+    """yf.Sector: overview, the 20 largest companies, its industries (each with a Yahoo index symbol) and its largest ETFs."""
+    import yfinance as yf
+    s = yf.Sector(key.lower())
+    if not s.overview:
+        raise SymbolNotFound(key)
+    ind = s.industries
+    industries = [] if ind is None or ind.empty else [{"key": str(k), "name": str(r["name"]), "symbol": str(r["symbol"]), "weight": _num(r.get("market weight"))}
+                                                      for k, r in ind.iterrows()]
+    return {"key": s.key, "name": s.name, "symbol": s.symbol, "overview": _overview(s.overview), "top_companies": _company_rows(s.top_companies, 20),
+            "industries": industries, "top_etfs": [{"symbol": k, "name": (v or k).strip()} for k, v in (s.top_etfs or {}).items()]}
+
+
+def _yf_industry(key: str, **_) -> dict:
+    """yf.Industry: overview, the 20 largest companies, and Yahoo's best performing (year to date) and fastest growing ones."""
+    import yfinance as yf
+    i = yf.Industry(key.lower())
+    if not i.overview:
+        raise SymbolNotFound(key)
+    def rows(df, cols: dict[str, str]) -> list[dict]:
+        if df is None or df.empty:
+            return []
+        return [{"symbol": str(sym), "name": str(r.get("name") or sym), **{k: _num(r.get(c)) for k, c in cols.items()}} for sym, r in df.iterrows()]
+    return {"key": i.key, "name": i.name, "symbol": i.symbol, "sector_key": i.sector_key, "sector_name": i.sector_name,
+            "overview": _overview(i.overview), "top_companies": _company_rows(i.top_companies, 20),
+            "top_performing": rows(i.top_performing_companies, {"ytd_return": "ytd return", "last_price": "last price", "target_price": "target price"}),
+            "top_growth": rows(i.top_growth_companies, {"ytd_return": "ytd return", "growth_estimate": "growth estimate"})}
+
+
+def _screen_row(q: dict) -> dict:
+    pct = _num(q.get("regularMarketChangePercent"))
+    return {"symbol": q["symbol"], "name": (q.get("longName") or q.get("shortName") or q["symbol"]).strip(),
+            "price": _num(q.get("regularMarketPrice")), "change_pct": round(pct / 100, 4) if pct is not None else None,
+            "volume": _num(q.get("regularMarketVolume")), "market_cap": _num(q.get("marketCap")),
+            "exchange": q.get("fullExchangeName") or q.get("exchange"), "quote_type": q.get("quoteType")}
+
+
+def _yf_screen(name: str, count: int = 20, **_) -> dict:
+    """A list of stocks or funds: one of Yahoo's predefined screens (SCREENS), or LARGEST_US (one line per company, so
+    Alphabet's two share classes count once)."""
+    import yfinance as yf
+    name, count = name.lower(), max(1, min(int(count), SCREEN_MAX))
+    if name == LARGEST_US:
+        q = yf.EquityQuery("and", [yf.EquityQuery("eq", ["region", "us"]), yf.EquityQuery("is-in", ["exchange", *_US_EXCHANGES])])
+        raw = yf.screen(q, sortField="intradaymarketcap", sortAsc=False, size=count + 5)
+        title = "Largest US-listed companies by market value"
+    elif name in SCREENS:
+        raw = yf.screen(name, count=count)
+        title = SCREENS[name]
+    else:
+        raise SymbolNotFound(name)
+    rows, seen = [], set()
+    for q in raw.get("quotes") or []:
+        r = _screen_row(q)
+        if name == LARGEST_US and r["name"] in seen:
+            continue
+        seen.add(r["name"])
+        rows.append(r)
+    if not rows:
+        raise ProviderEmpty(name)
+    return {"name": name, "title": title, "total": raw.get("total"), "quotes": rows[:count]}
+
+
+def _yf_market_status(region: str, **_) -> dict:
+    """Whether a market is open: {status, message, open, close, timezone}. Yahoo reports this for the US only."""
+    import yfinance as yf
+    st = yf.Market(region.upper()).status
+    if not st:
+        raise SymbolNotFound(region)
+    return {"region": region.upper(), "name": st.get("name"), "status": st.get("status"), "message": st.get("message"),
+            "open": str(st["open"]) if st.get("open") else None, "close": str(st["close"]) if st.get("close") else None,
+            "timezone": (st.get("timezone") or {}).get("short") or (str(st["tz"]) if st.get("tz") else None)}   # `tz` is a tzinfo object
+
+
 # provider name -> {endpoint: fn}; ordered = fallback chain (real data first, bundled sample data last, per FR-M4).
 PROVIDERS: dict[str, dict] = {
-    "yfinance": {"quote": _yf_quote, "history": _yf_history, "intraday": _yf_intraday, "news": _yf_news, "fund": _yf_fund, "stock": _yf_stock},
+    "yfinance": {"quote": _yf_quote, "history": _yf_history, "intraday": _yf_intraday, "news": _yf_news, "fund": _yf_fund, "stock": _yf_stock,
+                 "sector": _yf_sector, "industry": _yf_industry, "screen": _yf_screen, "market_status": _yf_market_status},
     "sample": {"quote": _sample_quote, "history": _sample_history, "intraday": _sample_intraday, "news": _sample_news, "fund": _sample_fund, "stock": _sample_stock},
 }
 
@@ -717,7 +816,7 @@ def _cached_market_data(db: Session, endpoint: str, symbol: str, refresh: bool, 
                                    fetched_at=now, expires_at=now + timedelta(seconds=ttl)))
             try:
                 db.commit()
-            except IntegrityError:        # another request (a parallel agent, the Live tab, the news poll) cached this key a moment ago
+            except IntegrityError:        # another request (a parallel agent, the Live Market tab, the news poll) cached this key a moment ago
                 db.rollback()
                 other = db.get(MarketCache, key)
                 if other is None:

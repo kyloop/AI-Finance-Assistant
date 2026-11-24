@@ -32,6 +32,12 @@ market:
   news_cache_ttl_seconds: 300   # 5 min; headlines change faster than the default
   fund_cache_ttl_seconds: 86400  # 1 day; fund holdings, sector weights and fees change slowly (Research tab)
   stock_cache_ttl_seconds: 21600 # 6 h; statements change quarterly, but estimates and earnings dates move during the day
+  sector_cache_ttl_seconds: 21600   # 6 h; a sector's industries, largest companies and weights change slowly
+  industry_cache_ttl_seconds: 21600 # 6 h; likewise for an industry (its best performers move, but slowly)
+  screen_cache_ttl_seconds: 300     # 5 min; most active stocks and the day's movers change through the session
+  market_status_cache_ttl_seconds: 300  # 5 min; open or closed
+  boards_refresh_seconds: 60        # Live Market charts: the poller asks Yahoo for new quotes and the most-active list this often
+  boards_industry_refresh_seconds: 300  # ...and for the ~145 industry indices this often (one request each, so less often)
   primary_provider: yfinance
   secondary_provider: alpha_vantage
 portfolio:                  # Portfolio tab report and Portfolio agent (src/core/portfolio_data.py)

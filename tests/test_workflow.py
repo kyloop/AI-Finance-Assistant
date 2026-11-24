@@ -388,7 +388,7 @@ def test_goal_agent_uses_saved_goal_when_none_stated():
 
 
 def test_market_agent_resolves_watchlist_and_selected_symbol(client, sid):
-    view = {"tab": "Live", "selected": "NVDA", "watchlist": ["AAPL", "MSFT"]}
+    view = {"tab": "Live Market", "selected": "NVDA", "watchlist": ["AAPL", "MSFT"]}
     r = client.post(f"/api/sessions/{sid}/chat", json={"message": "How is my watchlist doing?", "view": view}).json()
     assert "AAPL" in r["content"] and "MSFT" in r["content"]
     r = client.post(f"/api/sessions/{sid}/chat", json={"message": "What is the price of this?", "view": view}).json()

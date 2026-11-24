@@ -11,6 +11,8 @@
 #   news     the Yahoo search term that returns its headlines (the symbol itself when that works, a checked name when it
 #            doesn't, null when Yahoo has no news for it: prices only)
 #   etf      an ETF tracking it whose Yahoo news is richer, used when `news` finds too little
+#   yahoo    a sector's Yahoo sector key (yf.Sector: its industries and largest companies)
+#   region   the country or area a main stock index stands for (the Live Market tab's region chart)
 
 forex:
   label: currencies
@@ -102,7 +104,7 @@ us_indices:
   aliases: [stock market, US stock market, US stocks, Wall Street, the market]
   news: [^GSPC, ^DJI, ^IXIC]
   symbols:
-    - {symbol: ^GSPC, name: S&P 500, aliases: [S&P 500, S&P, S&P 500 index], codes: [spx, sp500, gspc], news: ^GSPC}
+    - {symbol: ^GSPC, name: S&P 500, aliases: [S&P 500, S&P, S&P 500 index], codes: [spx, sp500, gspc], news: ^GSPC, region: United States}
     - {symbol: ^DJI, name: Dow Jones Industrial Average, aliases: [Dow Jones, the Dow, Dow Jones Industrial Average], codes: [djia, dji], news: ^DJI}
     - {symbol: ^IXIC, name: Nasdaq Composite, aliases: [Nasdaq, Nasdaq Composite], codes: [ixic], news: ^IXIC}
     - {symbol: ^RUT, name: Russell 2000, aliases: [Russell 2000, small-cap stocks], codes: [rut], news: ^RUT}
@@ -117,35 +119,35 @@ world_indices:
   aliases: [world markets, global markets, global stocks, international stocks]
   news: [^FTSE, Nikkei, ^HSI]
   symbols:
-    - {symbol: ^FTSE, name: FTSE 100, aliases: [FTSE 100, UK stocks, London stock market], codes: [ftse], news: ^FTSE, etf: EWU}
-    - {symbol: ^GDAXI, name: DAX, aliases: [German stocks, DAX index], codes: [gdaxi], news: ^GDAXI, etf: EWG}
-    - {symbol: ^FCHI, name: CAC 40, aliases: [CAC 40, French stocks], codes: [fchi], news: ^FCHI}
-    - {symbol: ^STOXX50E, name: Euro Stoxx 50, aliases: [Euro Stoxx 50, European stocks], codes: [stoxx50e], news: ^STOXX50E}
-    - {symbol: ^N225, name: Nikkei 225, aliases: [Nikkei, Nikkei 225, Japanese stocks], codes: [n225], news: Nikkei, etf: EWJ}
-    - {symbol: ^HSI, name: Hang Seng, aliases: [Hang Seng, Hong Kong stocks], codes: [hsi], news: ^HSI}
-    - {symbol: 000001.SS, name: SSE Composite, aliases: [Shanghai Composite, Chinese stocks, China stocks], codes: [], news: null, etf: FXI}
-    - {symbol: ^AXJO, name: S&P/ASX 200, aliases: [ASX 200, Australian stocks], codes: [axjo], news: ^AXJO}
-    - {symbol: ^GSPTSE, name: S&P/TSX Composite, aliases: [TSX, Canadian stocks], codes: [gsptse], news: ^GSPTSE}
-    - {symbol: ^KS11, name: KOSPI, aliases: [KOSPI, Korean stocks], codes: [ks11], news: ^KS11}
-    - {symbol: ^TWII, name: TAIEX, aliases: [TAIEX, Taiwan stocks], codes: [twii], news: null}
-    - {symbol: ^BSESN, name: BSE Sensex, aliases: [Sensex, Indian stocks], codes: [bsesn], news: ^BSESN, etf: INDA}
-    - {symbol: ^BVSP, name: Bovespa, aliases: [Bovespa, Ibovespa, Brazilian stocks], codes: [bvsp], news: ^BVSP}
-    - {symbol: ^MXX, name: IPC Mexico, aliases: [Mexican stocks], codes: [mxx], news: null}
-    - {symbol: ^JKSE, name: Jakarta Composite, aliases: [Indonesian stocks], codes: [jkse], news: ^JKSE}
+    - {symbol: ^FTSE, name: FTSE 100, aliases: [FTSE 100, UK stocks, London stock market], codes: [ftse], news: ^FTSE, etf: EWU, region: United Kingdom}
+    - {symbol: ^GDAXI, name: DAX, aliases: [German stocks, DAX index], codes: [gdaxi], news: ^GDAXI, etf: EWG, region: Germany}
+    - {symbol: ^FCHI, name: CAC 40, aliases: [CAC 40, French stocks], codes: [fchi], news: ^FCHI, region: France}
+    - {symbol: ^STOXX50E, name: Euro Stoxx 50, aliases: [Euro Stoxx 50, European stocks], codes: [stoxx50e], news: ^STOXX50E, region: Eurozone}
+    - {symbol: ^N225, name: Nikkei 225, aliases: [Nikkei, Nikkei 225, Japanese stocks], codes: [n225], news: Nikkei, etf: EWJ, region: Japan}
+    - {symbol: ^HSI, name: Hang Seng, aliases: [Hang Seng, Hong Kong stocks], codes: [hsi], news: ^HSI, region: Hong Kong}
+    - {symbol: 000001.SS, name: SSE Composite, aliases: [Shanghai Composite, Chinese stocks, China stocks], codes: [], news: null, etf: FXI, region: China}
+    - {symbol: ^AXJO, name: S&P/ASX 200, aliases: [ASX 200, Australian stocks], codes: [axjo], news: ^AXJO, region: Australia}
+    - {symbol: ^GSPTSE, name: S&P/TSX Composite, aliases: [TSX, Canadian stocks], codes: [gsptse], news: ^GSPTSE, region: Canada}
+    - {symbol: ^KS11, name: KOSPI, aliases: [KOSPI, Korean stocks], codes: [ks11], news: ^KS11, region: South Korea}
+    - {symbol: ^TWII, name: TAIEX, aliases: [TAIEX, Taiwan stocks], codes: [twii], news: null, region: Taiwan}
+    - {symbol: ^BSESN, name: BSE Sensex, aliases: [Sensex, Indian stocks], codes: [bsesn], news: ^BSESN, etf: INDA, region: India}
+    - {symbol: ^BVSP, name: Bovespa, aliases: [Bovespa, Ibovespa, Brazilian stocks], codes: [bvsp], news: ^BVSP, region: Brazil}
+    - {symbol: ^MXX, name: IPC Mexico, aliases: [Mexican stocks], codes: [mxx], news: null, region: Mexico}
+    - {symbol: ^JKSE, name: Jakarta Composite, aliases: [Indonesian stocks], codes: [jkse], news: ^JKSE, region: Indonesia}
 
 sectors:
   label: US stock market sectors
   aliases: [sectors, market sectors, sector performance]
   news: [XLK, XLF, XLE]
   symbols:
-    - {symbol: XLK, name: Technology sector, aliases: [tech sector, technology stocks, tech stocks], codes: [], news: XLK}
-    - {symbol: XLF, name: Financial sector, aliases: [financial stocks, bank stocks, financials], codes: [], news: XLF}
-    - {symbol: XLE, name: Energy sector, aliases: [energy stocks, oil stocks], codes: [], news: XLE}
-    - {symbol: XLV, name: Healthcare sector, aliases: [healthcare stocks, health care sector], codes: [], news: XLV}
-    - {symbol: XLY, name: Consumer discretionary sector, aliases: [consumer discretionary stocks, retail stocks], codes: [], news: XLY}
-    - {symbol: XLP, name: Consumer staples sector, aliases: [consumer staples stocks], codes: [], news: XLP}
-    - {symbol: XLI, name: Industrials sector, aliases: [industrial stocks], codes: [], news: XLI}
-    - {symbol: XLB, name: Materials sector, aliases: [materials stocks, mining stocks], codes: [], news: XLB}
-    - {symbol: XLU, name: Utilities sector, aliases: [utility stocks, utilities], codes: [], news: XLU}
-    - {symbol: XLRE, name: Real estate sector, aliases: [real estate stocks, REIT stocks], codes: [], news: XLRE}
-    - {symbol: XLC, name: Communication services sector, aliases: [communication stocks, media stocks], codes: [], news: XLC}
+    - {symbol: XLK, name: Technology sector, aliases: [tech sector, technology stocks, tech stocks, information technology], codes: [], news: XLK, yahoo: technology}
+    - {symbol: XLF, name: Financial sector, aliases: [financial stocks, bank stocks, financials, financial services, financial services sector, banking sector], codes: [], news: XLF, yahoo: financial-services}
+    - {symbol: XLE, name: Energy sector, aliases: [energy stocks, oil stocks], codes: [], news: XLE, yahoo: energy}
+    - {symbol: XLV, name: Healthcare sector, aliases: [healthcare stocks, health care sector, health care stocks], codes: [], news: XLV, yahoo: healthcare}
+    - {symbol: XLY, name: Consumer discretionary sector, aliases: [consumer discretionary stocks, retail stocks, consumer cyclical, consumer discretionary, retail sector], codes: [], news: XLY, yahoo: consumer-cyclical}
+    - {symbol: XLP, name: Consumer staples sector, aliases: [consumer staples stocks, consumer defensive, consumer staples], codes: [], news: XLP, yahoo: consumer-defensive}
+    - {symbol: XLI, name: Industrials sector, aliases: [industrial stocks, industrials, industrial sector], codes: [], news: XLI, yahoo: industrials}
+    - {symbol: XLB, name: Materials sector, aliases: [materials stocks, mining stocks, basic materials], codes: [], news: XLB, yahoo: basic-materials}
+    - {symbol: XLU, name: Utilities sector, aliases: [utility stocks, utilities, utility sector], codes: [], news: XLU, yahoo: utilities}
+    - {symbol: XLRE, name: Real estate sector, aliases: [real estate stocks, REIT stocks, REIT sector], codes: [], news: XLRE, yahoo: real-estate}
+    - {symbol: XLC, name: Communication services sector, aliases: [communication stocks, media stocks, communication services, communications sector, telecom stocks], codes: [], news: XLC, yahoo: communication-services}

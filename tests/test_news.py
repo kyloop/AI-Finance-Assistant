@@ -121,7 +121,7 @@ def test_named_ticker_is_answered_without_a_reading_note(db, monkeypatch):
 
 def test_selected_stock_is_not_assumed_from_it_or_that(db, monkeypatch):
     calls = fake_feed(monkeypatch, {"MARKET": [story(1, "Stocks rally")], "NVDA": [story(2, "Nvidia earnings beat")]})
-    view = {"tab": "Live", "selected": "NVDA"}
+    view = {"tab": "Live Market", "selected": "NVDA"}
     for q in ("What's the latest on that?", "Any news about it today?"):
         ask(q, db, view=view)
     assert "NVDA" not in calls and "MARKET" in calls

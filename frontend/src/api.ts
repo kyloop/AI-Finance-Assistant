@@ -1,4 +1,4 @@
-import type { ChatView, Analysis, FlowEdge, FlowEvent, FlowNode, ChatStatus, Envelope, FundProfile, GoalInput, StockProfile, GoalResult, SavedGoal, HistoryPoint, Holding, IntradayData, IntradayPoint, Conversation, LiveQuote, Message, NewsItem, Portfolio, Profile, Quote, SymbolInfo } from "./types";
+import type { ChatView, Analysis, Board, BoardRange, FlowEdge, FlowEvent, FlowNode, ChatStatus, Envelope, FundProfile, GoalInput, StockProfile, GoalResult, SavedGoal, HistoryPoint, Holding, IntradayData, IntradayPoint, Conversation, LiveQuote, Message, NewsItem, Portfolio, Profile, Quote, SectorNews, SymbolInfo } from "./types";
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, { headers: { "Content-Type": "application/json" }, ...init });
@@ -65,6 +65,10 @@ export const api = {
   intraday: (sym: string) => req<Envelope<IntradayData>>(`/market/intraday/${encodeURIComponent(sym)}`),
   news: (sym?: string) => req<Envelope<{ symbol: string; items: NewsItem[] }>>(`/market/news${sym ? `?symbol=${encodeURIComponent(sym)}` : ""}`),
   symbols: () => req<SymbolInfo[]>("/market/symbols"),
+  board: (name: "sectors" | "largest" | "regions", range: BoardRange) => req<Board>(`/market/boards/${name}?range=${range}`),
+  industries: (sector: string, range: BoardRange) => req<Board>(`/market/boards/industries?sector=${encodeURIComponent(sector)}&range=${range}`),
+  mostActive: () => req<Board>("/market/boards/most-active"),
+  sectorNews: (sector: string) => req<Envelope<SectorNews>>(`/market/news?sector=${encodeURIComponent(sector)}`),
   indices: () => req<Envelope<Quote>[]>("/market/indices"),
   fund: (sym: string) => req<Envelope<FundProfile>>(`/market/fund/${encodeURIComponent(sym)}`),
   stock: (sym: string) => req<Envelope<StockProfile>>(`/market/stock/${encodeURIComponent(sym)}`),

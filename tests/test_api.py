@@ -208,3 +208,14 @@ def test_chat_cannot_change_portfolio_goals_or_profile(client, sid):
         r = client.post(f"/api/sessions/{sid}/chat", json={"message": m}).json()
         assert r["agents"] == ["Read-only guard"] and "Request flagged" in r["content"]
     assert state() == before
+
+
+def test_quotes_keep_symbol_without_intraday(client, monkeypatch):
+    """A mutual fund (VFIAX) has a quote but no 1-minute bars: it stays in the batch with an empty sparkline, not in `errors`."""
+    from src.core import market_service as M
+
+    def no_bars(symbol, **_):
+        raise M.SymbolNotFound(symbol)
+    monkeypatch.setitem(M.PROVIDERS["sample"], "intraday", no_bars)
+    q = client.get("/api/market/quotes?symbols=AAPL").json()
+    assert q["errors"] == [] and q["items"][0]["data"]["symbol"] == "AAPL" and q["items"][0]["spark"] == []

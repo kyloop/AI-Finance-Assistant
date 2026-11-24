@@ -214,7 +214,7 @@ def test_an_answer_saves_the_tab_it_was_asked_on(db):
 def test_this_after_switching_tabs_means_the_new_tab(db):
     first, second = on_tabs(db, ("How diversified is my portfolio?", PORTFOLIO_VIEW), ("What about this?", GOALS_VIEW))
     assert first["intent"] == ["portfolio"]
-    assert second["intent"] == ["goal"] and not second["follow_up"] and second["screen"]["switched"] == "Portfolio"
+    assert second["intent"] == ["goal"] and not second["follow_up"] and second["screen"]["switched"] == "the Portfolio tab"
     assert "$1,000,000" in second["final_response"]
     assert "since you switched from the Portfolio tab" in second["final_response"]
 
@@ -243,7 +243,7 @@ def test_this_on_a_research_tab_is_the_symbol_shown(db):
 
 
 def test_this_compared_with_another_ticker_keeps_the_symbol_shown(db):
-    view = {"tab": "Market", "selected": "AAPL", "watchlist": []}
+    view = {"tab": "Live Market", "selected": "AAPL", "watchlist": []}
     s = run_chat("How does this stock compare to MSFT?", history=[], profile=PROFILE, holdings=[], db=db, view=view)
     assert s["entities"]["tickers"][:2] == ["AAPL", "MSFT"]
 

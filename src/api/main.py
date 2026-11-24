@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.core.config import cors_origins
-from src.core import market_service, tracing
+from src.core import market_boards, market_service, tracing
 from src.core.live_stream import hub
 from src.db.session import init_db
 
@@ -29,9 +29,11 @@ async def lifespan(_: FastAPI):
     market_service.alias_store = (aliases.get_alias, aliases.put_alias)  # remember company-name lookups across restarts
     market_service.news_listeners.append(news.queue_ingest)            # index every fresh Yahoo news fetch
     poller = asyncio.create_task(news.run_poller())
+    boards = asyncio.create_task(market_boards.run_poller())           # keep the Live Market charts' data fresh in the cache
     names = asyncio.create_task(asyncio.to_thread(_build_ticker_index))        # first start: embed the listed company names (~40 s, in the background)
     yield
     poller.cancel()
+    boards.cancel()
     names.cancel()
     market_service.news_listeners.remove(news.queue_ingest)
     await hub.stop()

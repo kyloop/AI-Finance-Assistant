@@ -162,7 +162,7 @@ def proofread_node(state: FinanceState, config: RunnableConfig):
             "follow_up": not on_screen and bool(ctx or state.get("history")) and CTX.looks_like_follow_up(q)}
     note = " (follow-up: carrying the earlier context)" if base["follow_up"] else ""
     if on_screen:
-        note = f" (about {on_screen['label']}" + (f"; switched from the {on_screen['switched']} tab)" if on_screen["switched"] else ")")
+        note = f" (about {on_screen['label']}" + (f"; switched from {on_screen['switched']})" if on_screen["switched"] else ")")
         ctx = None
     if not get_config()["workflow"].get("proofread", True) or current_llm() is None:
         return {**base, "trace": [("proofread: skipped (no LLM)" if current_llm() is None else "proofread: off") + note]}
@@ -466,8 +466,8 @@ MARKET_ASK = ("I couldn't tell which company or ticker you mean. Tell me the com
 
 
 def _view_symbols(state: FinanceState) -> list[str]:
-    """Symbols the user means without naming them: "my watchlist", or "this stock" while one is selected on the Market,
-    Research or Live tab."""
+    """Symbols the user means without naming them: "my watchlist", or "this stock" while one is selected on the Live Market
+    or Research tab."""
     view, q = state.get("view") or {}, state["question"]
     valid = lambda syms: [s for s in dict.fromkeys(str(x).strip().upper() for x in syms if x) if SYMBOL_OK.match(s)]  # noqa: E731
     if re.search(r"\b(watchlist|watching|tracking|following)\b", q, re.I):
@@ -1296,7 +1296,7 @@ SYNTH_SYSTEM = (
 
 
 READING_NOTE = "_I took this as {}. If you meant something else, pick an option below or name the company or topic._"
-SCREEN_NOTE = ("_I took this as {}, since you switched from the {} tab. If you meant what we discussed before, "
+SCREEN_NOTE = ("_I took this as {}, since you switched from {}. If you meant what we discussed before, "
                "name it (for example “my portfolio” or the ticker)._")
 
 

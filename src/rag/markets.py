@@ -45,7 +45,7 @@ def norm(text: str) -> str:
 
 @lru_cache(maxsize=1)
 def load(path: Path | None = None) -> dict[str, dict]:
-    """{group: {label, aliases, news, symbols: [{symbol, name, aliases, codes, news, etf}]}}, with defaults filled in."""
+    """{group: {label, aliases, news, symbols: [{symbol, name, aliases, codes, news, etf, yahoo, region}]}}, with defaults filled in."""
     data = yaml.safe_load((path or yaml_path()).read_text())
     for g in data.values():
         g.setdefault("aliases", [])
@@ -55,7 +55,19 @@ def load(path: Path | None = None) -> dict[str, dict]:
             s.setdefault("codes", [])
             s.setdefault("news", None)
             s.setdefault("etf", None)
+            s.setdefault("yahoo", None)
+            s.setdefault("region", None)
     return data
+
+
+def sectors() -> list[dict]:
+    """The 11 US sectors as {symbol (its SPDR fund), name, yahoo (yf.Sector key)}, in markets.yaml order."""
+    return [{"symbol": e["symbol"], "name": e["name"], "yahoo": e["yahoo"]} for e in entries() if e["group"] == "sectors"]
+
+
+def regions() -> list[dict]:
+    """The main stock index of each country or area: {symbol, name, region}."""
+    return [{"symbol": e["symbol"], "name": e["name"], "region": e["region"]} for e in entries() if e["region"]]
 
 
 def entries(data: dict | None = None) -> list[dict]:
