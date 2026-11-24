@@ -15,10 +15,14 @@ details are in `kb-token-stats-<category>.md`.
 | [etfs-and-mutual-funds](kb-token-stats-etfs-and-mutual-funds.md) | 33 | max 250 | 23 | 33 | 30 | 0.813 | 748 |
 | [goal-planning](kb-token-stats-goal-planning.md) | 30 | max 512 | 27 | 30 | 30 | 0.944 | 1,192 |
 | [goal-planning](kb-token-stats-goal-planning.md) | 30 | max 250 | 28 | 30 | 29 | 0.967 | 778 |
+| [retirement](kb-token-stats-retirement.md) | 16 | max 512 | 12 | 14 | 14 | 0.786 | 1,356 |
+| [retirement](kb-token-stats-retirement.md) | 16 | max 250 | 13 | 15 | 14 | 0.865 | 824 |
 | [stocks](kb-token-stats-stocks.md) | 30 | max 512 | 27 | 30 | 30 | 0.950 | 1,157 |
 | [stocks](kb-token-stats-stocks.md) | 30 | max 250 | 25 | 30 | 30 | 0.917 | 767 |
-| **All** | **156** | **max 512** | **127** | **154** | **152** | **0.889** | **1,190** |
-| **All** | **156** | **max 250** | **123** | **155** | **148** | **0.876** | **774** |
+| [taxes-and-accounts](kb-token-stats-taxes-and-accounts.md) | 20 | max 512 | 18 | 20 | 20 | 0.942 | 1,135 |
+| [taxes-and-accounts](kb-token-stats-taxes-and-accounts.md) | 20 | max 250 | 18 | 20 | 19 | 0.942 | 775 |
+| **All** | **192** | **max 512** | **157** | **188** | **186** | **0.886** | **1,198** |
+| **All** | **192** | **max 250** | **154** | **190** | **181** | **0.882** | **778** |
 
 MRR and tokens for **All** are weighted by the number of questions.
 
@@ -34,9 +38,13 @@ MRR and tokens for **All** are weighted by the number of questions.
 | [etfs-and-mutual-funds](kb-token-stats-etfs-and-mutual-funds.md) | max 250 | 5.00 | 0.95 | 4.88 | 0.94 | 0 | 4 of 4 |
 | [goal-planning](kb-token-stats-goal-planning.md) | max 512 | 5.00 | 0.99 | 4.93 | 0.89 | 0 | 2 of 2 |
 | [goal-planning](kb-token-stats-goal-planning.md) | max 250 | 5.00 | 0.99 | 4.93 | 0.91 | 0 | 2 of 2 |
+| [retirement](kb-token-stats-retirement.md) | max 512 | 4.75 | 1.00 | 4.75 | 0.84 | 1 | 2 of 2 |
+| [retirement](kb-token-stats-retirement.md) | max 250 | 4.75 | 0.99 | 4.69 | 0.88 | 1 | 2 of 2 |
 | [stocks](kb-token-stats-stocks.md) | max 512 | 5.00 | 0.99 | 5.00 | 1.00 | 0 | 2 of 2 |
 | [stocks](kb-token-stats-stocks.md) | max 250 | 5.00 | 0.99 | 5.00 | 1.00 | 0 | 2 of 2 |
-| **All (156)** | **max 512** | **4.94** | **0.98** | **4.90** | **0.95** | **2** | **12 of 12** |
-| **All (156)** | **max 250** | **4.95** | **0.98** | **4.90** | **0.94** | **1** | **12 of 12** |
+| [taxes-and-accounts](kb-token-stats-taxes-and-accounts.md) | max 512 | 5.00 | 0.95 | 4.85 | 0.98 | 0 | 2 of 2 |
+| [taxes-and-accounts](kb-token-stats-taxes-and-accounts.md) | max 250 | 5.00 | 0.95 | 4.90 | 0.98 | 0 | 2 of 2 |
+| **All (192)** | **max 512** | **4.93** | **0.98** | **4.88** | **0.94** | **3** | **16 of 16** |
+| **All (192)** | **max 250** | **4.94** | **0.98** | **4.89** | **0.94** | **2** | **16 of 16** |
 
 **All** averages every answerable question across categories (faithfulness over answered questions only).

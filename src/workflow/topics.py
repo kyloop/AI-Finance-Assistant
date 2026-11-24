@@ -33,7 +33,7 @@ OWN_DATA_LABELS = {"portfolio": "Your portfolio", "goal": "Your savings plan"}  
 SUMMARY_SYSTEM = (
     "You keep short notes on a conversation with a personal-finance education assistant. Given the TOPIC so far (its "
     "name and summary, possibly empty) and the LATEST TURN (the user's question, what kind of question it was, the "
-    "companies and markets it was about, the sources used), reply with ONLY JSON:\n"
+    "companies and markets it was about, the sources used, the start of the answer), reply with ONLY JSON:\n"
     '{"summary": "<one sentence: what the latest turn asked and covered>", '
     '"topic_summary": "<the topic so far plus the latest turn, at most 3 sentences>", '
     '"label": "<a 2 to 5 word name for the topic>"}\n'
@@ -332,23 +332,27 @@ def embed(texts: list[str]) -> list[list[float]] | None:
 
 
 # ---------------------------------------------------------------- summaries (one LLM call per turn)
-def _turn_prompt(topic: dict, ctx: dict, source_titles: list[str]) -> str:
+ANSWER_CHARS = 700          # how much of the reply the summary sees: enough to say what it covered
+
+
+def _turn_prompt(topic: dict, ctx: dict, source_titles: list[str], answer: str = "") -> str:
     def names(items, key):
         return ", ".join(i.get("name") or i.get(key) for i in items or [] if i.get("name") or i.get(key)) or "none"
     return (f"TOPIC: {topic.get('label') or '(new)'}\nSUMMARY SO FAR: {topic.get('summary') or '(none)'}\n\n"
             f"LATEST TURN\nQuestion: {ctx.get('question') or ''}\nKind: {', '.join(ctx.get('intents') or []) or 'qa'}\n"
             f"Companies: {names(ctx.get('companies'), 'symbol')}\nMarkets: {names(ctx.get('markets'), 'key')}\n"
-            f"Sources: {'; '.join(source_titles[:5]) or 'none'}")
+            f"Sources: {'; '.join(source_titles[:5]) or 'none'}"
+            + (f"\nAnswer (start; say what it covered, not its figures): {' '.join(answer.split())[:ANSWER_CHARS]}" if answer else ""))
 
 
 def summarize_turn(topic: dict, ctx: dict, *, earlier_turns: list[str], earlier_questions: list[str],
-                   source_titles: list[str] | None = None) -> tuple[str, str, str]:
+                   source_titles: list[str] | None = None, answer: str = "") -> tuple[str, str, str]:
     """(turn summary, topic summary, label) for a turn about to join `topic`. One LLM call; any part the model leaves
     out, or that adds a figure the user's questions don't have, falls back (the question; the last three turn summaries;
     "" so the label is built from the topic)."""
     question = ctx.get("question") or ""
     allowed = [question, *earlier_questions]
-    data = first_json(ask_llm(SUMMARY_SYSTEM, _turn_prompt(topic, ctx, source_titles or []))) or {}
+    data = first_json(ask_llm(SUMMARY_SYSTEM, _turn_prompt(topic, ctx, source_titles or [], answer))) or {}
     turn = str(data.get("summary") or "").strip()
     if not turn or adds_figures(turn, *allowed):
         turn = question
@@ -455,7 +459,8 @@ def record_turn(db, conv, message) -> dict | None:
         earlier = [m for m in _assistant_turns(conv, topic_id) if m.id != message.id]
         turn_summary, merged, label = summarize_turn(
             topic, ctx, earlier_turns=[m.context.get("summary") or m.context.get("question") or "" for m in earlier],
-            earlier_questions=[m.context.get("question") or "" for m in earlier], source_titles=_source_titles(message))
+            earlier_questions=[m.context.get("question") or "" for m in earlier], source_titles=_source_titles(message),
+            answer=message.content or "")
         message.context = {**ctx, "topic_id": topic_id, "summary": turn_summary}     # a new dict, so the JSON column is saved
         before = {(e.kind, e.key) for e in row.entities}
         topic = apply_turn(topic, message.context, message.id, summary=merged, label=label)

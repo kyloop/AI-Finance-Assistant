@@ -13,7 +13,7 @@ from src.core.config import DISCLAIMER, get_config
 from src.core.llm import ask_llm, llm_status
 from src.db.models import Conversation, Message, Session
 from src.db.session import get_db
-from src.workflow.graph import flow_edges, flow_layout, run_chat, stream_chat
+from src.workflow.graph import flow_edges, flow_layout, run_chat, stream_chat, traced
 from src.workflow.safety import REFUSAL_NOTE  # noqa: F401  (re-exported for tests)
 from src.workflow.topics import candidates, drop_links, record_turn
 
@@ -159,7 +159,10 @@ class _Turn:
     def record_topic(self, reply: Message) -> None:
         """Topic memory (mds/topic-memory.md): the reply's topic and summary, after it is saved. Never raises."""
         if reply.context:
-            record_turn(self.db, self.conv, reply)
+            try:                                   # its own Langfuse trace, so the summary call is costed too
+                traced(lambda: record_turn(self.db, self.conv, reply), "finnie_topic_memory", self.graph_args["trace"])
+            except Exception:  # noqa: BLE001 — record_turn never raises; this guards the tracing wrapper
+                log.exception("topic memory tracing failed")
 
 
 @router.post("/sessions/{session_id}/chat", response_model=schemas.MessageOut)

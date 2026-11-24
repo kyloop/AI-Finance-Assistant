@@ -123,6 +123,14 @@ def _run_config(db, trace: dict | None) -> dict:
             "metadata": tracing.run_metadata(**(trace or {})), "run_name": "finnie_chat"}
 
 
+def traced(fn, name: str, trace: dict | None):
+    """Run `fn()` as its own Langfuse trace (same session as the chat turns), so LLM calls made outside the graph, such as
+    topic memory's summary after the reply, are traced and costed too."""
+    from langchain_core.runnables import RunnableLambda
+    return RunnableLambda(lambda _: fn()).invoke(None, config={"callbacks": tracing.run_callbacks(), "run_name": name,
+                                                               "metadata": tracing.run_metadata(**(trace or {}))})
+
+
 def run_chat(question: str, *, history: list[dict], profile: dict, holdings: list[dict], db, saved_goal: dict | None = None, view: dict | None = None,
              context: dict | None = None, trace: dict | None = None, topics: dict | None = None) -> dict:
     """Invoke the graph for one user turn; returns the final state. `context` is the previous answer's saved context;

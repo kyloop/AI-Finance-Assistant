@@ -51,6 +51,15 @@ def refers_to_plan(text: str) -> bool:
     return bool(PLAN_REF.search(text))
 
 
+_GOAL_WORDS = re.compile(r"\b(goals?|sav(e|es|ed|ing|ings)|target|retire\w*|plan\w*|down payment|college|tuition|nest egg|"
+                         r"emergency fund|on track|house|home|car|wedding|vacation|baby|education)\b", re.I)
+
+
+def mentions_goal(text: str) -> bool:
+    """Whether a message is about a goal or savings plan at all (the goal agent has nothing to add otherwise)."""
+    return bool(_GOAL_WORDS.search(text) or _GOAL_CUE.search(text) or re.search(INTENT_PATTERNS["goal"], text, re.I))
+
+
 def classify(text: str) -> list[str]:
     found = [i for i, p in INTENT_PATTERNS.items() if re.search(p, text, re.IGNORECASE)]
     if "market" not in found and (_TICKER_CUE.search(text) or extract_entities(text)["tickers"]):

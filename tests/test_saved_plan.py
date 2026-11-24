@@ -58,3 +58,48 @@ def test_researched_explanation_is_kept_when_calculator_only_asks():
                            "calc": {"agent": "calc", "status": "need_info", "content": "What tax rate applies?", "choices": []}}}
     out = N.synthesizer_node(s, {})
     assert "Gains are taxed when sold." in out["final_response"] and "What tax rate applies?" in out["final_response"]
+
+
+def test_cost_me_on_the_tax_asks_for_a_figure():
+    q = "How does my goal planning cost me on the tax?"
+    assert N._with_saved_plan(["goal", "tax"], state(q)) == ["goal", "tax", "calc"]
+
+
+def test_tax_agent_searches_how_the_plans_savings_are_taxed_and_gets_its_figures():
+    from src.workflow import tools
+    searched = []
+
+    def searcher(query, k=None):
+        searched.append(query)
+        return [{"score": 0.8, "doc_id": "roth-ira", "doc_title": "Roth IRA", "section": "(lead)", "text": "Roth growth is tax-free.",
+                 "source_url": "https://en.wikipedia.org/wiki/Roth_IRA", "category": "retirement", "piece": 0, "pieces": 1,
+                 "tokens": 5, "section_tokens": 5}]
+    tools.set_kb_searcher(searcher)
+    q = "How does my goal planning affect my taxes?"
+    s = {**state(q, ["goal", "tax"]), "entities": {"wiki_query": q}, "history": []}
+    out = N.tax_node(s, {})
+    content = out["agent_outputs"]["tax"]["content"]
+    assert searched == N.PLAN_TAX_SEARCHES["retirement"]
+    assert "$70,000 paid in over 10 years" in content and "$30,134 of investment growth" in content
+    assert "Roth growth is tax-free." in content and out["trace"][0].startswith("tax: saved retirement plan")
+    searched.clear()
+    N.tax_node({**s, "saved_goal": None}, {})                     # no plan: the question itself is searched
+    assert searched == [q]
+
+
+def test_goal_agent_is_dropped_from_a_question_that_is_not_about_a_goal():
+    q = "I earn 200000 a year and stock earning 30000. How much tax do I need to pay?"
+    assert N._without_stray_goal(["goal", "tax", "calc"], state(q)) == ["tax", "calc"]
+    assert N._without_stray_goal(["goal"], state("I want $50k for a down payment in 4 years")) == ["goal"]
+    assert N._without_stray_goal(["goal", "tax"], state("How is my goal planning cost me on the tax?")) == ["goal", "tax"]
+
+
+def test_tax_figure_on_the_plan_is_worked_out_per_account_in_python():
+    llm_module.set_llm(ScriptedLLM())
+    q = "How does my goal planning cost me on the tax?"
+    out = N.calc_node({**state(q, ["goal", "tax", "calc"]), "history": []}, {})["agent_outputs"]["calc"]
+    text = out["content"]
+    assert out["verbatim"] and "$70,000 paid in, projected $100,134 after 10 years, so $30,134 of growth" in text
+    assert "about **$4,520**: 15% of the $30,134 growth" in text           # long-term gains rate
+    assert "about **$22,029**" in text and "saving about $15,400" in text   # 22% sample bracket
+    assert "| Roth 401(k) / IRA | **$0**" in text

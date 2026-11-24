@@ -1,0 +1,289 @@
+# Retrieval ground truth for the `taxes-and-accounts` category (python -m scripts.eval_retrieval --category taxes-and-accounts).
+# Same format as retrieval_eval_basics.yaml: expect = "<doc_id> :: <section path>" (any one counts), hints = answer
+# phrases (any one counts), band = size of the expected section in tokens: S < 150, M 150-249, L 250-512, XL > 512.
+# reference / key_points: the true answer, from the source section; used by the generation test.
+# 2026-11-24: 21 pages (the original 15 plus Property tax, State and local tax deduction, Itemized deduction, Federal
+# Insurance Contributions Act, Tax rate and Alternative minimum tax); q01-q20 written from the pages, q21-q22 are out of scope.
+
+- id: q01
+  band: S
+  q: How are short-term and long-term capital gains taxed differently in the US?
+  expect:
+  - 'capital-gains-tax-in-the-united-states :: (lead)'
+  - 'capital-gains-tax-in-the-united-states :: Current law'
+  hints:
+  - Short-term capital gains are taxed at the investor's ordinary income tax rate
+  - taxes short-term capital gains at the same rate as it taxes ordinary income
+  reference: Short-term capital gains, on investments held a year or less, are taxed at the investor's ordinary income tax rate. Long-term gains, on assets held more than one year, are taxed at lower rates.
+  key_points:
+  - Short-term gains (held a year or less) are taxed as ordinary income
+  - Long-term gains (held more than a year) get lower rates
+
+- id: q02
+  band: L
+  q: What is the net investment income tax?
+  expect:
+  - 'capital-gains-tax-in-the-united-states :: Current law > Additional taxes'
+  hints:
+  - net investment income tax (NIIT)
+  reference: Taxpayers with income above certain thresholds ($200,000 single, $250,000 married filing jointly) pay an additional 3.8% tax on investment income above the threshold, the net investment income tax, so the top federal rate on long-term gains is 23.8%.
+  key_points:
+  - An extra 3.8% tax on investment income
+  - Applies above $200,000 (single) or $250,000 (married filing jointly)
+  - Makes the top long-term capital gains rate 23.8%
+
+- id: q03
+  band: M
+  q: What is the standard deduction?
+  expect:
+  - 'standard-deduction :: (lead)'
+  hints:
+  - non-itemizers may subtract from their income before income tax
+  reference: The standard deduction is a dollar amount that taxpayers who don't itemize may subtract from their income before income tax is applied. It depends on filing status and usually rises each year with inflation; taxpayers choose it or itemized deductions, whichever gives less tax.
+  key_points:
+  - A fixed amount subtracted from income before income tax
+  - An alternative to itemizing; people pick whichever lowers tax more
+  - Depends on filing status and rises with inflation
+
+- id: q04
+  band: XL
+  q: Should I take the standard deduction or itemize my deductions?
+  expect:
+  - 'itemized-deduction :: (lead)'
+  - 'standard-deduction :: (lead)'
+  hints:
+  - whichever is greater
+  - usually choose whichever results in the lesser amount of tax payable
+  reference: Most taxpayers can choose between itemizing allowable expenses and taking the standard deduction for their filing status; generally they deduct whichever amount is greater, since that results in less tax.
+  key_points:
+  - Taxpayers choose either itemized deductions or the standard deduction
+  - Generally the larger of the two is used
+
+- id: q05
+  band: M
+  q: Can I deduct my property taxes on my federal return?
+  expect:
+  - 'state-and-local-tax-deduction :: (lead)'
+  - 'state-and-local-tax-deduction :: Definition'
+  - 'state-and-local-tax-deduction :: Definition > How it works'
+  hints:
+  - Eligible taxes include state and local income taxes and property taxes
+  reference: Property taxes are deductible through the state and local tax (SALT) deduction, an itemized deduction covering state and local income and property taxes. It was capped at $10,000 for 2018-2025, and only helps taxpayers who itemize.
+  key_points:
+  - Property taxes count toward the SALT deduction
+  - SALT is an itemized deduction
+  - The deduction is capped
+
+- id: q06
+  band: S
+  q: How did the One Big Beautiful Bill Act change the SALT cap?
+  expect:
+  - 'state-and-local-tax-deduction :: History > One Big Beautiful Bill Act'
+  hints:
+  - increased the total SALT deduction to $40,000
+  reference: The One Big Beautiful Bill Act raised the SALT deduction cap to $40,000 for taxpayers making less than $500,000, reverting to $10,000 after five years.
+  key_points:
+  - Cap raised from $10,000 to $40,000
+  - Only for taxpayers making less than $500,000
+  - Reverts to $10,000 after five years
+
+- id: q07
+  band: M
+  q: What is a property tax?
+  expect:
+  - 'property-tax :: (lead)'
+  hints:
+  - ad valorem tax on the value of a property
+  reference: A property tax is an ad valorem tax on the value of a property, usually real estate, levied by the jurisdiction where the property is located after it appraises the property's value.
+  key_points:
+  - A tax based on the value of property
+  - Levied by the local jurisdiction where the property is
+  - The property is appraised to set the tax
+
+- id: q08
+  band: S
+  q: What does FICA tax pay for?
+  expect:
+  - 'federal-insurance-contributions-act :: (lead)'
+  hints:
+  - to fund Social Security and Medicare
+  reference: FICA is a US federal payroll tax paid by both employees and employers to fund Social Security and Medicare.
+  key_points:
+  - A payroll tax paid by employees and employers
+  - Funds Social Security and Medicare
+
+- id: q09
+  band: L
+  q: How much Social Security and Medicare tax comes out of an employee's paycheck?
+  expect:
+  - 'federal-insurance-contributions-act :: Calculation > Regularly employed people'
+  hints:
+  - 6.2% of gross compensation
+  reference: Employees pay 6.2% of wages for Social Security, up to the wage base that rises each year, and 1.45% for Medicare with no wage limit.
+  key_points:
+  - 6.2% for Social Security up to a wage limit
+  - 1.45% for Medicare on all wages
+
+- id: q10
+  band: L
+  q: What self-employment tax do independent contractors pay?
+  expect:
+  - 'federal-insurance-contributions-act :: Calculation > Self-employed people'
+  hints:
+  - 15.3%
+  reference: Self-employed people pay the whole 15.3% (12.4% Social Security plus 2.9% Medicare) under SECA, applied to 92.35% of net earnings from self-employment.
+  key_points:
+  - The rate is 15.3% (12.4% + 2.9%)
+  - Applied to 92.35% of net self-employment earnings
+  - Self-employed pay both the employee and employer share
+
+- id: q11
+  band: S
+  q: What are tax brackets?
+  expect:
+  - 'tax-bracket :: (lead)'
+  hints:
+  - divisions at which tax rates change
+  reference: Tax brackets are the divisions at which tax rates change in a progressive tax system; income above each cutoff is taxed at a higher rate.
+  key_points:
+  - Cutoff values of taxable income where the rate changes
+  - Income above a cutoff is taxed at the higher rate
+
+- id: q12
+  band: L
+  q: What is a marginal tax rate?
+  expect:
+  - 'tax-rate :: Marginal'
+  hints:
+  - percentage of additional income
+  reference: The marginal tax rate is the percentage of an additional dollar of income paid in tax; for example someone whose next dollar is taxed 37 cents has a 37% marginal rate.
+  key_points:
+  - The tax on the next dollar of income
+  - Example of 37% on an extra dollar
+
+- id: q13
+  band: L
+  q: What is the difference between an effective tax rate and a marginal tax rate?
+  expect:
+  - 'tax-rate :: Effective'
+  - 'tax-rate :: Marginal'
+  - 'progressive-tax :: Measuring progressivity > Marginal and effective tax rates'
+  - 'income-tax-in-the-united-states :: Basics > Effective income tax rates'
+  hints:
+  - percent of their income that an individual or a corporation pays in taxes
+  reference: The effective tax rate is the share of total income paid in taxes, while the marginal rate is the rate on the next dollar earned; in a progressive system the effective rate is below the top marginal rate.
+  key_points:
+  - Effective rate is total tax divided by income
+  - Marginal rate applies to the next dollar earned
+
+- id: q14
+  band: M
+  q: What makes a dividend a qualified dividend?
+  expect:
+  - 'qualified-dividend :: (lead)'
+  - 'qualified-dividend :: Requirements'
+  hints:
+  - generally 60 days for common stock
+  reference: Qualified dividends are ordinary dividends that meet criteria to be taxed at the lower long-term capital gains rates (0% to 23.8%); the stock must be held long enough, generally 60 days for common stock, and paid by a US or qualifying corporation.
+  key_points:
+  - Taxed at the long-term capital gains rate
+  - Holding period of about 60 days for common stock
+  - Paid by a US or qualifying corporation
+
+- id: q15
+  band: L
+  q: What is a wash sale?
+  expect:
+  - 'wash-sale :: (lead)'
+  hints:
+  - within 30 days before or after the date of sale
+  reference: A wash sale is selling a security at a loss when substantially identical securities are bought within 30 days before or after the sale; the loss can't be used as a tax deduction.
+  key_points:
+  - Selling at a loss and buying substantially identical securities
+  - 30 days before or after the sale (61-day window)
+  - The loss is disallowed as a deduction
+
+- id: q16
+  band: S
+  q: How does tax-loss harvesting lower my taxes?
+  expect:
+  - 'tax-loss-harvesting :: (lead)'
+  - 'tax-loss-harvesting :: Overview'
+  hints:
+  - accelerate the realization of capital losses
+  reference: Tax-loss harvesting sells investments that have lost value to realize capital losses, which offset gains and lower the tax owed, often rebuying after the 30-day wash sale window.
+  key_points:
+  - Selling investments at a loss to realize losses
+  - Losses reduce the tax on gains
+  - Mind the 30-day wash sale window
+
+- id: q17
+  band: L
+  q: What is cost basis and why does it matter for taxes?
+  expect:
+  - 'cost-basis :: (lead)'
+  hints:
+  - original cost of property, adjusted for factors such as depreciation
+  reference: Cost basis is the original cost of property, adjusted for things like depreciation; when it is sold, the taxable gain is the amount realized minus the basis.
+  key_points:
+  - Basis is the adjusted original cost
+  - Taxable gain equals sale amount minus basis
+
+- id: q18
+  band: L
+  q: How is a health savings account taxed?
+  expect:
+  - 'health-savings-account :: (lead)'
+  - 'health-savings-account :: Benefits'
+  hints:
+  - not subject to federal income tax at the time of deposit
+  reference: An HSA, available with a high-deductible health plan, takes contributions free of federal income tax, the money rolls over year to year, and it can be used tax-free for qualified medical expenses.
+  key_points:
+  - Requires a high-deductible health plan
+  - Contributions are not subject to federal income tax
+  - Qualified medical withdrawals are tax-free and funds roll over
+
+- id: q19
+  band: S
+  q: What is a 529 plan?
+  expect:
+  - '529-plan :: (lead)'
+  hints:
+  - qualified tuition program
+  reference: A 529 plan, or qualified tuition program, is a tax-advantaged US investment account for a beneficiary's future education costs; since 2017 it can also pay K-12 tuition.
+  key_points:
+  - Tax-advantaged education savings
+  - Also covers K-12 tuition since 2017
+
+- id: q20
+  band: XL
+  q: What is the alternative minimum tax?
+  expect:
+  - 'alternative-minimum-tax :: (lead)'
+  hints:
+  - in addition to the regular income tax
+  reference: The AMT is a US federal tax in addition to the regular income tax, computed on a broader base (adding back items such as the state and local tax deduction) at 26% or 28% with a larger exemption; it affects few taxpayers.
+  key_points:
+  - A parallel tax in addition to regular income tax
+  - Adds back items like the SALT deduction
+  - Rates of 26% and 28%
+
+- id: q21
+  band: none
+  q: What will the IRS standard mileage rate be in 2030?
+  expect: []
+  hints: []
+  reference: The knowledge base does not cover this. A good answer says so and does not invent figures or give a buy/sell recommendation.
+  key_points:
+  - Says the provided sources don't contain the answer
+  - Does not invent specific figures or advice
+
+- id: q22
+  band: none
+  q: Which stocks should I sell to save on taxes this year?
+  expect: []
+  hints: []
+  reference: The knowledge base does not cover this. A good answer says so and does not invent figures or give a buy/sell recommendation.
+  key_points:
+  - Says the provided sources don't contain the answer
+  - Does not invent specific figures or advice

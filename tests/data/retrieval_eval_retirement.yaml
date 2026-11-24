@@ -1,0 +1,233 @@
+# Retrieval ground truth for the `retirement` category (python -m scripts.eval_retrieval --category retirement).
+# Same format as retrieval_eval_basics.yaml: expect = "<doc_id> :: <section path>" (any one counts), hints = answer
+# phrases (any one counts), band = size of the expected section in tokens: S < 150, M 150-249, L 250-512, XL > 512.
+# reference / key_points: the true answer, from the source section; used by the generation test.
+# 2026-11-24: 15 pages; q01-q16 written from the pages, q17-q18 are out of scope.
+
+- id: q01
+  band: L
+  q: What is a 401(k) plan?
+  expect:
+  - '401-k :: (lead)'
+  hints:
+  - employer-sponsored defined-contribution personal pension
+  reference: A 401(k) is an employer-sponsored defined-contribution retirement account in the US; employee contributions come out of each paycheck and may be matched by the employer.
+  key_points:
+  - Employer-sponsored defined-contribution account
+  - Contributions come from paychecks
+  - Employers may match contributions
+
+- id: q02
+  band: L
+  q: How are traditional and Roth 401(k) contributions taxed?
+  expect:
+  - '401-k :: (lead)'
+  - '401-k :: Taxation > Roth'
+  - '401-k :: Taxation'
+  hints:
+  - contributions may be deducted from taxable income and withdrawals are added to taxable income
+  - these contributions are made on an after-tax basis
+  reference: In a traditional 401(k), contributions are deducted from taxable income and withdrawals are taxed as income; Roth 401(k) contributions are made after tax and qualified withdrawals are tax-free.
+  key_points:
+  - Traditional contributions are pre-tax and withdrawals are taxed
+  - Roth contributions are after-tax and qualified withdrawals are tax-free
+
+- id: q03
+  band: S
+  q: What is a Roth IRA?
+  expect:
+  - 'roth-ira :: (lead)'
+  hints:
+  - qualified withdrawals from the Roth IRA plan are tax-free
+  reference: A Roth IRA is an individual retirement account that gives no tax deduction on contributions, but qualified withdrawals and the account's growth are tax-free.
+  key_points:
+  - No tax deduction for contributions
+  - Qualified withdrawals and growth are tax-free
+
+- id: q04
+  band: L
+  q: What is the difference between a Roth IRA and a traditional IRA?
+  expect:
+  - 'roth-ira :: Differences from a Traditional IRA'
+  - 'individual-retirement-account :: Types'
+  hints:
+  - how contributions and withdrawals are taxed
+  - withdrawals in retirement are taxed as income
+  reference: The difference is how contributions and withdrawals are taxed. Traditional IRA contributions are mostly tax-deductible and withdrawals are taxed as income; Roth IRA contributions are after-tax and qualified withdrawals are tax-free.
+  key_points:
+  - Traditional contributions are deductible, withdrawals taxed
+  - Roth contributions are after-tax, withdrawals tax-free
+
+- id: q05
+  band: S
+  q: What are required minimum distributions?
+  expect:
+  - 'required-minimum-distribution :: (lead)'
+  hints:
+  - minimum amounts that U.S. tax law requires one to withdraw annually
+  reference: Required minimum distributions are the minimum amounts US tax law requires owners of traditional IRAs and employer plans to withdraw each year and pay income tax on.
+  key_points:
+  - Minimum yearly withdrawals required by law
+  - Apply to traditional IRAs and employer plans
+  - Income tax is paid on them
+
+- id: q06
+  band: L
+  q: Who can use a 403(b) plan?
+  expect:
+  - '403-b :: (lead)'
+  hints:
+  - public education organizations
+  reference: A 403(b) is a tax-advantaged retirement plan for public education organizations, some 501(c)(3) non-profits, cooperative hospital service organizations and self-employed ministers; it is taxed much like a 401(k).
+  key_points:
+  - For public schools, certain non-profits and ministers
+  - Tax treatment similar to a 401(k)
+
+- id: q07
+  band: M
+  q: How is a 457 plan different from a 401(k)?
+  expect:
+  - '457-plan :: (lead)'
+  hints:
+  - no 10% penalty for withdrawal
+  reference: A 457 plan is a deferred-compensation plan for governmental and some nongovernmental employers that works much like a 401(k), but has no 10% penalty for withdrawals before retirement age (withdrawals are still taxed as income).
+  key_points:
+  - For government and certain nongovernmental employers
+  - No 10% early-withdrawal penalty
+  - Withdrawals are still taxed as ordinary income
+
+- id: q08
+  band: M
+  q: What is a defined contribution plan?
+  expect:
+  - 'defined-contribution-plan :: (lead)'
+  hints:
+  - benefits are based on the amounts credited to these accounts
+  reference: A defined contribution plan is a retirement plan where employer and/or employee contribute regularly to individual accounts, and benefits depend on the contributions plus investment earnings, so they fluctuate.
+  key_points:
+  - Regular contributions to individual accounts
+  - Benefits depend on contributions and investment earnings
+
+- id: q09
+  band: L
+  q: What is a defined benefit pension plan?
+  expect:
+  - 'defined-benefit-pension-plan :: (lead)'
+  hints:
+  - promises a specified pension payment
+  reference: A defined benefit pension plan promises a specified payment at retirement based on the employee's earnings history, tenure and age, rather than on investment returns.
+  key_points:
+  - Employer promises a specified payment
+  - Based on earnings history, service and age, not investment returns
+
+- id: q10
+  band: M
+  q: What is an annuity?
+  expect:
+  - 'annuity :: (lead)'
+  hints:
+  - series of payments of the same kind made at equal time intervals
+  reference: An annuity is a series of equal payments at regular intervals; insurers sell annuities where a lump sum or premiums buy regular income, often for retirement.
+  key_points:
+  - Equal payments at regular intervals
+  - Often bought from an insurer for retirement income
+
+- id: q11
+  band: S
+  q: What is the Trinity study about?
+  expect:
+  - 'trinity-study :: (lead)'
+  - 'trinity-study :: Study and conclusions'
+  hints:
+  - safe withdrawal rates
+  reference: The Trinity study is a 1998 paper by three Trinity University finance professors on safe withdrawal rates from retirement portfolios of stocks and bonds, judged by whether the portfolio lasted the payout period.
+  key_points:
+  - A 1998 study by Trinity University professors
+  - About safe withdrawal rates from retirement portfolios
+
+- id: q12
+  band: XL
+  q: What is the 4% rule for retirement withdrawals?
+  expect:
+  - 'retirement-spend-down :: Withdrawal rate'
+  - 'trinity-study :: Study and conclusions'
+  hints:
+  - common rule of thumb for withdrawal rate is 4%
+  reference: A common rule of thumb is to withdraw 4% of savings in the first year of retirement, based on 20th-century US market returns, to make the savings last.
+  key_points:
+  - Withdraw about 4% of savings a year
+  - Based on historical US returns
+
+- id: q13
+  band: L
+  q: What does it mean for my 401(k) to be vested?
+  expect:
+  - 'vesting :: Employment > Retirement plans'
+  hints:
+  - absolute right to the entire amount of money in the account
+  reference: Once a retirement plan is fully vested, the employee has an absolute right to all the money in it; employees are always vested in their own contributions, while employer contributions may vest over time and unvested amounts can be forfeited.
+  key_points:
+  - Vested money can't be taken back by the employer
+  - Own contributions are vested immediately
+  - Employer contributions may vest over time
+
+- id: q14
+  band: XL
+  q: At what age can I get my full Social Security benefit?
+  expect:
+  - 'social-security-united-states :: Benefits > Full retirement age (FRA)'
+  hints:
+  - for individuals born in 1960 or later, the FRA is 67
+  reference: The full retirement age gives 100% of the primary insurance amount; it is 67 for people born in 1960 or later. Claiming early (from 62) gives a smaller benefit, and claiming later a larger one.
+  key_points:
+  - Full retirement age is 67 for those born in 1960 or later
+  - Early claiming from 62 reduces the benefit
+  - Delaying increases it
+
+- id: q15
+  band: XL
+  q: How are withdrawals from a traditional IRA taxed?
+  expect:
+  - 'individual-retirement-account :: Types'
+  - 'traditional-ira :: Overview'
+  hints:
+  - withdrawals in retirement are taxed as income
+  reference: Traditional IRA contributions are mostly tax-deductible, nothing inside the account is taxed, and withdrawals in retirement are taxed as income (except the part that matches non-deducted contributions).
+  key_points:
+  - Withdrawals are taxed as ordinary income
+  - Contributions are generally deductible
+  - No tax on transactions inside the account
+
+- id: q16
+  band: L
+  q: Do I pay tax on investment gains inside a Roth IRA?
+  expect:
+  - 'roth-ira :: Differences from a Traditional IRA'
+  - 'roth-ira :: (lead)'
+  hints:
+  - growth in the account is tax-free
+  - including capital gains, dividends, and interest
+  reference: No. Transactions inside a Roth IRA, including capital gains, dividends and interest, are not taxed, and qualified withdrawals are tax-free.
+  key_points:
+  - Gains, dividends and interest inside a Roth are not taxed
+  - Qualified withdrawals are tax-free
+
+- id: q17
+  band: none
+  q: How much will my Social Security check be in 2040?
+  expect: []
+  hints: []
+  reference: The knowledge base does not cover this. A good answer says so and does not invent figures or give a buy/sell recommendation.
+  key_points:
+  - Says the provided sources don't contain the answer
+  - Does not invent specific figures or advice
+
+- id: q18
+  band: none
+  q: Which target-date fund should I buy for my 401(k)?
+  expect: []
+  hints: []
+  reference: The knowledge base does not cover this. A good answer says so and does not invent figures or give a buy/sell recommendation.
+  key_points:
+  - Says the provided sources don't contain the answer
+  - Does not invent specific figures or advice

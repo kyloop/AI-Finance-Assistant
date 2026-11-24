@@ -1,0 +1,32 @@
+# US federal tax rules for the income-tax estimator (src/core/income_tax.py). One block per tax year; the estimator uses
+# `default_year` unless asked for another. Only single and married filing jointly are covered.
+# 2026 sources (checked 2026-11-24):
+#   IRS, "IRS releases tax inflation adjustments for tax year 2026, including amendments from the One, Big, Beautiful Bill"
+#     (Rev. Proc. 2025-32): brackets, standard deduction, capital-gains breakpoints, SALT cap.
+#     https://www.irs.gov/newsroom/irs-releases-tax-inflation-adjustments-for-tax-year-2026-including-amendments-from-the-one-big-beautiful-bill
+#   SSA 2026 COLA fact sheet: Social Security wage base $184,500.
+#   26 U.S.C. 1411 (net investment income tax) and 3101(b)(2) (additional Medicare tax): thresholds are not indexed.
+default_year: 2026
+years:
+  2026:
+    brackets:                       # [upper bound of taxable income, rate]; null = no upper bound
+      single: [[12400, 0.10], [50400, 0.12], [105700, 0.22], [201775, 0.24], [256225, 0.32], [640600, 0.35], [null, 0.37]]
+      married_joint: [[24800, 0.10], [100800, 0.12], [211400, 0.22], [403550, 0.24], [512450, 0.32], [768700, 0.35], [null, 0.37]]
+    standard_deduction: {single: 16100, married_joint: 32200}
+    capital_gains:                  # long-term gains and qualified dividends: [upper bound of taxable income, rate]
+      single: [[49450, 0.0], [545500, 0.15], [null, 0.20]]
+      married_joint: [[98900, 0.0], [613700, 0.15], [null, 0.20]]
+    capital_loss_limit: 3000        # net capital loss deductible against ordinary income per year
+    salt:                           # state and local tax deduction (itemized): cap, reduced by 30% of MAGI above the threshold, never below the floor
+      cap: 40400
+      phase_down_start: 505000
+      phase_down_rate: 0.30
+      floor: 10000
+    niit: {rate: 0.038, threshold: {single: 200000, married_joint: 250000}}
+    payroll:
+      social_security_rate: 0.062
+      social_security_wage_base: 184500
+      medicare_rate: 0.0145
+      additional_medicare_rate: 0.009
+      additional_medicare_threshold: {single: 200000, married_joint: 250000}
+      self_employment_base: 0.9235  # share of net self-employment earnings that SE tax applies to
