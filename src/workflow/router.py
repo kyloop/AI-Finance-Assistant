@@ -38,6 +38,17 @@ _GOAL_CUE = re.compile(r"(\$[\d,.]+\s*(k|m|million|thousand)?\b.*\b\d{1,2}\s*(ye
                        r"\bsaving\s+\$|\$[\d,.]+\s*(a|per|/|each)\s*month)", re.I)
 
 
+# The user's own plan or goal ("my Goals plan", "if the plan runs as planned", "my retirement goal"): with a plan saved on
+# the Goals tab, the goal agent reads it and the other agents get its figures. "The goal" alone is left out: "the goal of
+# diversification" is not their plan.
+PLAN_REF = re.compile(r"\bmy\s+(\w+\s+)?(plan|goals?)\b|\b(the|this|that)\s+(savings\s+|retirement\s+|goals?\s+)?plan\b|"
+                      r"\bgoals?\s+(plan|tab)\b|\bam i on track\b", re.I)
+
+
+def refers_to_plan(text: str) -> bool:
+    return bool(PLAN_REF.search(text))
+
+
 def classify(text: str) -> list[str]:
     found = [i for i, p in INTENT_PATTERNS.items() if re.search(p, text, re.IGNORECASE)]
     if "market" not in found and (_TICKER_CUE.search(text) or extract_entities(text)["tickers"]):

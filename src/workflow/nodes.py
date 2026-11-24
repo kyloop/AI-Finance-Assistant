@@ -198,9 +198,9 @@ ROUTER_SYSTEM = """You are the router for a personal-finance EDUCATION assistant
 AGENTS AND THEIR RESPONSIBILITIES
 - qa: Explains financial concepts, definitions, how things work, WHY something happens, drivers/risks/pros-cons, and "what should I consider" questions. Knowledge-base driven. No live data, no user holdings.
 - portfolio: Analyzes the USER'S OWN holdings (allocation, diversification, concentration, risk, performance of what they own). Only when the message refers to "my portfolio / my stocks / my holdings" or supplied holdings.
-- market: Live and recent market DATA and trends: prices, quotes, indices, valuation metrics for a named security (P/E, dividend yield, market cap), sector or asset-class performance, "how is X doing / performing", comparisons between tickers, rates, housing, commodities, crypto. Anything about the current STATE or PERFORMANCE of a market, sector, asset class or security.
-- news: Recent headlines and developments ("latest", "recent", "what happened", "what's being reported", "any news") about a company, industry, sector, topic or the whole market. Summarizes and gives context.
-- goal: Builds a savings plan: monthly amount needed to reach a target amount by a date (risk appetite may apply). Only when they want a plan or "how much should I save".
+- market: Live and recent market DATA at every level. A company or fund: prices, quotes, valuation (P/E, dividend yield, market cap), performance over a period, comparisons between tickers. A sector: its return against the S&P 500 and how its largest companies moved. A sector's industries and what it is made of. A region or country: its stock index. The US market as a whole: the main indices, every sector ranked, the largest companies, today's most active stocks, whether the market is open. Asset classes: rates, commodities, currencies, crypto. Anything about the current STATE or PERFORMANCE of a security, sector, region, market or asset class.
+- news: Recent headlines and developments ("latest", "recent", "what happened", "what's being reported", "any news") about a company, sector, region, topic or the whole market. Summarizes and gives context.
+- goal: Builds a savings plan: monthly amount needed to reach a target amount by a date (risk appetite may apply). Only when they want a plan or "how much should I save". Also reads and explains the plan the user saved on the Goals tab whenever they ask about "my plan", "my goal(s)", "the plan" or whether they are on track.
 - tax: Tax rules and account types (401k, IRA, Roth, HSA, 529), contribution limits, capital gains, deductions, tax treatment of investments.
 - calc: Computes a specific number: future value, loan/mortgage payment, doubling time, present value, real return, APY, bond yield, how long savings last with yearly withdrawals, or any other finance formula. Use when the user wants a figure calculated, not explained.
 
@@ -214,6 +214,7 @@ ROUTING RULES
 6. "Should I buy/invest in X" or "is X a good investment" -> qa + market (+ portfolio if they mention their holdings). Education only, never personal advice.
 7. Questions about what to consider or how something works (buying a house, mortgages, retirement accounts) -> qa. Add goal only if they ask for a savings plan, calc only if they ask for a number, tax only if tax treatment is asked.
 8. "How much will I have / what is my payment" -> calc. A request to SEE a calculation worked through ("show me an example of how to calculate WACC", "how do you calculate APY? walk me through it") -> calc, even without numbers: the calculator explains the formula with sample numbers. "How much must I save each month to reach $X by <date>" -> goal. If both a number and an explanation are requested, calc + qa.
+8b. A question about the user's own saved plan or goal ("explain my Goals plan", "am I on track?") -> goal. A figure worked out FROM that plan ("how much tax will I pay if the plan runs as planned?", "what if I add $200 a month?") -> goal + calc, plus the agent that explains the idea (tax for tax, qa otherwise): goal supplies the plan, calc the number, the other the explanation.
 9. Tax-related investing questions ("how are dividends taxed", "Roth vs traditional") -> tax (+ qa if broad concept explanation is also requested).
 10. Follow-ups: pronouns or references to the earlier subject ("them", "it", "the same sector", "grab the recent news") inherit the intents the conversation is about. A short "what about X?" repeats ALL intents of the previous question for the new subject (price and news for NVDA, then "what about NU?" -> market + news).
 11. Anything unclear or very general about money/investing -> qa, with lower confidence.
@@ -383,6 +384,22 @@ def _with_screen(intents: list[str], state: FinanceState) -> list[str]:
     return list(dict.fromkeys([*intents, *on_screen["intents"]]))
 
 
+_FIGURE_ASKED = re.compile(r"\b(how much|how many dollars|estimate|work out|calculat\w*|figure out)\b", re.I)
+
+
+def _with_saved_plan(intents: list[str], state: FinanceState) -> list[str]:
+    """A message about the user's own plan ("explain my Goals plan", "if the plan runs as planned") goes to the goal agent,
+    which reads the plan saved on the Goals tab: the router LLM tends to call it Q&A, which has no way to see the plan."""
+    q = f"{state.get('original_question') or ''} {state['question']}"
+    if not state.get("saved_goal") or not R.refers_to_plan(q):
+        return intents
+    if "goal" not in intents:
+        intents = ["goal"] if intents == ["qa"] else [*intents, "goal"]   # Q&A alone can't add anything about their plan
+    if "tax" in intents and "calc" not in intents and _FIGURE_ASKED.search(q):   # the tax agent explains, it never computes
+        intents = [*intents, "calc"]
+    return intents
+
+
 def router_node(state: FinanceState, config: RunnableConfig):
     res = _route(state)
     res["tried_agents"] = [n.removesuffix("_agent") for n in route_after_router(res)]       # replan never re-runs these
@@ -413,10 +430,10 @@ def _route(state: FinanceState) -> dict:
             if "read_only" in intents:
                 return {"intent": ["read_only"], "entities": {**entities, "write_request": "data"}, "router_mode": "llm",
                         "trace": ["router (LLM): asks to change something → read_only guard"]}
-            intents = _with_screen(_without_stray_portfolio(_with_listed_tickers(intents, text), state), state)
+            intents = _with_saved_plan(_with_screen(_without_stray_portfolio(_with_listed_tickers(intents, text), state), state), state)
             return _routed({"intent": intents, "entities": entities, "router_mode": "llm", "trace": [f"router (LLM): {', '.join(intents)}"]}, state)
         log.warning("router LLM reply unusable; falling back to keywords")
-    intents = _with_screen(_with_listed_tickers(_with_market_words(R.classify(text), text), text), state)
+    intents = _with_saved_plan(_with_screen(_with_listed_tickers(_with_market_words(R.classify(text), text), text), state), state)
     if intents == ["qa"] and CTX.carried(state).get("companies"):                 # "which did better?" after a market answer
         intents = ["market"]
     return _routed({"intent": intents, "entities": entities, "router_mode": "keywords", "trace": [f"router (keywords): {', '.join(intents)}"]}, state)
@@ -1292,9 +1309,11 @@ def calc_node(state: FinanceState, config: RunnableConfig):
     # a new topic starts clean: an earlier question's figures would otherwise become extra targets or "user" numbers
     recent = H.transcript(state.get("history")) if state.get("follow_up") else ""
     known = CTX.describe(CTX.carried(state))
+    plan = saved_plan_figures(state)            # "how much tax if the plan runs as planned?": the Goals tab's numbers are theirs
     prompt = (f"Recent conversation:\n{recent or '(none)'}\n\n"
-              + (f"Figures from the previous answer:\n{known}\n\n" if known else "") + f"Message: {q}")
-    out = calculate(q, prompt, f"{q}\n{recent}\n{known}")
+              + (f"Figures from the previous answer:\n{known}\n\n" if known else "")
+              + (f"{plan}\n\n" if plan else "") + f"Message: {q}")
+    out = calculate(q, prompt, f"{q}\n{recent}\n{known}\n{plan}")
     steps = [f"calc step {line}" for line in out.trace]
     if out.kind == "needs":
         res = _out("calc", CALC.needs_input_text(out.needs.label, out.needs.inputs), status="need_info",
