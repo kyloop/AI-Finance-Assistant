@@ -222,7 +222,10 @@ def _yf_news(symbol: str, count: int = 30, **_) -> dict:
             items.setdefault(item["id"], item)
     if not items:
         raise ProviderEmpty(symbol)
-    ordered = sorted(items.values(), key=lambda i: i["published"] or "", reverse=True)
+    by_title: dict[str, dict] = {}              # the same story is often listed twice under different ids (a press release, a re-post)
+    for item in items.values():
+        by_title.setdefault(" ".join(item["title"].lower().split()), item)
+    ordered = sorted(by_title.values(), key=lambda i: i["published"] or "", reverse=True)
     return {"symbol": symbol, "items": ordered[:count]}
 
 

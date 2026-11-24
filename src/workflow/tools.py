@@ -166,6 +166,22 @@ def news_search(query: str, tickers: list[str] | None = None, days: int | None =
     return news.search(_kb_client(), query, tickers=tickers, days=days, k=k)
 
 
+_news_lister = None           # tests inject fn(tickers, days) -> [story]; None = the Qdrant news collection
+
+
+def set_news_lister(fn) -> None:
+    global _news_lister
+    _news_lister = fn
+
+
+def news_recent(tickers: list[str], days: int) -> list[dict]:
+    """The indexed stories for `tickers` published within `days`, newest first (payload dicts). Raises if Qdrant fails."""
+    if _news_lister is not None:
+        return _news_lister(tickers, days)
+    from src.rag import news
+    return news.recent(_kb_client(), tickers, days)
+
+
 _news_indexer = None          # tests inject fn(symbol, items) -> int; None = index into Qdrant now
 
 
@@ -180,6 +196,25 @@ def news_index_now(symbol: str, items: list[dict]) -> int:
         return _news_indexer(symbol, items)
     from src.rag import news
     return news.ingest(symbol, items, client=_kb_client())
+
+
+_article_reader = None        # tests inject fn(stories) -> {story id: text}; None = the index, else the story pages
+
+
+def set_article_reader(fn) -> None:
+    global _article_reader
+    _article_reader = fn
+
+
+def story_articles(stories: list[dict]) -> dict[str, str]:
+    """What the headline-only Yahoo stories actually say: {story id: a 2-3 sentence summary of the article (the excerpt
+    itself in basic mode)}, kept in the news index for a few days."""
+    if _article_reader is not None:
+        return _article_reader(stories)
+    from src.core.llm import current_llm
+    from src.rag import news
+    from .news import summarize_story
+    return news.articles(stories, client=_kb_client(), summarize=summarize_story if current_llm() is not None else None)
 
 
 def news_latest(db, symbol: str | None) -> dict:

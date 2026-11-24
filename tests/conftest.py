@@ -39,7 +39,8 @@ from src.core import llm as llm_module  # noqa: E402
 from src.workflow import symbols as symbols_module  # noqa: E402
 from src.core.tavily import set_web_news_searcher, set_web_searcher  # noqa: E402
 from src.core.wolfram import set_wolfram_client  # noqa: E402
-from src.workflow.tools import set_kb_searcher, set_news_indexer, set_news_searcher, set_wiki_client  # noqa: E402
+from src.workflow import news as news_helpers  # noqa: E402
+from src.workflow.tools import set_article_reader, set_kb_searcher, set_news_indexer, set_news_lister, set_news_searcher, set_wiki_client  # noqa: E402
 from src.core.market_service import set_symbol_resolver  # noqa: E402
 from src.rag.markets import set_market_searcher  # noqa: E402
 
@@ -102,13 +103,19 @@ def offline_no_llm(monkeypatch):
     set_symbol_resolver(lambda name: None)         # no Yahoo symbol search
     set_news_indexer(lambda symbol, items: 0)      # no Qdrant writes
     set_news_searcher(lambda *a: [])               # empty news index (no Qdrant reads; tests that need stories set their own)
+    set_news_lister(lambda tickers, days: [])      # ...also when listed by date
+    set_article_reader(lambda stories: {})         # no story pages read (no network, no Qdrant)
     set_market_searcher(lambda query, k: [])       # market names match exactly or by spelling only (no Qdrant reads)
+    news_helpers.set_news_embedder(None)           # news topic check by its word rules (no model download); tests opt in
     symbols_module.clear_cache()
     yield
+    news_helpers.set_news_embedder("default")
     set_market_searcher(None)
     set_symbol_resolver(None)
     set_news_indexer(None)
     set_news_searcher(None)
+    set_news_lister(None)
+    set_article_reader(None)
     llm_module.clear_llm_override()
     set_wiki_client(None)
     set_kb_searcher(None)

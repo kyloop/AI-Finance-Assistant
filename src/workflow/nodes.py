@@ -33,7 +33,7 @@ from . import symbols as SYM
 from .jsonreply import first_json
 from .safety import finalize
 from .state import AgentOutput, FinanceState
-from .tools import industry_peers, kb_search, news_index_now, news_latest, news_search, wiki_search, wiki_topic
+from .tools import industry_peers, kb_search, news_index_now, news_latest, news_recent, news_search, story_articles, wiki_search, wiki_topic
 
 log = logging.getLogger(__name__)
 
@@ -813,7 +813,9 @@ def _market_result(data: dict, notes: list[str], how: str, markets: list[dict], 
     return res
 
 
-NEWS_LIVE_MAX = 6
+NEWS_LIVE_MAX = 6                # stories shown when the question asks for no number ("show the latest 5 news" asks for 5)
+NEWS_MAX_ASKED = 15              # the most stories one answer shows, whatever is asked
+NEWS_SCREEN_MAX = 30             # newest headlines the relevance check looks through
 NEWS_MARKET_READING = "the latest market-wide headlines, not news about any particular company"
 NEWS_MARKET_ALTERNATIVES = ["What's in the news about interest rates and the Fed this week?",
                             "What's the latest technology sector news?", "What moved the stock market this week?"]
@@ -849,17 +851,150 @@ def _fetched_note(envs: list[tuple[str | None, dict]], label: str) -> str:
     return f"fetched {n} {label} headlines from Yahoo" if n else f"Yahoo returned no headlines for {label}"
 
 
-def _live_news(envs: list[tuple[str | None, dict]], label: str, intro: str = "") -> dict | None:
-    """The newest stories across the feeds, as an agent output; None if the feeds are empty."""
-    per = NEWS_LIVE_MAX if len(envs) <= 1 else max(2, NEWS_LIVE_MAX // len(envs))
-    items = {i["id"]: i for _, env in envs for i in env["data"]["items"][:per]}
-    if not items:
+def _with_articles(stories: list[dict]) -> tuple[list[dict], str]:
+    """The stories with what their pages say as the summary where Yahoo gave only the headline, and a note for the trace."""
+    try:
+        texts = story_articles(stories)
+    except Exception as e:  # noqa: BLE001 — without the articles the headlines still answer
+        log.warning("reading story pages failed: %s", e)
+        return stories, f"story pages → failed ({type(e).__name__})"
+    if not texts:
+        return stories, ""
+    return [{**s, "summary": texts.get(s.get("story_id") or s["id"]) or s.get("summary", "")} for s in stories], \
+        f"read {len(texts)} of {len(stories)} story pages"
+
+
+def _news_out(intro: str, stories: list[dict], **kw) -> dict:
+    """The stories, with their excerpts, as the agent's output."""
+    chars = get_config()["news_index"]["summary_chars"]
+    what = " with a summary of each story:" if current_llm() is not None else " with an excerpt of each story:"
+    head = intro + (what if any(s.get("summary") for s in stories) else ":")
+    return _out("news", head + "\n" + "\n".join(NEWS.format_story(s, chars) for s in stories),
+                sources=[NEWS.story_source(s) for s in stories], **kw)
+
+
+NEWS_ABOUT_SYSTEM = (
+    "You screen news headlines for a question about specific companies or markets. Yahoo tags stories loosely, so a feed "
+    "for a company also carries stories about other companies, general investing or the market. Keep a headline only if "
+    "the story is mainly about one of the named subjects, or clearly reports something that directly involves it (its "
+    "earnings, deals, executives, products, lawsuits, analyst calls on its stock). Drop stories about other companies that "
+    "merely mention it, market-wide commentary, and personal-finance articles. When a question is given, keep only stories "
+    "that answer it (for \"news related to the housing market\": home sales, mortgage rates, homebuilders, house prices), "
+    "with or without subjects. Reply with ONLY JSON: {\"keep\": [numbers]}")
+
+
+def _about(stories: list[dict], subjects: list[str], topic: str = "") -> tuple[list[dict], str]:
+    """The stories mainly about `subjects` (company or market names) and, if given, the question's `topic`, judged from the
+    headlines in one LLM call; all of them without an LLM or when the reply is unusable. Returns (stories, trace note)."""
+    if not (subjects or topic) or not stories or current_llm() is None:
+        return stories, ""
+    listing = "\n".join(f"{i}. {s['title']}" + (f" ({s['publisher']})" if s.get("publisher") else "") for i, s in enumerate(stories, 1))
+    ask = (f"Subjects: {', '.join(subjects)}\n" if subjects else "") + (f"Question: {topic}\n" if topic else "")
+    reply = _json(ask_llm(NEWS_ABOUT_SYSTEM, f"{ask}\nHeadlines:\n{listing}"))
+    keep = (reply or {}).get("keep") if isinstance(reply, dict) else None
+    if not isinstance(keep, list):
+        return stories, "relevance check → no usable reply, kept all"
+    picked = {int(k) for k in keep if isinstance(k, (int, float)) or str(k).isdigit()}
+    kept = [s for i, s in enumerate(stories, 1) if i in picked]
+    return kept, f"relevance check → {len(kept)} of {len(stories)} headlines about {', '.join(subjects) or repr(topic)}"
+
+
+def _ts(s: dict) -> float:
+    return s.get("published_ts") or (NEWS.parse_time(s.get("published")) or 0)
+
+
+def _day(s: dict) -> str:
+    return datetime.fromtimestamp(_ts(s), timezone.utc).strftime("%Y-%m-%d")
+
+
+def _by_day(stories: list[dict], n: int) -> list[dict]:
+    """Up to `n` stories taking turns across the days they were published (newest day first, newest story first within a
+    day), so a window of days shows each day's news rather than only the busiest, latest one."""
+    days: dict[str, list[dict]] = {}
+    for s in sorted(stories, key=_ts, reverse=True):
+        days.setdefault(_day(s), []).append(s)
+    out, queues = [], list(days.values())
+    while len(out) < n and any(queues):
+        for q in queues:
+            if q and len(out) < n:
+                out.append(q.pop(0))
+    return out
+
+
+def _newest(envs: list[tuple[str | None, dict]], extra: list[dict], days: int | None) -> list[dict]:
+    """The feeds' stories plus `extra` (indexed ones), one per story and title, within `days` if given, newest first; with
+    several feeds they take turns, so one busy feed can't crowd out the others."""
+    cutoff = datetime.now(timezone.utc).timestamp() - days * 86400 if days else None
+    lists = [list(env["data"]["items"]) for _, env in envs]
+    symbols = [sym for sym, _ in envs]
+    for story in extra:                                   # an indexed story joins the feed of a ticker it is tagged with
+        tags = set(story.get("tickers") or ())
+        i = next((k for k, sym in enumerate(symbols) if sym and sym.upper() in tags), 0)
+        if lists:
+            lists[i].append(story)
+        else:
+            lists.append([story])
+
+    ts = _ts
+    seen, out = set(), []
+    lists = [sorted((x for x in l if cutoff is None or ts(x) >= cutoff), key=ts, reverse=True) for l in lists]
+    for row in range(max((len(l) for l in lists), default=0)):
+        for l in lists:
+            if row < len(l):
+                s = l[row]
+                key = (s.get("story_id") or s.get("id"), " ".join(s["title"].lower().split()))
+                if key[0] in seen or key[1] in seen:
+                    continue
+                seen.update(key)
+                out.append(s)
+    return out if len(lists) > 1 else sorted(out, key=ts, reverse=True)
+
+
+def _live_news(envs: list[tuple[str | None, dict]], label: str, intro: str = "", *, count: int | None = None,
+               days: int | None = None, tags: list[str] = (), subjects: list[str] = ()) -> dict | None:
+    """The newest stories across the feeds as an agent output, None if there are none. `count`: how many the question asked
+    for (else NEWS_LIVE_MAX); `days`: the window it asked for, which also brings in the indexed stories for `tags` (the
+    feeds hold only Yahoo's ~30 latest); `subjects`: the companies or markets asked about, whose off-topic stories are
+    dropped before any page is read. Says so when fewer stories exist than were asked for."""
+    steps = []
+    extra = []
+    if days and tags:
+        try:
+            extra = news_recent(list(tags), days)
+            steps.append(f"news_recent({', '.join(tags)}, {days}d) → {len(extra)} indexed stories")
+        except Exception as e:  # noqa: BLE001 — the feeds still answer
+            log.warning("listing indexed news failed: %s", e)
+            steps.append(f"news_recent → failed ({type(e).__name__})")
+    candidates = _newest(envs, extra, days)
+    if not candidates:
         return None
-    stories = sorted(items.values(), key=lambda i: i.get("published") or "", reverse=True)[:NEWS_LIVE_MAX]
-    info = {k: envs[0][1][k] for k in ("provider", "fetched_at", "freshness")}
-    body = f"{intro}Latest headlines for {label} (Yahoo Finance, {info['freshness']}):\n" + "\n".join(NEWS.format_story(s) for s in stories)
-    return _out("news", body, sources=[NEWS.story_source(s) for s in stories], data_info=info,
-                trace=f"news_latest({label}) → {len(stories)} stories ({info['freshness']})")
+    spread = bool(days and days > 1 and not count)         # "the last 10 days of news": across the days, not just today's
+    want = count or (min(NEWS_MAX_ASKED, max(NEWS_LIVE_MAX, days)) if spread else NEWS_LIVE_MAX)
+    pool = _by_day(candidates, NEWS_SCREEN_MAX * 2) if spread else candidates[:max(NEWS_SCREEN_MAX, want * 2)]
+    screened, note = _about(pool, list(subjects))
+    if note:
+        steps.append(note)
+    if not screened:
+        return None
+    picked = _by_day(screened, want) if spread else screened[:want]
+    if spread:
+        steps.append(f"spread over {len({_day(s) for s in picked})} of the last {days} days")
+    stories, read = _with_articles(sorted(picked, key=lambda s: _ts(s), reverse=True))
+    span = f" from the last {days} day{'s' if days != 1 else ''}" if days else ""
+    if count and len(stories) < count:
+        intro += (f"You asked for {count} stories{span}; only {len(stories)} about {label} "
+                  f"{'was' if len(stories) == 1 else 'were'} available, so all of them are below. ")
+    elif spread:
+        intro += (f"{len(stories)} stories{span} about {label}, spread across the days, newest first"
+                  + ("; there are more, ask for a number to see more. " if len(screened) > len(stories) else ". "))
+    info = {k: envs[0][1][k] for k in ("provider", "fetched_at", "freshness")} if envs else \
+        {"provider": "yfinance", "fetched_at": datetime.now(timezone.utc).isoformat(), "freshness": "cached"}
+    fed = sum(len(env["data"]["items"]) for _, env in envs)
+    return _news_out(f"{intro}Latest headlines for {label} (Yahoo Finance, {info['freshness']}); cover every story listed", stories,
+                     data_info=info,
+                     trace="; ".join([f"news_latest({label}) → {fed} stories ({info['freshness']})", *steps,
+                                      f"showing {len(stories)}" + (f" of {count} asked" if count else "")]
+                                     + ([read] if read else [])))
 
 
 def _relevant_news(text: str, tickers: list[str], days: int) -> list[dict]:
@@ -918,6 +1053,27 @@ def news_node(state: FinanceState, config: RunnableConfig):
     return res
 
 
+SECTOR_NEWS_COMPANIES = 3        # a sector's news: its fund's feed plus its largest companies' (NEWS_FEEDS_MAX in all)
+
+
+def _sector_leaders(config: RunnableConfig, markets: list[dict], steps: list[str]) -> list[str]:
+    """A sector named as the subject ("tech sector news") is reported on through its largest companies too, not just its fund:
+    Yahoo's list for the sector, else the fund's top holdings. Empty for anything that isn't a sector, or with no data."""
+    funds = [m["symbol"] for m in markets if m.get("level") == "sector" and m["symbol"]]
+    db = _db(config)
+    if not funds or db is None:
+        return []
+    out = []
+    with DBSession(bind=db.get_bind(), autoflush=False, expire_on_commit=False) as own:     # agents run in parallel threads
+        for fund in funds:
+            top, _ = MT.largest_in_sector(own, fund)
+            picked = [c["symbol"] for c in top if SYMBOL_OK.match(str(c.get("symbol") or ""))][:SECTOR_NEWS_COMPANIES]
+            if picked:
+                steps.append(f"sector_companies({fund}) → {', '.join(picked)}")
+            out += picked
+    return out
+
+
 def _news_answer(state: FinanceState, config: RunnableConfig, text: str, tickers: list[str], resolved: list[dict], markets: list[dict],
                  tried: list[str]) -> dict:
     """Companies are fetched by ticker and markets by their news terms ("feeds"); stored stories are searched by ticker and by
@@ -926,12 +1082,24 @@ def _news_answer(state: FinanceState, config: RunnableConfig, text: str, tickers
     label = ", ".join([*tickers[:3], *(m["name"] for m in markets)][:4]) or "the market"
     if tickers and not markets and NEWS.asks_about_sector(text):
         return _sector_news(tickers[0], config, steps)
-    feeds = list(dict.fromkeys([*tickers, *(t for m in markets for t in m["news"])]))
-    tags = list(dict.fromkeys([*tickers, *(t for m in markets for t in MK.search_tags(m))]))
+    leaders = _sector_leaders(config, markets, steps)
+    feeds = list(dict.fromkeys([*tickers, *(t for m in markets for t in m["news"]), *leaders]))
+    tags = list(dict.fromkeys([*tickers, *(t for m in markets for t in MK.search_tags(m)), *leaders]))
     llm_topic = state["entities"].get("topic")
     mentions = [x for r in resolved for x in (r["mention"], r["name"])] + [w for m in markets for w in MK.words(m)]
-    topic = llm_topic.split() if llm_topic is not None else NEWS.topic_words(text, tickers, mentions)
-    query = llm_topic or text                                       # the model's topic phrase searches better than the whole question
+    # topic or just the latest: by how similar what's left of the question is to a plain request for news (no word list
+    # and no model's say-so); without embeddings, by the words left over and the model's topic
+    carried = [c.get("name") or "" for c in CTX.carried(state).get("companies") or []]        # a follow-up's company, by name
+    named = [*mentions, *tickers, *leaders, *carried, *(r.get("name") or "" for r in resolved)]
+    generic = NEWS.generic_score(text, named)
+    if generic is None:
+        topic = NEWS.topic_words(text if llm_topic is None else llm_topic, tickers, mentions)     # "tech sector news" is only the subject again
+        query = (llm_topic if topic else "") or text                # the model's topic phrase searches better than the whole question
+    else:
+        rest = NEWS.residual(text, named)
+        topic = [] if generic >= NEWS.GENERIC_MIN else [rest]
+        query = (rest if tags and rest else text)                   # the ticker filter already names the company
+        steps.append(f"topic check: {'latest news' if not topic else repr(rest)} (similarity to a plain news request {generic:.2f})")
     days = NEWS.time_window(text, cfg["retention_days"]) or cfg["default_days"]
     db = _db(config)
     if db is None:
@@ -940,7 +1108,10 @@ def _news_answer(state: FinanceState, config: RunnableConfig, text: str, tickers
     if not topic:
         with DBSession(bind=db.get_bind(), autoflush=False, expire_on_commit=False) as own:     # agents run in parallel threads; a Session isn't shareable
             envs = _live_envs(own, feeds)
-        live = _live_news(envs, label)
+        subjects = [*(r.get("name") or r["symbol"] for r in resolved), *(t for t in tickers if t not in {r["symbol"] for r in resolved}),
+                    *(m["name"] for m in markets), *leaders]
+        live = _live_news(envs, label, count=NEWS.count_asked(text, NEWS_MAX_ASKED), days=NEWS.time_window(text, cfg["retention_days"]),
+                          tags=tags, subjects=subjects if feeds else [])
         if live:
             live["trace"] = steps + live["trace"]
             if not feeds:                                         # no company or market named or carried: say so rather than pick one
@@ -961,6 +1132,11 @@ def _news_answer(state: FinanceState, config: RunnableConfig, text: str, tickers
     except Exception as e:  # noqa: BLE001 — a broken index must not break chat
         log.warning("news search failed: %s", e)
         return _news_none(days, tried, f"news_search → failed ({type(e).__name__})", unavailable=True)
+    if hits and topic and generic is not None:              # similar is not the same as about: keep the stories on the topic
+        hits, note = _about(hits, [*[r.get("name") or r["symbol"] for r in resolved], *(m["name"] for m in markets)],
+                            topic=NEWS.residual(text, named))
+        if note:
+            steps.append(note)
     web = []
     if len(hits) < cfg.get("web_min_stories", 3) and web_news_enabled():        # too little in the index and on Yahoo: the web
         web = _web_stories(" ".join(x for x in (label if feeds else "", llm_topic or text) if x), days, feeds, hits, steps, tried)
@@ -974,11 +1150,12 @@ def _news_answer(state: FinanceState, config: RunnableConfig, text: str, tickers
         return _news_none(days, tried, "; ".join(steps + [f"news_search({days}d, {label}) → no relevant stories"]))
     fetched = datetime.fromtimestamp(max(h.get("ingested_at") or 0 for h in hits), timezone.utc).isoformat()
     where = "Yahoo Finance and web news search" if web else "Yahoo Finance"
-    body = f"Stories from the last {days} days that match the question ({where} headlines and short summaries):\n" + "\n".join(NEWS.format_story(h) for h in hits)
-    return _out("news", body, sources=[NEWS.story_source(h) for h in hits],
-                data_info={"provider": "yfinance+tavily" if web else "yfinance", "fetched_at": fetched, "freshness": "cached"},
-                confidence="medium" if web else "high" if hits[0]["score"] >= cfg["min_score"] + 0.1 else "medium",
-                trace="; ".join(steps + [f"news_search({days}d, {label}) → {len(hits)} stories, best {hits[0]['score']:.2f}"]))
+    stories, read = _with_articles(hits)
+    return _news_out(f"Stories from the last {days} days that match the question ({where})", stories,
+                     data_info={"provider": "yfinance+tavily" if web else "yfinance", "fetched_at": fetched, "freshness": "cached"},
+                     confidence="medium" if web else "high" if hits[0]["score"] >= cfg["min_score"] + 0.1 else "medium",
+                     trace="; ".join(steps + [f"news_search({days}d, {label}) → {len(hits)} stories, best {hits[0]['score']:.2f}"]
+                                     + ([read] if read else [])))
 
 
 def _web_stories(query: str, days: int, feeds: list[str], have: list[dict], steps: list[str], tried: list[str]) -> list[dict]:
@@ -1471,16 +1648,79 @@ SYNTH_SYSTEM = (
     "You are Finnie, a friendly finance educator for beginners. Write the final answer using ONLY the context provided; "
     "do not add facts, numbers, tips or sources of your own, even well-known ones. If the context covers only part of the "
     "question, answer that part and say briefly what you couldn't cover. Match the user's knowledge level. Keep it concise "
-    "and in plain language. When the context lists several headlines or items, cover each one in a short bullet list (title, "
-    "publisher and a few words on what it says) instead of choosing one. Format with Markdown: **bold** for key figures, '- ' "
-    "bullets for lists, and when the context gives the same figures for several items or periods, a Markdown table "
-    "(| A | B | header row, then |---|---|) so the numbers line up. Never tell the user what to buy or sell and never promise returns. Do not include a disclaimer "
-    "(it is added separately). Keep any figures exactly as given.")
+    "and in plain language. Never say figures are unavailable when the context or data gives them, and never say a price "
+    "moved because of the news, or that the news did or didn't affect it. When the context lists several headlines or "
+    "items, cover each one in a bullet list (title, publisher and, only if the context gives the story's summary, that "
+    "summary in 2-3 sentences, keeping its facts and figures; never guess what a story says from its title) instead of choosing one. Format with Markdown: "
+    "**bold** for key figures, '- ' "
+    "bullets for lists. Whenever the answer gives the same figures for two or more items or periods (companies, funds, "
+    "indices, sectors, a company against the market), put them in a Markdown table, one row per item and one column per "
+    "figure (| A | B | header row, then |---|---|), never as a bullet list per item, so the numbers line up. Never tell the user what to buy or sell and never promise returns. Do not include a disclaimer "
+    "(it is added separately). Keep any figures exactly as given. When comparing, compare figures for the same period (today's "
+    "change with today's change), never one item's day with another's month. The conversation only explains what the question refers to: "
+    "answer the Question from the context, never by repeating an earlier answer or its subject.")
 
 
 READING_NOTE = "_I took this as {}. If you meant something else, pick an option below or name the company or topic._"
 SCREEN_NOTE = ("_I took this as {}, since you switched from {}. If you meant what we discussed before, "
                "name it (for example “my portfolio” or the ticker)._")
+
+
+LIST_ITEM_RE = re.compile(r"^\s*(?:[-•*]|\d+[.)])\s+")
+
+
+def link_sources(text: str, sources: list[dict]) -> str:
+    """Appends each source's link to the end of the bullet that names it (a headline the answer lists with its summary), so
+    the link sits next to what it supports. Sources the answer doesn't name are left for the list under the answer."""
+    lines = text.split("\n")
+    for s in sources:
+        if not s.get("url") or any(s["url"] in line for line in lines):
+            continue
+        names = {n.lower() for n in (s["title"], re.sub(r"\s*\([^()]*\)$", "", s["title"])) if len(n) >= 12}
+        named = lambda line: any(n in line.lower() for n in names) or ((h := _headline(line)) is not None and h.lower() in s["title"].lower())  # noqa: E731
+        start = next((i for i, line in enumerate(lines) if LIST_ITEM_RE.match(line) and named(line)), None)
+        if start is None:
+            continue
+        end = start                                  # the item runs on over indented summary lines until a blank line or the next item
+        while end + 1 < len(lines) and lines[end + 1].strip() and not LIST_ITEM_RE.match(lines[end + 1]):
+            end += 1
+        lines[end] = f"{lines[end].rstrip()} [Source]({s['url']})"
+    return "\n".join(lines)
+
+
+HEADLINE_ITEM_RE = re.compile(r"^\s*(?:[-•*]|\d+[.)])\s+\*\*([^*]+)\*\*\s*(?:\(|[-–—]\s)")   # "- **Title** (AFP, Oct 30…)", "- **Title** - AFP…"; a short bold label isn't one
+HEADLINE_MIN_WORDS = 5
+
+
+def _headline(line: str) -> str | None:
+    """The story title a bullet starts with, or None when the bullet isn't a headline."""
+    m = HEADLINE_ITEM_RE.match(line)
+    return m.group(1).strip() if m and len(m.group(1).split()) >= HEADLINE_MIN_WORDS else None
+
+
+def drop_unknown_headlines(reply: str, sources: list[dict]) -> str:
+    """Removes headline bullets (with their summary lines) that aren't one of this answer's stories: the model copies earlier
+    answers' headlines from the conversation however it's asked. A shortened title still counts as the story's."""
+    titles = [x["title"].lower() for x in sources]
+    lines, kept, i = reply.split("\n"), [], 0
+    while i < len(lines):
+        title = _headline(lines[i])
+        if title is None or any(title.lower() in t for t in titles):
+            kept.append(lines[i])
+            i += 1
+            continue
+        i += 1
+        while i < len(lines) and lines[i].strip() and lines[i][:1].isspace() and not LIST_ITEM_RE.match(lines[i]):
+            i += 1                                   # its indented summary lines
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
+
+
+def _sector_lines(state: FinanceState) -> str:
+    """The sector's performance a news question didn't ask for by name (`_with_sector_figures`), to show word for word: the
+    model leaves out figures the question doesn't need."""
+    if not state["entities"].get("sector_figures"):
+        return ""
+    return "\n".join(MT.describe_lines({s: {"sector": d["sector"]} for s, d in (state.get("market_data") or {}).items() if "sector" in d}))
 
 
 def synthesizer_node(state: FinanceState, config: RunnableConfig):
@@ -1510,7 +1750,8 @@ def synthesizer_node(state: FinanceState, config: RunnableConfig):
             reply = ask_llm(SYNTH_SYSTEM, f"Knowledge level: {level} ({style})\nConversation so far:\n{history or '(none)'}\n\n"
                                           f"Question: {state['question']}\n\nContext:\n{context}{figures}{shown_after}")
             if reply:
-                text, mode = reply, "llm"
+                text, mode = drop_unknown_headlines(reply, [x for o in prose for x in o.get("sources", [])]), "llm"
+        text = link_sources(text, [s for o in prose for s in o.get("sources", [])])
         text = "\n\n".join(t for t in [text] + [o["content"] for o in exact] if t)
         readings = [o for o in answered if o.get("reading")]       # answered on a guess: say how it was read, never left to the LLM
         if readings:

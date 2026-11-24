@@ -112,9 +112,9 @@ export default function ChatTab({ flow, sid, cid, onNew, onOpen, getView, screen
                 {m.choices!.map((c) => <button key={c} className="chip" disabled={busy} onClick={() => send(c)}>{c}</button>)}
               </div>
             )}
-            {m.sources.length > 0 && (
+            {m.sources.some((s) => !s.url || !m.content.includes(s.url)) && (
               <ul className="sources"><li className="muted small">Sources</li>
-                {m.sources.map((s) => <li key={s.id}>{s.url ? <a href={s.url} target="_blank" rel="noreferrer">{s.title}</a> : s.title}</li>)}
+                {m.sources.filter((s) => !s.url || !m.content.includes(s.url)).map((s) => <li key={s.id}>{s.url ? <a href={s.url} target="_blank" rel="noreferrer">{s.title}</a> : s.title}</li>)}
               </ul>
             )}
           </div>

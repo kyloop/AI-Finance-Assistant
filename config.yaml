@@ -83,6 +83,9 @@ news_index:                 # news stories embedded for the News agent's topic /
   score_margin: 0.08                # ...and neither is one this far below the best match, which drops the weak tail of a short list
   max_tracked_symbols: 30
   recent_view_days: 7               # a ticker quoted or opened within this many days stays in the poll
+  article_ttl_days: 3               # a story page's text, read when the story is shown (Yahoo gives headlines only), is kept this long
+  article_chars: 6000               # ...cut to this many characters of the article, which the LLM summarizes in 2-3 sentences
+  summary_chars: 800                # of which the answer's context shows each story this much (a summary fits; basic mode shows the excerpt)
 symbols_index:              # every US-listed stock and ETF (symbol + company name) so names and mistyped tickers resolve without Yahoo; src/rag/tickers.py
   collection: finnie_symbols        # one point per listing, vector = the company name; exact and mistyped-ticker lookups use src/data/raw/tickers.csv instead
   min_score: 0.80                   # provisional: a name scoring below this is not the company the user meant
