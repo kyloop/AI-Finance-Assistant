@@ -34,7 +34,7 @@ from . import symbols as SYM
 from .jsonreply import first_json
 from .safety import finalize
 from .state import AgentOutput, FinanceState
-from .tools import industry_peers, kb_search, news_index_now, news_latest, news_recent, news_search, story_articles, wiki_search, wiki_topic
+from .tools import industry_peers, is_finance, kb_search, news_index_now, news_latest, news_recent, news_search, story_articles, wiki_search, wiki_topic
 
 log = logging.getLogger(__name__)
 
@@ -43,7 +43,7 @@ LENGTH_BY_LEVEL = {"beginner": "explain terms in plain words, with a short examp
                    "intermediate": "skip the basic definitions and keep it to a short paragraph or a few bullets",
                    "advanced": "assume the basics are known: give only the key points, in two or three sentences or bullets"}
 SYMBOL_OK = re.compile(r"^[A-Z0-9.\-=^]{1,15}$")
-ORDER = ["portfolio", "market", "news", "calc", "goal", "tax", "qa", "example", "clarify", "read_only"]
+ORDER = ["portfolio", "market", "news", "calc", "goal", "tax", "qa", "example", "clarify", "read_only", "off_topic"]
 FALLBACK_MESSAGE = "I'm having trouble answering that right now. Please try again in a moment."
 CLARIFY_MESSAGE = ("I didn't quite catch that. You could ask things like “What is an ETF?”, “How does a Roth IRA work?”, "
                    "“What is the S&P 500 doing?” or “Is my portfolio diversified?”")
@@ -219,10 +219,13 @@ ROUTING RULES
 10. Follow-ups: pronouns or references to the earlier subject ("them", "it", "the same sector", "grab the recent news") inherit the intents the conversation is about. A short "what about X?" repeats ALL intents of the previous question for the new subject (price and news for NVDA, then "what about NU?" -> market + news).
 11. Anything unclear or very general about money/investing -> qa, with lower confidence.
 12. Finnie can only READ. If the message asks Finnie itself to CHANGE something (add/remove/edit holdings, goals or the profile, place a trade, move money, change settings, data or the system) -> ["read_only"] alone. Asking whether or how to do it ("should I sell?", "how do I add holdings?") only needs reading and is routed as usual.
+13. Finnie only covers personal finance, investing, markets, the economy and money matters. A message about anything else (sport, cooking, travel, health, celebrities, coding, homework, general trivia, jokes, poems or stories) -> ["off_topic"] alone. If one part of the message is about finance, route that part as usual and leave off_topic out. A follow-up to a finance conversation ("why?", "and the year before?") is not off-topic, and neither is a money question about any subject ("how much does a wedding cost to save for?", "is Nike stock up?").
 
 EXAMPLES
-"What is the performance of the housing market?" -> ["market","qa"]
-"How is the housing market doing and what's in the news?" -> ["market","qa","news"]
+"How is the tech sector doing?" -> ["market"]
+"What about just the tech sector?" (after a question about the stock market) -> ["market"]
+"How is the energy sector doing and what drives it?" -> ["market","qa"]
+"How are bank stocks doing and what's in the news?" -> ["market","news"]
 "Why are tech stocks down this week?" -> ["market","news"]
 "What is a P/E ratio?" -> ["qa"]
 "What is a P/E ratio? And what is TSLA's P/E ratio?" -> ["qa","market"]
@@ -238,10 +241,14 @@ EXAMPLES
 "How should I plan for retirement?" -> ["qa"]
 "How much should I save each month to retire with $1 million in 25 years?" -> ["goal"]
 "Roth IRA or 401k, and how are the gains taxed?" -> ["tax","qa"]
+"Can you explain my Goals plan?" -> ["goal"]
+"How much tax do I need to pay if my plan runs as planned?" -> ["goal","tax","calc"]
 "Should I invest in real estate right now?" -> ["qa","market"]
 "Put 20 Apple shares in my portfolio" -> ["read_only"]
+"Who won the 2022 World Cup?" -> ["off_topic"]
+"Give me a recipe for banana bread" -> ["off_topic"]
 
-Reply with ONLY JSON: {"intents": ["qa"], "confidence": 0.0-1.0}. Intents must come from: qa, portfolio, market, news, goal, tax, calc, read_only. Confidence reflects how sure you are that the intent SET is complete and correct."""
+Reply with ONLY JSON: {"intents": ["qa"], "confidence": 0.0-1.0}. Intents must come from: qa, portfolio, market, news, goal, tax, calc, read_only, off_topic. Confidence reflects how sure you are that the intent SET is complete and correct."""
 
 
 def _resolved_label(c: dict) -> str:
@@ -430,6 +437,10 @@ def _route(state: FinanceState) -> dict:
             if "read_only" in intents:
                 return {"intent": ["read_only"], "entities": {**entities, "write_request": "data"}, "router_mode": "llm",
                         "trace": ["router (LLM): asks to change something → read_only guard"]}
+            if intents == ["off_topic"]:
+                return {"intent": ["off_topic"], "entities": entities, "router_mode": "llm",
+                        "trace": ["router (LLM): not about finance → off_topic guard"]}
+            intents = [i for i in intents if i != "off_topic"] or ["qa"]       # a finance part is answered; the rest is left out
             intents = _with_saved_plan(_with_screen(_without_stray_portfolio(_with_listed_tickers(intents, text), state), state), state)
             return _routed({"intent": intents, "entities": entities, "router_mode": "llm", "trace": [f"router (LLM): {', '.join(intents)}"]}, state)
         log.warning("router LLM reply unusable; falling back to keywords")
@@ -441,7 +452,7 @@ def _route(state: FinanceState) -> dict:
 
 def route_after_router(state: FinanceState) -> list[str]:
     intents = state.get("intent") or ["qa"]
-    if intents in (["clarify"], ["read_only"]):
+    if intents in (["clarify"], ["read_only"], ["off_topic"]):
         return intents
     nodes = {f"{i}_agent" for i in intents if i in R.INTENTS}
     return sorted(nodes) or ["qa_agent"]
@@ -1427,6 +1438,18 @@ def read_only_node(state: FinanceState, config: RunnableConfig):
                 confidence="high", verbatim=True, trace=f"read_only: flagged a request to change something ({kind}); nothing was changed")
 
 
+OFF_TOPIC_FLAG = "🚫 **Off topic: Finnie only covers personal finance.**"
+OFF_TOPIC_MESSAGE = ("I can help with money, saving, investing, markets, taxes, and your own portfolio and goals, but not with "
+                     "other subjects. Ask me something about finance, or pick one of these.")
+
+
+def off_topic_node(state: FinanceState, config: RunnableConfig):
+    """The topic guardrail (mds/topic-guardrail.md): a message the LLM router finds is not about finance gets a fixed reply,
+    and no agent, research or web search runs for it."""
+    return _out("off_topic", f"{OFF_TOPIC_FLAG} {OFF_TOPIC_MESSAGE}", status="need_info", choices=STARTER_CHOICES,
+                confidence="high", verbatim=True, trace="off_topic: not about finance; declined without looking it up")
+
+
 # ---------------------------------------------------------------- verifier + research
 _json = first_json
 
@@ -1504,7 +1527,7 @@ def verifier_node(state: FinanceState, config: RunnableConfig):
             trace.append(f"verifier: {agent} sources answer the question" if verdict else f"verifier: {agent} check unavailable, kept")
         elif status == "need_info":
             choices = o.get("choices") or []
-            if llm_on and agent not in ("clarify", "read_only") and not o.get("readings"):   # calc's readings already confirm its reading
+            if llm_on and agent not in ("clarify", "read_only", "off_topic") and not o.get("readings"):   # calc's readings already confirm its reading
                 reply = _json(ask_llm(CHOICES_SYSTEM, f"User's message: {state['question']}\nWhat the assistant still needs: {o['content']}"))
                 picked = [c.strip() for c in (reply or {}).get("choices", [])
                           if isinstance(c, str) and c.strip() and not _ADDRESSES_USER.search(c)][:3]   # must be the user's words
@@ -1558,8 +1581,11 @@ def _web_research(state: FinanceState, o: AgentOutput, words: int) -> tuple[Agen
     except WebSearchUnavailable as e:
         log.warning("web search failed: %s", e)
         return o, f"web_search → failed ({e})"
+    dropped = len(results)
+    results = [r for r in results if is_finance(r["title"], r["content"])]         # the web answers anything: keep to finance
+    dropped -= len(results)
     if not results:
-        return {**o, "content": NOT_FOUND_MESSAGE}, "web_search → no relevant results"
+        return {**o, "content": NOT_FOUND_MESSAGE}, "web_search → no relevant results" + (f" ({dropped} not about finance)" if dropped else "")
     used = results[:WEB_RESULTS_USED]
     cut = lambda t: " ".join(t.split()[:words]) + ("…" if len(t.split()) > words else "")          # noqa: E731
     content = o.get("prefix", "") + "\n\n".join(f"**{r['title']}** ({r['domain']})\n\n{cut(r['content'])}" for r in used)

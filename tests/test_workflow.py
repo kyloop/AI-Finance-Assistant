@@ -214,6 +214,23 @@ def test_llm_router_can_flag_a_write_request_the_keywords_miss(db):
     assert s["agents"] == ["Read-only guard"] and "Request flagged" in s["final_response"]
 
 
+def test_llm_router_declines_an_off_topic_question_without_looking_it_up(db):
+    fake = FakeLLM(intents='{"intents": ["off_topic"], "confidence": 0.95}')
+    llm_module.set_llm(fake)
+    s = ask("Who won the 2022 World Cup?", db=db)
+    assert s["intent"] == ["off_topic"] and s["agents"] == ["Topic guard"] and list(s["agent_outputs"]) == ["off_topic"]
+    assert s["final_response"].startswith("🚫 **Off topic: Finnie only covers personal finance.**") and s["final_response"].endswith(DISCLAIMER)
+    assert s["choices"] and fake.calls == ["proofread", "router"]                  # no synthesis, no follow-ups, no research
+    assert not any("wiki" in t or "web_search" in t for t in s["trace"])
+
+
+def test_an_off_topic_part_does_not_block_the_finance_part(db):
+    llm_module.set_llm(FakeLLM(intents='{"intents": ["off_topic", "qa"], "confidence": 0.8}'))
+    s = ask("Who won the World Cup, and what is an ETF?", db=db)
+    assert s["intent"] == ["qa"] and "Topic guard" not in s["agents"]
+    assert R.parse_llm_intents('{"intents": ["off_topic"]}') == (["off_topic"], 1.0)
+
+
 def test_chat_turns_never_write_to_user_tables(db):
     """Only caches (market data, symbol aliases) may change during a turn; the chat API, not the graph, stores the messages."""
     def snapshot():

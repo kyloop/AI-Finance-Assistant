@@ -8,7 +8,8 @@
                               ├→ goal_agent ─────┤     ▲      ├─(still not_found after research)→ replan ─┬→ [agents not yet tried]
                               ├→ calc_agent ─────┤     │      │                                           └→ illustrate (none can help)
                               ├→ clarify ────────┤     └──────┼── (the picked agents report back to the verifier)
-                              └→ read_only ──────┘            │
+                              ├→ read_only ──────┤            │
+                              └→ off_topic ──────┘            │
                                                               └─(otherwise)→ illustrate → synthesizer → followups → compliance → END
 Proofread fixes spelling, grammar and abbreviations in the message first (LLM only; otherwise it passes the message
 through), so the router and agents read "TSLA over the last 10 years" rather than "tsla last 10 yrs".
@@ -19,9 +20,10 @@ output is still not_found after research, replan asks the LLM which agents not y
 and runs them; this loop runs at most workflow.max_replans times (config.yaml) and never without an LLM. The synthesizer
 writes only from answered outputs (falling back to the incomplete research only if nothing else answered) and passes
 follow-up questions and calculator results through unchanged; followups offers a worked calculation, an example and a
-related question after a real answer; illustrate adds a worked example with sample numbers to conceptual answers
+related question after a real answer; illustrate adds a worked example (the calculator, with the turn's real figures or sample numbers) to conceptual answers
 about numeric topics; compliance filters advice and appends the disclaimer. Every node only reads: a request to change
-something (holdings, goals, profile, trades, the system) is routed to read_only, which flags it (mds/read-only-guardrail.md). A clicked choice comes
+something (holdings, goals, profile, trades, the system) is routed to read_only, which flags it (mds/read-only-guardrail.md), and a
+question not about finance is routed to off_topic, which declines it (mds/topic-guardrail.md). A clicked choice comes
 back as the next user message, so it is routed from the start."""
 import time
 from collections.abc import Iterator
@@ -36,7 +38,8 @@ from .state import FinanceState
 
 AGENT_NODES = {"qa_agent": N.qa_node, "tax_agent": N.tax_node, "market_agent": N.market_node,
                "news_agent": N.news_node, "portfolio_agent": N.portfolio_node, "goal_agent": N.goal_node, "calc_agent": N.calc_node,
-               "clarify": N.clarify_node, "read_only": N.read_only_node}
+               "clarify": N.clarify_node, "read_only": N.read_only_node,
+               "off_topic": N.off_topic_node}
 
 
 @lru_cache
@@ -81,6 +84,7 @@ FLOW_NODES = [
     ("calc_agent", "Calculator", 2, "Computes exact figures: growth, loan payments, doubling time and more."),
     ("clarify", "Clarify", 2, "Asks you to rephrase when the message can't be understood."),
     ("read_only", "Read-only guard", 2, "Flags a request to change something (edit your portfolio, goals or profile, place a trade, move money, alter the system): every agent can only read."),
+    ("off_topic", "Topic guard", 2, "Declines a question that isn't about finance (sport, recipes, trivia…) without looking it up; needs an LLM to judge."),
     ("verifier", "Verifier", 3, "Rechecks every agent's output: do the sources really answer the question? Adds clickable choices when more details are needed."),
     ("research", "Research", 4, "Fallback for when an agent found nothing: looks up the underlying concept on Wikipedia, and if that doesn't answer it, searches the web; each time it hands back to the Verifier. Skipped when every agent had an answer."),
     ("replan", "Replan", 5, "When an agent and Research both came up empty: picks other agents that could supply what is missing and sends the question to them (at most 3 times)."),

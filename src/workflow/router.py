@@ -23,7 +23,9 @@ INTENT_PATTERNS = {
 INTENTS = ["qa", "portfolio", "market", "news", "goal", "tax", "calc"]
 AGENT_FOR_INTENT = {"qa": "Finance Q&A", "portfolio": "Portfolio Analysis", "market": "Market Analysis",
                     "goal": "Goal Planning", "tax": "Tax Education", "calc": "Calculator", "example": "Calculator", "news": "News", "clarify": "Finnie",
-                    "read_only": "Read-only guard"}
+                    "read_only": "Read-only guard", "off_topic": "Topic guard"}
+
+GUARDS = ("read_only", "off_topic")                  # router-only intents that answer with a fixed message instead of an agent
 
 COMPANY_ALIASES = {"apple": "AAPL", "microsoft": "MSFT", "nvidia": "NVDA", "jpmorgan": "JPM", "johnson & johnson": "JNJ"}
 INDEX_ALIASES = {"s&p 500": "^GSPC", "s&p": "^GSPC", "nasdaq": "^IXIC", "dow jones": "^DJI", "the dow": "^DJI", "dow": "^DJI"}
@@ -150,7 +152,7 @@ def parse_llm_intents(reply: str) -> tuple[list[str], float] | None:
         return None
     try:
         data = json.loads(m.group(0))
-        intents = [i for i in data.get("intents", []) if i in INTENTS or i == "read_only"]
+        intents = [i for i in data.get("intents", []) if i in INTENTS or i in GUARDS]
         return (intents, float(data.get("confidence", 1))) if intents else None
     except (ValueError, TypeError, AttributeError):
         return None

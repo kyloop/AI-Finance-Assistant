@@ -34,8 +34,9 @@ FINANCE_WORDS = ("financ", "invest", "money", "bank", "tax", "econom", "stock", 
                  "inflation", "securit", "currency", "price", "mortgage", "equity", "trading", "account")
 
 
-def _is_finance(title: str, lead: str) -> bool:
-    """Topic gate: Wikipedia search happily returns albums and file formats for loosely-worded queries."""
+def is_finance(title: str, lead: str) -> bool:
+    """Topic gate: Wikipedia search happily returns albums and file formats for loosely-worded queries, and a web search
+    answers anything it is asked (mds/topic-guardrail.md)."""
     hay = f"{title} {lead[:700]}".lower()
     return sum(w in hay for w in FINANCE_WORDS) >= 2
 
@@ -63,7 +64,7 @@ def wiki_search(query: str, max_words: int = 150) -> dict | None:
         if count_words(lead) < 40:                       # very short lead: include the first section too
             lead = page.text
         extract, _ = truncate_words(lead, max_words)
-        if not _is_finance(page.title, lead) or not _relevant(query, page.title, lead):
+        if not is_finance(page.title, lead) or not _relevant(query, page.title, lead):
             continue
         result = {"title": page.title, "url": page.url, "revision_id": page.revision_id, "extract": extract,
                   "confidence": "high" if rank == 0 else "medium"}
@@ -96,7 +97,7 @@ def wiki_topic(topic: str, max_words: int = 150) -> dict | None:
         lead, *_ = page.text.split("\n\n## ", 1)
         if count_words(lead) < 40:
             lead = page.text
-        if _is_finance(page.title, lead):
+        if is_finance(page.title, lead):
             extract, _ = truncate_words(lead, max_words)
             result = {"title": page.title, "url": page.url, "revision_id": page.revision_id, "extract": extract, "confidence": confidence}
             break
