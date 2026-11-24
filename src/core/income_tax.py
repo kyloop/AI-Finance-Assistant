@@ -74,7 +74,7 @@ def preferential_tax(ordinary_taxable: float, preferential: float, table: list) 
     for top, rate in _bands(table):
         part = max(0.0, min(end, top) - max(start, low))
         if part > 0:
-            rows.append({"rate": rate, "amount": part, "tax": part * rate})
+            rows.append({"rate": rate, "from": max(start, low), "to": min(end, top), "amount": part, "tax": part * rate})
             tax += part * rate
         low = top
     return tax, rows

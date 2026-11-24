@@ -74,6 +74,18 @@ class Reading:
     assumed: list[str] = field(default_factory=list)      # what we assumed, in words
     alternatives: list[tuple[str, dict]] = field(default_factory=list)    # (what if, field changes to the inputs)
     ignored: list[str] = field(default_factory=list)
+    rows: list[tuple[str, float, str, str]] = field(default_factory=list)   # (the user's words, amount, how it is treated, kind)
+
+
+INCOME_KINDS = {"wages", "self_employment", "job_unspecified", "interest_dividends", "qualified_dividends", "other_income",
+                "short_term_gains", "long_term_gains", "stock_unspecified"}
+TREATED = {"wages": "wages (job pay)", "self_employment": "self-employment income", "job_unspecified": "wages (job pay), assumed W-2",
+           "interest_dividends": "interest / ordinary dividends", "qualified_dividends": "qualified dividends",
+           "other_income": "other taxable income", "short_term_gains": "short-term capital gains",
+           "long_term_gains": "long-term capital gains", "stock_unspecified": "long-term capital gains (assumed)",
+           "pre_tax_retirement": "pre-tax retirement contribution", "state_local_taxes": "state/local tax (itemized deduction)",
+           "property_tax": "property tax (itemized deduction)", "mortgage_interest": "mortgage interest (itemized deduction)",
+           "charity": "charitable gift (itemized deduction)", "not_tax_input": "not used: doesn't change federal tax"}
 
 
 def read(question: str, reply: dict | None) -> tuple[Reading | None, str]:
@@ -94,6 +106,9 @@ def read(question: str, reply: dict | None) -> tuple[Reading | None, str]:
         if not any(abs(amount - g) < 0.5 for g in given):
             return None, f"{amount:,.0f} is not an amount in the question"
         used.append(amount)
+        loss = it.get("loss") and kind in ("short_term_gains", "long_term_gains")
+        r.rows.append((" ".join(str(it.get("text") or "").split()) or f"{amount:,.0f}", -amount if loss else amount,
+                       TREATED[kind] + (" (loss)" if loss else ""), kind))
         if kind == "not_tax_input":
             r.ignored.append(f"{it.get('text') or amount:}")
             continue
@@ -155,62 +170,159 @@ INCOME_LABELS = [("wages", "Wages"), ("self_employment", "Self-employment income
 
 
 def render(r: Reading, est: dict, alts: list[tuple[str, dict]]) -> str:
-    i, p = est["inputs"], est["payroll"]
-    status = "single" if est["filing_status"] == "single" else "married filing jointly"
-    lines = [f"**Estimated {est['year']} federal taxes** ({status})", "",
-             "| Income | Amount |", "|---|---|"]
-    lines += [f"| {label} | {money(i[k])} |" for k, label in INCOME_LABELS if i[k]]
+    """The estimate as numbered steps: what each step means in plain words, then the working with the user's numbers."""
+    i, p, year = est["inputs"], est["payroll"], est["year"]
+    single = est["filing_status"] == "single"
+    who = "single filers" if single else "married couples filing jointly"
+    _, rules = T.rules(year)
+    L = [f"**Estimated {year} federal taxes** ({'single' if single else 'married filing jointly'}), step by step", "",
+         "**Your numbers**", "", "| You said | Amount | Treated as |", "|---|---|---|"]
+    L += [f"| {text} | {money(amount)} | {treated} |" for text, amount, treated, _ in r.rows]
+    step = 0
+
+    def head(title: str, why: str) -> None:
+        nonlocal step
+        step += 1
+        L.extend(["", f"**Step {step}. {title}**"] + ([why] if why else []) + [""])
+
+    # 1. income
+    parts = [(label, i[k]) for k, label in INCOME_LABELS if i[k]]
+    head("Add up your income",
+         "Income tax starts from everything you earned in the year: pay from jobs and profit from investments you sold. "
+         + ("Taxes you paid, like property tax, are not income; they come in at step 2." if i["property_tax"] or i["state_local_taxes"] else ""))
+    yours = [(amount, treated) for _, amount, treated, kind in r.rows if kind in INCOME_KINDS]
+    if yours:                                           # each of the user's amounts, in their order
+        L.append(f"- {' + '.join(money(a) for a, _ in yours).replace('+ -$', '− $')} = **{money(sum(a for a, _ in yours))}**")
+    else:
+        L.append(f"- {' + '.join(money(v) for _, v in parts)} = **{money(sum(v for _, v in parts))}**")
     if est["capital_loss_deducted"]:
-        lines.append(f"| Capital loss deducted (limit $3,000) | {money(est['capital_loss_deducted'])} |")
-    lines.append(f"| **Total income** | **{money(est['gross_income'])}** |")
+        L.append(f"- Your investments lost money overall: at most $3,000 of the loss can be subtracted from other income, "
+                 f"so total income is **{money(est['gross_income'])}**.")
     if est["adjustments"]:
-        lines.append(f"| Pre-tax contributions and half of self-employment tax | {money(-est['adjustments'])} |")
-        lines.append(f"| **Adjusted gross income** | **{money(est['agi'])}** |")
-    lines.append("")
-    salt_note = ""
+        L.append(f"- Subtract pre-tax retirement contributions and half of the self-employment tax: "
+                 f"{money(est['gross_income'])} − {money(est['adjustments'])} = **{money(est['agi'])}** (adjusted gross income)")
+
+    # 2. deduction
+    head("Choose your deduction",
+         f"Before tax is worked out you subtract a deduction: either the standard deduction ({money(est['standard'])} for {who} "
+         f"in {year}) or your itemized deductions (state and local taxes, property tax included, up to {money(rules['salt']['cap'])}; "
+         "mortgage interest; gifts to charity), whichever is larger.")
+    items = []
     if est["salt_paid"]:
         capped = est["salt_paid"] > est["salt_deduction"]
-        salt_note = (f" State and local taxes, property tax included ({money(est['salt_paid'])}), count toward itemizing"
-                     + (f", capped at {money(est['salt_cap'])}" if capped else f" in full (the cap is {money(est['salt_cap'])})") + ".")
+        salt_words = ("property tax" if not i["state_local_taxes"] else "state and local taxes" if not i["property_tax"]
+                      else "state/local and property taxes")
+        items.append(f"{salt_words} {money(est['salt_paid'])}"
+                     + (f", capped at {money(est['salt_cap'])}" if capped else ""))
+    if i["mortgage_interest"]:
+        items.append(f"mortgage interest {money(i['mortgage_interest'])}")
+    if i["charity"]:
+        items.append(f"charity {money(i['charity'])}")
+    L.append(f"- Itemized: {' + '.join(items)} = {money(est['itemized'])}" if len(items) > 1
+             else f"- Itemized: {items[0] if items else 'nothing you mentioned, $0'}")
+    L.append(f"- Standard: {money(est['standard'])}")
     if est["itemizes"]:
-        lines.append(f"**Deduction:** itemizing ({money(est['itemized'])}) beats the standard deduction ({money(est['standard'])}).{salt_note}")
+        L.append(f"- Itemizing is larger, so you deduct **{money(est['deduction'])}**.")
     else:
-        lines.append(f"**Deduction:** the standard deduction ({money(est['standard'])}) is larger than itemizing "
-                     f"({money(est['itemized'])}), so it is used.{salt_note}"
-                     + (" So the property tax does **not** lower your income tax here." if i["property_tax"] else ""))
-    lines += ["", f"**Taxable income:** {money(est['agi'])} − {money(est['deduction'])} = **{money(est['taxable_income'])}**", ""]
-    lines += ["| Taxed at | On | Tax |", "|---|---|---|"]
-    lines += [f"| {pct(b['rate'])} (ordinary income {money(b['from'])}–{money(b['to'])}) | {money(b['amount'])} | {money(b['tax'])} |"
-              for b in est["ordinary_rows"]]
-    lines += [f"| {pct(b['rate'])} (long-term gains and qualified dividends) | {money(b['amount'])} | {money(b['tax'])} |"
-              for b in est["preferential_rows"]]
+        L.append(f"- The standard deduction is larger, so you deduct **{money(est['deduction'])}**"
+                 + (". Your property tax doesn't lower your income tax here: you'd get the same deduction without it."
+                    if i["property_tax"] else "."))
+
+    # 3. taxable income
+    head("Work out your taxable income", "Taxable income is income minus the deduction. "
+         + ("Long-term gains and qualified dividends in it are taxed at their own, lower rates (step 5), so they are split off."
+            if est["preferential_income"] else ""))
+    L.append(f"- {money(est['agi'])} − {money(est['deduction'])} = **{money(est['taxable_income'])}**")
+    if est["preferential_income"]:
+        L.append(f"- Of this, {money(est['preferential_income'])} is long-term gains and qualified dividends, and "
+                 f"{money(est['taxable_income'])} − {money(est['preferential_income'])} = **{money(est['ordinary_taxable'])}** "
+                 "is ordinary income.")
+
+    # 4. brackets
+    head("Tax the ordinary income bracket by bracket",
+         "The US taxes income in slices: each slice pays its own rate, and only the part above a cutoff pays the higher rate. "
+         "Earning more never makes the earlier slices cost more.")
+    for b in est["ordinary_rows"]:
+        span = money(b["amount"]) if b["from"] == 0 else f"({money(b['to'])} − {money(b['from'])}) = {money(b['amount'])}"
+        L.append(f"- {pct(b['rate'])} on {span}: {pct(b['rate'])} × {money(b['amount'])} = {money(b['tax'])}")
+    L.append(f"- Ordinary income tax: **{money(est['ordinary_tax'])}**")
+
+    # 5. long-term gains
+    if est["preferential_rows"]:
+        bands = rules["capital_gains"][est["filing_status"]]
+        head("Tax the long-term gains at their lower rates",
+             f"Profit on investments held more than a year (and qualified dividends) is taxed at 0%, 15% or 20%, depending on "
+             f"where it falls when stacked on top of your ordinary income: 0% up to {money(bands[0][0])} of taxable income, 15% "
+             f"up to {money(bands[1][0])}, 20% above.")
+        for b in est["preferential_rows"]:
+            L.append(f"- It sits between {money(b['from'])} and {money(b['to'])} of taxable income, so "
+                     f"{pct(b['rate'])} × {money(b['amount'])} = {money(b['tax'])}")
+        L.append(f"- Long-term gains tax: **{money(est['preferential_tax'])}**")
+
+    # 6. NIIT
     if est["niit"]:
-        lines.append(f"| 3.8% net investment income tax | | {money(est['niit'])} |")
-    lines.append(f"| **Federal income tax** | | **{money(est['income_tax'])}** |")
-    lines += ["", f"Marginal rate on the next dollar of ordinary income: **{pct(est['marginal_rate'])}**; "
-                  f"income tax as a share of total income: **{est['effective_rate'] * 100:.1f}%**.", ""]
-    pay = [("Social Security (6.2%, up to $184,500 of wages)", p["social_security"]), ("Medicare (1.45%)", p["medicare"]),
-           ("Self-employment tax (15.3% on 92.35% of earnings, Social Security part up to the wage base)", p["self_employment_tax"]),
-           ("Additional Medicare tax (0.9% above the threshold)", p["additional_medicare"])]
+        thr = rules["niit"]["threshold"][est["filing_status"]]
+        over = est["agi"] - thr
+        nii = est["niit"] / rules["niit"]["rate"]
+        head("Add the net investment income tax",
+             f"Above {money(thr)} of income ({who}), investment income pays an extra 3.8% on whichever is smaller: the "
+             "investment income, or the income over that line.")
+        L.append(f"- Income over the line: {money(est['agi'])} − {money(thr)} = {money(over)}")
+        L.append(f"- The smaller of that and your investment income is {money(nii)}: 3.8% × {money(nii)} = **{money(est['niit'])}**")
+
+    # 7. income tax
+    pieces = [est["ordinary_tax"], est["preferential_tax"], est["niit"]]
+    head("Federal income tax", "Add the pieces.")
+    L.append(f"- {' + '.join(money(x) for x in pieces if x)} = **{money(est['income_tax'])}**")
+    L.append(f"- That is {est['effective_rate'] * 100:.1f}% of your total income; your next dollar of ordinary income "
+             f"would be taxed at {pct(est['marginal_rate'])}.")
+
+    # 8. payroll
     if p["total"]:
-        lines += ["| Payroll taxes | Tax |", "|---|---|"] + [f"| {label} | {money(v)} |" for label, v in pay if v]
-        lines += [f"| **Payroll taxes** | **{money(p['total'])}** |", ""]
+        pr = rules["payroll"]
+        head("Payroll taxes on your pay",
+             f"Separately from income tax, pay is taxed for Social Security ({pct(pr['social_security_rate'])} on wages up to "
+             f"{money(pr['social_security_wage_base'])}) and Medicare ({pct(pr['medicare_rate'])} on all wages, plus "
+             f"{pct(pr['additional_medicare_rate'])} above {money(pr['additional_medicare_threshold'][est['filing_status']])}). "
+             "Self-employed people pay both the worker's and the employer's share (15.3% on 92.35% of earnings). "
+             "Investment profit isn't taxed here.")
+        wages = i["wages"]
+        if p["social_security"]:
+            base = min(wages, pr["social_security_wage_base"])
+            L.append(f"- Social Security: {pct(pr['social_security_rate'])} × {money(base)} = {money(p['social_security'])}"
+                     + (f" (only the first {money(base)} of your {money(wages)})" if wages > base else ""))
+        if p["medicare"]:
+            L.append(f"- Medicare: {pct(pr['medicare_rate'])} × {money(wages)} = {money(p['medicare'])}")
+        if p["self_employment_tax"]:
+            L.append(f"- Self-employment tax on {money(i['self_employment'])}: {money(p['self_employment_tax'])} "
+                     "(Social Security part only up to what your wages left of the wage base)")
+        if p["additional_medicare"]:
+            L.append(f"- Additional Medicare: {pct(pr['additional_medicare_rate'])} × "
+                     f"{money(p['additional_medicare'] / pr['additional_medicare_rate'])} = {money(p['additional_medicare'])}")
+        L.append(f"- Payroll taxes: **{money(p['total'])}** (usually already withheld from your paycheck)")
+
+    # total
+    head("Total", "")
     total = est["total_federal"] + est["property_tax"]
-    lines.append(f"**Total: about {money(est['total_federal'])} in federal taxes** (income tax {money(est['income_tax'])}"
-                 + (f" + payroll {money(p['total'])}" if p["total"] else "") + ")"
-                 + (f", plus the {money(est['property_tax'])} property tax you pay locally, **{money(total)}** in all." if est["property_tax"] else "."))
+    L.append(f"- Federal: {money(est['income_tax'])}" + (f" + {money(p['total'])}" if p["total"] else "")
+             + f" = **{money(est['total_federal'])}**")
+    if est["property_tax"]:
+        L.append(f"- With the {money(est['property_tax'])} property tax (paid to your local government): **{money(total)}** in all")
+
     if r.assumed:
-        lines += ["", "**Assumed:** " + "; ".join(r.assumed) + "."]
-    for label, alt in alts:
-        diff = alt["total_federal"] - est["total_federal"]
-        lines.append(f"- If {label}: federal taxes would be **{money(alt['total_federal'])}** "
-                     f"({'+' if diff >= 0 else '−'}{money(abs(diff))}).")
+        L += ["", "**What I assumed** (tell me if any is wrong and I'll redo it)"] + [f"- {a[0].upper()}{a[1:]}." for a in r.assumed]
+    if alts:
+        L += ["", "**If an assumption is different**"]
+        for label, alt in alts:
+            diff = alt["total_federal"] - est["total_federal"]
+            L.append(f"- If {label}: federal taxes would be **{money(alt['total_federal'])}** "
+                     f"({'+' if diff >= 0 else '−'}{money(abs(diff))})")
     if r.ignored:
-        lines += ["", "Not used (doesn't change federal tax): " + "; ".join(r.ignored) + "."]
-    lines += ["", "_Not included: state and local income tax, tax credits (child, education, ...), the alternative minimum "
-                  "tax and the newer deductions for seniors, tips and overtime. This is an estimate from the published "
-                  f"{est['year']} rules, not a tax return; Finnie computed every number in Python._"]
-    return "\n".join(lines)
+        L += ["", "Not used (doesn't change federal tax): " + "; ".join(r.ignored) + "."]
+    L += ["", "_Not included: state and local income tax, tax credits (child, education, ...), the alternative minimum "
+              "tax and the newer deductions for seniors, tips and overtime. This is an estimate from the published "
+              f"{year} rules, not a tax return; Finnie computed every number in Python._"]
+    return "\n".join(L)
 
 
 def answer(question: str, context: str = "") -> tuple[str | None, str]:

@@ -113,15 +113,22 @@ class SortingLLM:
         return type("R", (), {"content": json.dumps(self.reply)})()
 
 
-def test_calculator_answers_kevins_case_from_the_rules():
+def test_calculator_answers_kevins_case_step_by_step_from_the_rules():
     llm_module.set_llm(SortingLLM(KEVIN_SORTED))
     out = N.calc_node({"question": KEVIN, "history": [], "profile": {}}, {})["agent_outputs"]["calc"]
     text = out["content"]
-    assert out["status"] == "answered" and out["verbatim"]
-    assert "**Estimated 2026 federal taxes** (single)" in text
-    assert "property tax does **not** lower your income tax" in text
-    assert "**Federal income tax** | | **$43,574**" in text
-    assert "about $58,031 in federal taxes" in text and "$68,031** in all" in text
+    assert out["status"] == "answered" and out["verbatim"] and out["explains_itself"]
+    assert "**Estimated 2026 federal taxes** (single), step by step" in text
+    assert "| Stock earning 30000 | $30,000 | long-term capital gains (assumed) |" in text        # the user's own inputs
+    assert "- $200,000 + $5,000 + $30,000 = **$235,000**" in text
+    assert "- Itemized: property tax $10,000" in text and "Your property tax doesn't lower your income tax here" in text
+    assert "- $235,000 − $16,100 = **$218,900**" in text
+    assert "- 24% on ($188,900 − $105,700) = $83,200: 24% × $83,200 = $19,968" in text
+    assert "15% × $30,000 = $4,500" in text and "3.8% × $30,000 = **$1,140**" in text
+    assert "- $37,934 + $4,500 + $1,140 = **$43,574**" in text
+    assert "6.2% × $184,500 = $11,439 (only the first $184,500 of your $205,000)" in text
+    assert "- Federal: $43,574 + $14,457 = **$58,031**" in text and "**$68,031** in all" in text
+    assert [line for line in text.splitlines() if line.startswith("**Step ")][-1] == "**Step 9. Total**"
     assert "short-term gains): federal taxes would be **$62,101**" in text
     assert "freelance (1099) work: federal taxes would be **$58,0" in text      # SE tax instead of FICA: about the same
 
@@ -143,3 +150,23 @@ def test_income_tax_question_gets_the_calculator_too():
     assert N._with_income_tax_calc(["tax"], s) == ["tax", "calc"]
     assert N._with_income_tax_calc(["qa"], s) == ["tax", "calc"]
     assert N._with_income_tax_calc(["tax"], {"question": "How are capital gains taxed?"}) == ["tax"]
+
+
+def test_step_by_step_tax_is_not_rewritten_and_links_the_tax_pages():
+    calls = []
+
+    class LLM:
+        model = "scripted"
+
+        def invoke(self, messages):
+            calls.append(messages[0][1][:40])
+            return type("R", (), {"content": "Total income is $235,000."})()
+    llm_module.set_llm(LLM())
+    s = {"question": KEVIN, "entities": {}, "profile": {}, "trace": [], "agent_outputs": {
+        "calc": {"agent": "calc", "status": "answered", "content": "**Step 1. Add up your income**", "verbatim": True,
+                 "explains_itself": True, "sources": []},
+        "tax": {"agent": "tax", "status": "answered", "content": "Brackets ...", "sources": [
+            {"id": "kb:tax-bracket#(lead)", "title": "Tax bracket (Wikipedia)", "url": "https://en.wikipedia.org/wiki/Tax_bracket"}]}}}
+    out = N.synthesizer_node(s, {})["final_response"]
+    assert out.startswith("**Step 1. Add up your income**") and "$235,000" not in out
+    assert "**Read more:** [Tax bracket](https://en.wikipedia.org/wiki/Tax_bracket)" in out and calls == []

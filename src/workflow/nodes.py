@@ -1461,7 +1461,7 @@ def calc_node(state: FinanceState, config: RunnableConfig):
     if TAXC.asks_income_tax(q):                 # "I earn $200k ... how much tax?": the year's tax rules, in Python
         text, note = TAXC.answer(q, f"Recent conversation:\n{recent}" if recent else "")
         if text:
-            return _out("calc", text, verbatim=True, sources=TAXC.SOURCES, trace=note)
+            return _out("calc", text, verbatim=True, explains_itself=True, sources=TAXC.SOURCES, trace=note)
         pre = [note]
     elif re.search(r"\btax", q, re.I) and saved_plan_figures(state) and not TAXC.amounts(q):
         # "how will my plan cost me on the tax?": the plan doesn't say the account, so work it out for each kind
@@ -1988,6 +1988,13 @@ def synthesizer_node(state: FinanceState, config: RunnableConfig):
         sector_lines = _sector_lines(state)
         prose = [o for o in answered if not o.get("verbatim") and not (sector_lines and o["agent"] == "market")]
         text, mode = "\n\n".join(o["content"] for o in prose), "extractive" if prose else "verbatim"
+        if any(o.get("explains_itself") for o in exact):
+            # the income-tax steps explain each rule as they apply it: a written intro only repeated their arithmetic
+            # (and did it itself); the explaining agents' pages are linked for further reading instead
+            links = list({x["url"]: x for o in prose for x in o.get("sources", []) if x.get("url")}.values())[:4]
+            text = ("**Read more:** " + " · ".join(f"[{x['title'].removesuffix(' (Wikipedia)')}]({x['url']})" for x in links)
+                    if links else "")
+            prose, mode = [], "verbatim (steps explain themselves)"
         if prose and current_llm() is not None:
             history = H.transcript(state.get("history")) if state.get("follow_up") else ""     # a new question can only be misled by it
             context = "\n\n".join(f"[{o['agent']}]\n{o['content']}" for o in prose)
@@ -2014,7 +2021,8 @@ def synthesizer_node(state: FinanceState, config: RunnableConfig):
             if reply:
                 text, mode = drop_unknown_headlines(reply, [x for o in prose for x in o.get("sources", [])]), "llm"
         text = link_sources(text, [s for o in prose for s in o.get("sources", [])])
-        text = "\n\n".join(t for t in [sector_lines, text] + [o["content"] for o in exact] if t)
+        read_more = text if mode.startswith("verbatim (steps") else ""
+        text = "\n\n".join(t for t in [sector_lines, "" if read_more else text] + [o["content"] for o in exact] + [read_more] if t)
         readings = [o for o in answered if o.get("reading")]       # answered on a guess: say how it was read, never left to the LLM
         if readings:
             text += "\n\n" + "\n".join(READING_NOTE.format(o["reading"]) for o in readings)
