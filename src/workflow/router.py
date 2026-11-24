@@ -11,8 +11,8 @@ INTENT_PATTERNS = {
     "tax": r"\b(tax|taxes|taxed|taxable|taxation|401\(?k\)?|ira|roth|capital gains?|deduction)\b",
     "portfolio": r"\b(my (portfolio|holdings|investments|stocks|positions|allocation)|am i (diversified|too concentrated)|"
                  r"rebalanc\w* my)\b",
-    "market": r"\b(watchlist|price of|quote|stock market|market today|index|indices|s&p|nasdaq|dow|trend|moving average)\b",
-    "goal": r"\b(savings? plan|savings goal|my goal|save for|saving for|how much (should|do|must) i (need to )?(save|invest)|"
+    "market": r"\b(watchlist|price of|quote|stock market|markets?(?: \w+)? today|how(?:'s| is| are) (?:the )?markets?|index|indices|s&p|nasdaq|dow|trend|moving average|most (?:active|traded)|(?:biggest|largest) (?:\w+ )?(?:companies|stocks)|markets? (?:is )?(?:open|closed))\b",
+    "goal": r"\b(savings? plan|savings goals?|my goals?|save for|saving for|how much (should|do|must) i (need to )?(save|invest)|"
             r"on track)\b",
     "news": r"\b(news|headlines?|latest (on|about|news)|what happened|what('s| is| has been| have been)? (happening|said|going on)|in the news|"
             r"(recent|latest) (updates?|developments?|reports?) (on|about|in))\b",
@@ -112,10 +112,11 @@ def _amount(num: str, unit: str | None) -> float:
 def extract_entities(text: str, history: list[dict] | None = None) -> dict:
     lower = text.lower()
     tickers = [t for t in re.findall(r"\$?\b([A-Z]{2,5})\b", text) if t in INSTRUMENTS and not t.startswith("^")]
-    tickers += [sym for name, sym in COMPANY_ALIASES.items() if name in lower]
+    named = lambda name: re.search(rf"(?<![a-z]){re.escape(name)}(?![a-z])", lower)  # noqa: E731 — "dow" is not "down"; "s&p500" still counts
+    tickers += [sym for name, sym in COMPANY_ALIASES.items() if named(name)]
     indices = []
     for name, sym in INDEX_ALIASES.items():
-        if name in lower and sym not in indices:
+        if named(name) and sym not in indices:
             indices.append(sym)
     amounts = [(_amount(m.group(1), m.group(2)), m.end()) for m in
                re.finditer(r"\$\s?([\d,]+(?:\.\d+)?)\s*(k|m|thousand|million)?\b", text, re.I)]

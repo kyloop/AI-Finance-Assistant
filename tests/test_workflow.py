@@ -37,6 +37,8 @@ def test_keyword_router_and_entities():
     assert R.classify("How does a Roth IRA work?") == ["tax"]
     e = R.extract_entities("How is NVDA and Apple doing versus the Nasdaq?")
     assert e["tickers"] == ["NVDA", "AAPL"] and e["indices"] == ["^IXIC"]
+    assert R.extract_entities("Is the market up or down today?")["indices"] == []        # "down" is not the Dow
+    assert R.extract_entities("How is the Dow doing?")["indices"] == ["^DJI"]
     g = R.extract_entities("I want $1.5 million in 30 years, saving $2,000 a month")
     assert (g["target_amount"], g["monthly_amount"], g["years"]) == (1_500_000, 2000, 30)
     assert R.clean_topic("What is an ETF?") == "ETF" and R.clean_topic("How does a Roth IRA work?") == "Roth IRA"

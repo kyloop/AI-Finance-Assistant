@@ -85,6 +85,30 @@ def test_its_means_the_company_discussed_last_but_them_means_all():
     assert [r["symbol"] for r in SYM.resolve("compare their stock prices", history=hist)] == ["NVDA", "NU"]
 
 
+class CrowdedLLM(MentionLLM):
+    """The company prompt finds `mentions` in the message alone, but nothing once the earlier conversation is included."""
+    def invoke(self, messages):
+        if "publicly traded companies" in messages[0][1] and "Recent conversation:" in messages[1][1]:
+            self.prompts.append(messages[1][1])
+            return type("R", (), {"content": json.dumps({"companies": []})})()
+        return super().invoke(messages)
+
+
+def test_a_company_the_conversation_crowded_out_is_found_in_the_message_alone():
+    """"can you show Google news?" after a run of Apple answers: with the conversation the model named nothing, so the news
+    agent showed the market feed; the message read on its own names Google."""
+    google = {"symbol": "GOOGL", "name": "Alphabet Inc."}
+    set_symbol_resolver(lambda name: google if name.lower() == "google" else None)
+    fake = CrowdedLLM(["news"], ["Google"])
+    llm_module.set_llm(fake)
+    hist = [{"role": "user", "content": "news for appl"}, {"role": "assistant", "content": "Here are the latest headlines for Apple."}]
+    assert [r["symbol"] for r in SYM.resolve("can you show Google news?", history=hist)] == ["GOOGL"]
+    assert len(fake.prompts) == 2 and "Recent conversation:" not in fake.prompts[1]
+    fake.prompts.clear()
+    assert SYM.resolve("and what about its earnings?", history=hist) == []           # points back: the empty answer stands
+    assert len(fake.prompts) == 1
+
+
 def test_without_an_llm_them_means_the_company_in_the_last_question():
     hist = [{"role": "user", "content": "Any news on NVIDIA?"}]
     assert [r["symbol"] for r in SYM.resolve("and what about them?", use_llm=False, history=hist)] == ["NVDA"]

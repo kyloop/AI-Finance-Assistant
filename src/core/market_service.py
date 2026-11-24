@@ -440,7 +440,7 @@ def _stock_payload(symbol: str, t, info: dict, quote_type: str) -> dict:
                                                              ("price_to_book", "priceToBook"), ("beta", "beta"),
                                                              ("dividend_yield", "trailingAnnualDividendYield"),
                                                              ("fifty_two_week_high", "fiftyTwoWeekHigh"), ("fifty_two_week_low", "fiftyTwoWeekLow"),
-                                                             ("average_volume", "averageVolume"))},
+                                                             ("average_volume", "averageVolume"), ("shares_outstanding", "sharesOutstanding"))},
         "actions": {
             "dividends": [{"date": _date(d), "amount": _num(v)} for d, v in divs.tail(12).items()][::-1],      # newest first
             "dividends_by_year": [{"year": int(y), "amount": round(float(v), 4)} for y, v in yearly.tail(10).items()],

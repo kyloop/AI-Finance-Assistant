@@ -96,7 +96,9 @@ PROOFREAD_SYSTEM = (
     "contributions\" after \"You want to know how much $30,000 grows at 7% a year over 10 years; is 7% the yearly rate?\" -> "
     "\"How much does $30,000 grow at 7% a year over 10 years with no extra contributions?\", not \"Is 7% the yearly rate?\"; "
     "\"3%\" after \"what risk-free rate should I use?\" -> the earlier question with a 3% risk-free rate. "
-    "Set follow_up to true then. If the message starts a new topic, only correct it and set follow_up to false; a message that states every "
+    "Set follow_up to true then. If the message starts a new topic, only correct it and set follow_up to false; never replace the subject "
+    "it names with an earlier one (\"What's the latest technology sector news?\" after a question about the Pentagon is about the "
+    "technology sector). A message that states every "
     "company, period and figure it needs is a new question even on the same subject (\"How much would $2,500 grow to at 7% a "
     "year over 10 years?\" after a 7% example). Take companies, periods and numbers "
     "only from the message, the CONTEXT or the RECENT CONVERSATION.\n"
@@ -121,6 +123,8 @@ def _proofread_ok(original: str, fixed: str, ctx: dict | None = None, recent: st
     ruled_out = SYM.excluded(original)                    # "not looking for DHSB news": the rewrite may drop DHSB
     if any(t not in fixed for t in _TICKER_TOKEN.findall(original) if not original.isupper() and t.lower() not in ruled_out):
         return False
+    if {m["key"] for m in MK.in_text(SYM.without_excluded(original))} - {m["key"] for m in MK.in_text(fixed)}:
+        return False                                      # the market the message names is its subject: never swapped for an earlier one
     if ctx is not None:
         known = _THOUSANDS.sub("", f"{original} {CTX.describe(ctx)} {recent}").upper()
         return (len(fixed) <= len(original) + FOLLOW_UP_EXTRA_CHARS
@@ -202,7 +206,7 @@ AGENTS AND THEIR RESPONSIBILITIES
 ROUTING RULES
 0. qa is the DEFAULT. Use goal, portfolio or tax only when the message itself explicitly asks for that agent's job: a savings plan or how much to save (goal), an analysis of the user's own holdings (portfolio), tax treatment, tax rules or tax-advantaged accounts (tax). Mentioning retirement, saving, investing or an amount of money is not by itself a request for any of them: "I plan to retire with $1 million and need $50,000 a year" asks nothing about a savings plan, so it is not goal.
 1. A message can need several agents. Return every intent whose responsibility is required; usually 1-3, never more than 4.
-2. Performance or condition of a market, sector or asset class ("how is the housing market performing", "how are tech stocks doing", "state of the bond market") -> market + qa. market supplies the data; qa supplies the explanation of what drives it and what it means for a learner. Add news if they ask about recent events/causes or use "lately/this week/why now".
+2. Performance or condition of a sector, region, market or asset class ("how are tech stocks doing", "just the tech sector?", "how is Japan's market doing", "state of the bond market") -> market. The market agent supplies the figures; add qa only when the message also asks for an explanation (what drives it, why it matters, what it means, how it works). Add news if they ask about recent events/causes or use "lately/this week/why now". The market as a whole, with no specific market named (a market update, overview, recap or insights, "how's the market", "what are stocks doing") -> market + news, even when phrased as a fragment rather than a question.
 3. "Why did X move / why is X up/down" -> market + news (+ qa if they also ask what the concept means).
 4. Split compound messages. If a message has several parts (joined by "and", "also", a comma, or a second question), classify EACH part separately and return the union of intents. A definition plus a live figure for a named company or index ("What is a P/E ratio and what is TSLA's?") -> qa + market. Never let one part hide the other. But "and" alone does not mean two agents: add an agent only if the second part needs a different agent's job.
 5. A pure price/quote request ("price of NVDA") -> market only. A pure definition ("what is an ETF") -> qa only. Only use a single intent when the WHOLE message is that one thing. Do not add agents that contribute nothing.
@@ -251,7 +255,7 @@ def _with_listed_tickers(intents: list[str], text: str) -> list[str]:
     """A message that names a listed ticker ("what about the company with ticker SDEV?") needs the market agent, whatever the router guessed
     (after a Q&A turn the LLM reads "what about X?" as Q&A, and news alone never fetches the quote). The Q&A agent only knows the
     knowledge base, so in a short message it is replaced by the market agent; in a longer one it stays, as there may be a concept to explain too."""
-    if "market" in intents or not SYM.ticker_mentions(text):
+    if "market" in intents or not (SYM.ticker_mentions(text) or SYM.lowercase_mentions(text)):     # "ho'ws tesla stock doing?" too
         return intents
     if set(intents) <= {"qa", "news"} and len(text.split()) <= SHORT_QUESTION_WORDS:
         return [*(i for i in intents if i != "qa"), "market"]
@@ -289,7 +293,28 @@ def _routed(res: dict, state: FinanceState) -> dict:
             res["trace"] = [*res["trace"], "resolved " + ", ".join(_resolved_label(c) for c in e["companies"])]
     if e["markets"]:
         res["trace"] = [*res["trace"], "markets: " + ", ".join(_market_label(m) for m in e["markets"])]
-    return _with_carried_companies(res, state)
+    return _with_sector_figures(_with_levels(_with_carried_companies(res, state)))
+
+
+def _with_sector_figures(res: dict) -> dict:
+    """News about a sector comes with how the sector has done, so the market agent runs too (`_sector_lines` shows the result)."""
+    if "sector" not in res["entities"]["levels"] or "news" not in res["intent"]:
+        return res
+    res["entities"]["sector_figures"] = True
+    if "market" not in res["intent"]:
+        res["intent"] = [*res["intent"], "market"]
+        res["trace"] = [*res["trace"], "sector news: adding the market agent for its performance"]
+    return res
+
+
+def _with_levels(res: dict) -> dict:
+    """`entities["levels"]`: what the subjects (named or carried) cover, company to market (symbols.levels)."""
+    e = res["entities"]
+    indices = [MK.market(s) for s in e.get("indices") or [] if MK.entry(s)]
+    e["levels"] = SYM.levels([*(e.get("companies") or []), *e.get("tickers", [])], [*(e.get("markets") or []), *indices])
+    if e["levels"]:
+        res["trace"] = [*res["trace"], "level: " + ", ".join(e["levels"])]
+    return res
 
 
 def _market_label(m: dict) -> str:
@@ -329,6 +354,21 @@ def _with_carried_companies(res: dict, state: FinanceState) -> dict:
         e["markets"] = [*markets, *new_markets][:CTX.MAX_COMPANIES]
         res["trace"] = [*res["trace"], "markets from the previous answer: " + ", ".join(m["name"] for m in markets)]
     return res
+
+
+# Words that make a message about the user's own money. Without one, a market question keeps no portfolio intent: after
+# "summary of my portfolio?" the LLM router sent "how about nvda vs market trending today?" to the portfolio agent too.
+_OWN_MONEY = re.compile(r"\b(my|mine|i own|i hold|i have|i bought|our|portfolio|holdings?|positions?|diversif\w*|allocation|"
+                        r"rebalanc\w*|am i)\b", re.I)
+
+
+def _without_stray_portfolio(intents: list[str], state: FinanceState) -> list[str]:
+    """Drop the portfolio intent the LLM router carried over from an earlier turn, when the message is a market question that
+    never mentions the user's own holdings (the router's rule: portfolio only when the message asks for that job)."""
+    q = f"{state.get('original_question') or ''} {state['question']}"
+    if "portfolio" in intents and "market" in intents and not _OWN_MONEY.search(q):
+        return [i for i in intents if i != "portfolio"]
+    return intents
 
 
 def _with_screen(intents: list[str], state: FinanceState) -> list[str]:
@@ -372,7 +412,7 @@ def _route(state: FinanceState) -> dict:
             if "read_only" in intents:
                 return {"intent": ["read_only"], "entities": {**entities, "write_request": "data"}, "router_mode": "llm",
                         "trace": ["router (LLM): asks to change something → read_only guard"]}
-            intents = _with_screen(_with_listed_tickers(intents, text), state)
+            intents = _with_screen(_without_stray_portfolio(_with_listed_tickers(intents, text), state), state)
             return _routed({"intent": intents, "entities": entities, "router_mode": "llm", "trace": [f"router (LLM): {', '.join(intents)}"]}, state)
         log.warning("router LLM reply unusable; falling back to keywords")
     intents = _with_screen(_with_listed_tickers(_with_market_words(R.classify(text), text), text), state)
@@ -463,6 +503,11 @@ def tax_node(state: FinanceState, config: RunnableConfig):
 _PRICE_ASK = re.compile(r"\b(price|quote|trading at|share price|worth today|how much is)\b", re.I)
 MARKET_ASK = ("I couldn't tell which company or ticker you mean. Tell me the company name or its ticker symbol "
               "(for example “NVIDIA” or “NVDA”) and I'll look up its price.")
+# Basic mode only (with an LLM, `symbols.subjects` decides): "the market" plus a word asking how it is doing now means the
+# US indices. Both are required, so "time the market" or "market cap" stays a concept lookup.
+_WHOLE_MARKET = re.compile(r"\b(?:the\s+)?(?:stock\s+)?markets?\b", re.I)
+_MARKET_NOW = re.compile(r"\b(today|tonight|so far|right now|now|this (?:morning|afternoon|week)|doing|performing|going|moving|"
+                         r"insights?|overview|update|recap|wrap(?:-?up)?)\b", re.I)
 
 
 def _view_symbols(state: FinanceState) -> list[str]:
@@ -478,16 +523,22 @@ def _view_symbols(state: FinanceState) -> list[str]:
 
 
 _PERFORMANCE = re.compile(r"\b(perform\w*|better|worse|best|worst|compare\w*|versus|vs|returns?|gain\w*|grow\w*|done|doing|did)\b", re.I)
+# Today's move, read from quotes (change vs previous close), not a period's return. "nvda vs market today?" once carried the
+# previous answer's "last month" and compared NVDA's day with the indices' month.
+_TODAY = re.compile(r"\b(today|today's|tonight|intraday|right now|this (?:morning|afternoon))\b", re.I)
+# "NVDA vs the market": the US indices are a subject too, though the router named only the company (a chat's first message).
+_VS_MARKET = re.compile(r"\b(?:vs\.?|versus|compared?\s+(?:to|with)|against|than|relative\s+to)\s+(?:the\s+)?"
+                        r"(?:overall\s+|broader\s+|wider\s+|whole\s+)?(?:us\s+|u\.s\.\s+)?(?:stock\s+)?markets?\b", re.I)
 
 
 def _period_for(state: FinanceState) -> tuple[date, str] | None:
     """The period this question asks about; for a follow-up ("which did better?", "what about AAPL?"), the one the previous
-    answer used (its saved context). A plain price question gets none. Conversations saved before contexts existed fall
-    back to looking for a period in the recent messages."""
+    answer used (its saved context). A plain price question, or one about today, gets none. Conversations saved before
+    contexts existed fall back to looking for a period in the recent messages."""
     q = state["question"]
     if p := MT.asked_period(q):
         return p
-    if _PRICE_ASK.search(q):
+    if _PRICE_ASK.search(q) or _TODAY.search(q):
         return None
     if state.get("context_in") is not None:
         return CTX.period_of(CTX.carried(state))
@@ -498,10 +549,19 @@ def _period_for(state: FinanceState) -> tuple[date, str] | None:
 
 MARKET_TOOL_SYSTEM = (
     "You fetch market data for a personal-finance EDUCATION assistant. Call the tools that supply the figures the question "
-    "needs, for the companies or funds it is about (use ticker symbols). Request everything in this one reply; you may call "
-    "several tools at once. get_quote gives today's price, change, volume and day range; get_performance a period's return, "
-    "high/low and average volume; get_company_profile a company's sector, valuation (P/E, market cap, beta), earnings and "
-    "dividends; get_fund_profile an ETF's or mutual fund's expense ratio, yield and holdings. Don't answer the question yourself.")
+    "needs, for the companies, funds or markets it is about (use ticker symbols). Request everything in this one reply; you may "
+    "call several tools at once. Match the level the question is about. Company or fund: get_quote gives today's price, change, "
+    "volume and day range; get_performance a period's return, high/low and average volume; get_company_profile a company's "
+    "sector, valuation (P/E, market cap, beta), earnings and dividends; get_fund_profile an ETF's or mutual fund's expense ratio, "
+    "yield and holdings. Sector (\"the tech sector\", \"bank stocks\"): get_sector_performance for how it did, never a quote of the "
+    "sector's fund; get_sector_profile for what it is made of; get_industry_performance for which of its industries did best or "
+    "worst. One industry (\"semiconductors\"): get_industry. The market as a whole, or all sectors: get_market_overview; the "
+    "largest companies: get_largest_companies; stock markets around the world, a region or a country: get_region_performance; "
+    "today's most traded stocks: get_most_active; whether the market is open: get_market_status. Call each tool once per subject, "
+    "for the period the question or conversation names; with none named, leave the period out (it defaults to the last month). "
+    "A question about today (\"today\", \"right now\") is about today's move: get_quote, for the market too (its index "
+    "symbols, e.g. ^GSPC, ^IXIC, ^DJI), never a period's return from get_performance or get_market_overview. "
+    "Don't answer the question yourself.")
 
 
 def _llm_fetch(llm, state: FinanceState, db, symbols: list[str], period: tuple[date, str] | None) -> tuple[dict, list[str]]:
@@ -512,13 +572,16 @@ def _llm_fetch(llm, state: FinanceState, db, symbols: list[str], period: tuple[d
     max_calls, rounds = int(cfg.get("market_tool_calls", 4)), int(cfg.get("market_tool_rounds", 1))
     names = {c["symbol"]: c.get("name") for c in state["entities"].get("companies") or []}
     names.update({s: m["name"] if m["symbol"] else f"{m['name']}: {s}" for m in state["entities"].get("markets") or [] for s in m["quotes"]})
-    about = [f"Companies and markets: {', '.join(f'{names[s]} ({s})' if names.get(s) else s for s in symbols)}"]
+    about = [f"Companies and markets: {', '.join(f'{names[s]} ({s})' if names.get(s) else s for s in symbols)}" if symbols else
+             "Companies and markets: none named (a question about the market as a whole)"]
+    if levels := state["entities"].get("levels") or []:
+        about.append(f"Level: {', '.join(levels)}")
     if period:
         about.append(f"Period the conversation is about: {period[1]}")
     if known := CTX.describe(state.get("context_in")):
         about.append(f"Earlier in the conversation:\n{known}")
     messages = [SystemMessage(MARKET_TOOL_SYSTEM), HumanMessage("\n".join(about) + f"\n\nQuestion: {state['question']}")]
-    bound, data, notes, calls = llm.bind_tools(MT.TOOL_SPECS), {}, [], 0
+    bound, data, notes, calls, seen = llm.bind_tools(MT.TOOL_SPECS), {}, [], 0, set()
     for _ in range(rounds):
         reply = bound.invoke(messages)
         tool_calls = getattr(reply, "tool_calls", None) or []
@@ -526,6 +589,15 @@ def _llm_fetch(llm, state: FinanceState, db, symbols: list[str], period: tuple[d
             break
         messages.append(reply)
         for call in tool_calls:
+            key = (call["name"], json.dumps(call.get("args") or {}, sort_keys=True))
+            if key in seen:                     # the same call again (one overview per index listed): nothing new, not counted
+                messages.append(ToolMessage("skipped: same call as before", tool_call_id=call["id"]))
+                continue
+            seen.add(key)
+            if "company" in levels and (strays := _off_subject(call.get("args") or {}, symbols)):
+                notes.append(f"{call['name']}({', '.join(strays)}) → skipped (not what the question is about)")
+                messages.append(ToolMessage(f"skipped: {', '.join(strays)} is not one of the question's subjects", tool_call_id=call["id"]))
+                continue
             if calls >= max_calls:
                 notes.append(f"{call['name']} → skipped (limit of {max_calls} tool calls)")
                 messages.append(ToolMessage("skipped: tool call limit reached", tool_call_id=call["id"]))
@@ -538,21 +610,66 @@ def _llm_fetch(llm, state: FinanceState, db, symbols: list[str], period: tuple[d
     return data, notes
 
 
-def _fill_in(db, data: dict, symbols: list[str], period: tuple[date, str] | None) -> tuple[dict, list[str]]:
+def _off_subject(args: dict, symbols: list[str]) -> list[str]:
+    """The symbols a tool call names that the question isn't about, checked when it names companies (a question about the
+    market as a whole leaves the stocks to the model). The model sees the earlier conversation, and once turned "Gold" into
+    the stock GOLD for a question about AAPL; a subject the router missed is better missing than invented."""
+    asked = args.get("symbols") if "symbols" in args else args.get("symbol")
+    named = [str(s).strip().upper().lstrip("$") for s in (asked if isinstance(asked, list) else [asked]) if s]
+    return [s for s in named if s not in set(symbols)]
+
+
+def _fill_in(db, data: dict, symbols: list[str], period: tuple[date, str] | None, *, quote_only=()) -> tuple[dict, list[str]]:
     """What every answer has, whatever the model chose (and all of it without an LLM): a quote for each company, and the
-    asked or carried period's performance."""
+    asked or carried period's performance (not for `quote_only`: symbols whose period the market overview already gives)."""
     notes = []
     need = [s for s in symbols if "quote" not in data.get(s, {})]      # cached, so cheap even when the model chose other tools
-    if need:
-        got = MT.get_quote(db, need)
-        notes.append(f"get_quote({', '.join(need)}) → {_freshness(got)}")
+    for i in range(0, len(need), MT.MAX_SYMBOLS):                      # the tool takes MAX_SYMBOLS at a time; all four US indices are 4
+        part = need[i:i + MT.MAX_SYMBOLS]
+        got = MT.get_quote(db, part)
+        notes.append(f"get_quote({', '.join(part)}) → {_freshness(got)}")
         data = MT.merge_market(data, got)
     if period:
-        need = [s for s in symbols if "quote" in data.get(s, {}) and "period" not in data[s]]
+        need = [s for s in symbols if "quote" in data.get(s, {}) and "period" not in data[s] and s not in quote_only]
         if need:
             got = MT.performance(db, need, *period)
             notes.append(f"get_performance({', '.join(need)}, {period[1]}) → {_freshness(got)}")
             data = MT.merge_market(data, got)
+    return data, notes
+
+
+def _group_syms(markets: list[dict], group: str) -> set[str]:
+    return {s for m in markets if m["group"] == group for s in m["quotes"]}
+
+
+def _levels_asked(state: FinanceState, markets: list[dict], period: tuple[date, str] | None) -> tuple[list[str], bool]:
+    """Figures above one company the question needs: (the sectors to measure against the S&P 500, whether to add the market
+    overview). A sector gets its sector figures; "sectors" as a group, or how the whole market performed, the overview. A price
+    asked for ("price of XLK") keeps the plain quote."""
+    q = state["question"]
+    if _PRICE_ASK.search(q):
+        return [], False
+    sectors = [m["symbol"] for m in markets if m.get("level") == "sector" and m["symbol"]]
+    keys = {m["key"] for m in markets}
+    over_time = bool(period) or (_PERFORMANCE.search(q) and not _TODAY.search(q))     # today: the indices' quotes say it
+    overview = "group:sectors" in keys or ("group:us_indices" in keys and over_time)
+    return sectors, overview
+
+
+def _fill_levels(db, data: dict, sectors: list[str], overview: bool, period: tuple[date, str] | None) -> tuple[dict, list[str]]:
+    """The sector and overview figures the model didn't fetch (all of them without an LLM), over the asked or carried period,
+    else MT.DEFAULT_PERIOD."""
+    start, label = period or MT.parse_period(MT.DEFAULT_PERIOD)
+    notes = []
+    for s in sectors:
+        if "sector" not in data.get(s, {}):
+            got = MT.sector_performance(db, s, start, label)
+            notes.append(f"get_sector_performance({s}, {label}) → {_freshness(got)}")
+            data = MT.merge_market(data, got)
+    if overview and "overview" not in data.get(MT.OVERVIEW_KEY, {}):
+        got = MT.market_overview(db, start, label)
+        notes.append(f"get_market_overview({label}) → {_freshness(got)}")
+        data = MT.merge_market(data, got)
     return data, notes
 
 
@@ -572,7 +689,7 @@ def _key_facts(data: dict) -> dict:
             f.update({"period": p["label"], "return": p["return"], "start_price": p["start_price"], "end_price": p["end_price"],
                       "start_date": p["start_date"], "end_date": p["end_date"], "avg_volume": p.get("avg_volume")})
         if pr := d.get("profile"):
-            f.update({k: pr[k] for k in ("trailing_pe", "market_cap", "dividend_yield") if pr.get(k) is not None})
+            f.update({k: pr[k] for k in ("trailing_pe", "market_cap", "shares_outstanding", "dividend_yield") if pr.get(k) is not None})
         if fd := d.get("fund"):
             f.update({k: fd[k] for k in ("expense_ratio", "yield") if fd.get(k) is not None})
         if f:
@@ -583,16 +700,24 @@ def _key_facts(data: dict) -> dict:
 @safe("market")
 def market_node(state: FinanceState, config: RunnableConfig):
     """Market data through tools (market_tools.py). With an LLM the model picks the tools and arguments for the question
-    (quote, performance over a period, company or fund profile); then, and without an LLM, every company gets a quote and the
-    asked or carried period its performance. All figures go to `market_data` for the synthesizer and the saved context."""
+    (quote, performance over a period, company or fund profile, sector performance, market overview); then, and without an LLM,
+    every company gets a quote and the asked or carried period its performance, a sector (`entities["levels"]`) its return against
+    the S&P 500 instead of its fund's quote, and the market as a whole the overview. All figures go to `market_data` for the
+    synthesizer and the saved context."""
     e = state["entities"]
     symbols = e["tickers"] + e["indices"]
     view_syms = _view_symbols(state) if not symbols else []
     symbols = symbols or view_syms
     named = e.get("companies") or []        # "price of Palantir": looked up on Yahoo by the router; or carried from the previous answer
     markets = e.get("markets") or []        # "how is gold doing?": GC=F; "forex": the group's main pairs
+    if not (symbols or named or markets) and current_llm() is None and _WHOLE_MARKET.search(state["question"]) and _MARKET_NOW.search(state["question"]):
+        markets = [MK.group("us_indices")]
+    if not markets and _VS_MARKET.search(state["question"]):
+        markets = [MK.group("us_indices")]
     market_syms = [s for m in markets for s in m["quotes"]]
     symbols = list(dict.fromkeys([*symbols, *(r["symbol"] for r in named), *market_syms]))
+    if not symbols and (wide := _market_wide(state, config)):                    # "most active stocks today?": no subject needed
+        return wide
     if not symbols and _PRICE_ASK.search(state["question"]):                      # a quote for something we can't identify: ask, don't research
         return _out("market", MARKET_ASK, status="need_info", confidence="low", trace="market: price asked for, but no company or ticker recognised → ask")
     if not symbols:                        # a market concept rather than a quote: look it up
@@ -601,6 +726,8 @@ def market_node(state: FinanceState, config: RunnableConfig):
     if db is None:
         raise RuntimeError("no database session for market lookup")
     period = _period_for(state)
+    sectors, overview = _levels_asked(state, markets, period)
+    quoted = [s for s in symbols if s not in sectors and not (overview and s in _group_syms(markets, "sectors"))]
     data, notes, how = {}, [], "keywords"
     llm = current_llm()
     if llm is not None and hasattr(llm, "bind_tools"):
@@ -610,20 +737,76 @@ def market_node(state: FinanceState, config: RunnableConfig):
         except Exception as ex:  # noqa: BLE001 — a model that can't call tools still gets the standard figures
             log.warning("market tool calling failed: %s", ex)
             notes.append(f"tool calling failed ({type(ex).__name__})")
-    data, more = _fill_in(db, data, symbols, period)
+    ov = data.get(MT.OVERVIEW_KEY, {}).get("overview")
+    if ov and period is None and _TODAY.search(state["question"]) and ov["label"] != "last day":
+        del data[MT.OVERVIEW_KEY]           # the model asked for a month's returns (the default) for a question about today
+        quoted += [s for s in MT.OVERVIEW_INDICES if s not in quoted]
+        notes.append(f"market overview ({ov['label']}) dropped: the question is about today → index quotes")
+    data, more = _fill_in(db, data, quoted, period, quote_only=MT.OVERVIEW_INDICES if overview else ())
     notes += more
+    data, more = _fill_levels(db, data, sectors, overview, period)
+    notes += more
+    data, more = _fill_wide(db, data, state["question"])
+    notes += more
+    data = {s: ({"sector": d["sector"]} if s in sectors and "sector" in d else d) for s, d in data.items()}   # the sector, not its fund's price
+    return _market_result(data, notes, how, markets, market_syms, period)
+
+
+# Basic mode (no LLM) for questions about the market as a whole that name no subject; with an LLM the model picks these tools.
+_MARKET_WIDE = [(re.compile(r"\bmost (?:active|traded)\b", re.I), "get_most_active", "MOST_ACTIVE"),
+                (re.compile(r"\b(?:biggest|largest) (?:\w+ )?(?:companies|stocks)\b", re.I), "get_largest_companies", "LARGEST"),
+                (re.compile(r"\b(?:markets? (?:is )?(?:open|closed)|is the (?:stock )?market open|trading hours)\b", re.I), "get_market_status",
+                 "MARKET_STATUS")]
+
+
+def _fill_wide(db, data: dict, question: str) -> tuple[dict, list[str]]:
+    """The market-wide figures the question's words ask for and the model didn't fetch (all of them without an LLM)."""
+    notes = []
+    for pattern, name, key in _MARKET_WIDE:
+        if pattern.search(question) and key not in data:
+            got, note = MT.run_tool(db, name, {})
+            notes.append(note)
+            data = MT.merge_market(data, got)
+    return data, notes
+
+
+def _market_wide(state: FinanceState, config: RunnableConfig) -> dict | None:
+    """A question about the market as a whole that names no company or market ("most active stocks today?", "biggest companies?",
+    "is the market open?"): the model picks the market-wide tools, or without one the words do. None when neither finds any."""
+    db = _db(config)
+    if db is None:
+        return None
+    period, llm, data, notes, how = _period_for(state), current_llm(), {}, [], "keywords"
+    if llm is not None and hasattr(llm, "bind_tools"):
+        try:
+            data, notes = _llm_fetch(llm, state, db, [], period)
+            how = "LLM tools"
+        except Exception as ex:  # noqa: BLE001
+            log.warning("market tool calling failed: %s", ex)
+    data, more = _fill_wide(db, data, state["question"])
+    notes += more
+    if not any(len(d) > 1 or "error" not in d for d in data.values()):
+        return None
+    return _market_result(data, notes, how, [], [], period)
+
+
+def _market_result(data: dict, notes: list[str], how: str, markets: list[dict], market_syms: list[str], period) -> dict:
+    """The market agent's output from the figures: the answer lines, data info, `market_data` and the saved context."""
     lines = MT.describe_lines(data)
     quotes = [d["quote"] for d in data.values() if "quote" in d]
     if quotes:
         lines.append("\n_“% vs previous close” compares today's price with yesterday's closing price. A single day's move says little about the long term._")
-    info = {"provider": quotes[0]["source"], "fetched_at": quotes[0]["as_of"], "freshness": quotes[0]["freshness"]} if quotes else None
-    res = _out("market", "\n".join(lines), data_info=info, confidence="high" if quotes else "low",
+    shown = quotes or [sec for d in data.values() for k in ("sector", "overview", *MT.YAHOO_LINES) if (sec := d.get(k)) and sec.get("as_of")]
+    info = {"provider": shown[0]["source"], "fetched_at": shown[0]["as_of"], "freshness": shown[0]["freshness"]} if shown else None
+    res = _out("market", "\n".join(lines), data_info=info, confidence="high" if shown else "low",
                trace=f"market ({how}): " + "; ".join(notes))
     res["market_data"] = data
-    used = next((d["period"] for d in data.values() if "period" in d), None)
-    res["turn_context"] = {"companies": [{"symbol": s, "name": MT._name(d, s)} for s, d in data.items()
-                                         if ("error" not in d or len(d) > 1) and s not in market_syms][:CTX.MAX_COMPANIES],
+    used = next((d[k] for d in data.values() for k in ("period", "sector", "overview") if k in d), None)
+    companies = [{"symbol": s, "name": MT._name(d, s)} for s, d in data.items()
+                 if ("error" not in d or len(d) > 1) and s not in market_syms and not MT.is_subject_key(s)][:CTX.MAX_COMPANIES]
+    res["turn_context"] = {"companies": companies,
                            "markets": [{"key": m["key"], "name": m["name"]} for m in markets],
+                           "levels": SYM.levels(companies, markets),
                            "facts": _key_facts(data),
                            **({"period": {"start": used["start"], "label": used["label"]}} if used else
                               {"period": {"start": period[0].isoformat(), "label": period[1]}} if period else {})}
@@ -1205,8 +1388,8 @@ REPLAN_SYSTEM = """You coordinate the specialist agents of a personal-finance ED
 
 AGENTS
 - qa: explains financial concepts from a finance knowledge base.
-- market: live prices, quotes and performance of named stocks, ETFs and indices; market, sector and asset-class trends.
-- news: recent headlines about a company, industry, sector, topic or the whole market.
+- market: live figures at every level: a company or fund (price, performance, valuation), a sector (return against the S&P 500 and its largest companies' moves), a region or country (its index), a sector's industries, the US market as a whole (indices, every sector ranked, the largest companies, today's most active stocks, market hours), asset classes (rates, commodities, currencies, crypto).
+- news: recent headlines about a company, sector, region, topic or the whole market.
 - portfolio: analyses the user's own holdings.
 - goal: a savings plan to reach a target amount by a date.
 - tax: tax rules and account types.
@@ -1247,8 +1430,8 @@ def replan_node(state: FinanceState, config: RunnableConfig):
     e = state.get("entities") or {}
     if {"market", "news"} & set(intents) and not (e.get("tickers") or e.get("indices") or e.get("companies") or e.get("markets")):
         subj = SYM.subjects(state["question"], history=state.get("history"))           # as the router does
-        res["entities"] = {**e, "companies": subj["companies"], "markets": subj["markets"], "topic": subj["topic"],
-                           "excluded": sorted(subj["excluded"])}
+        res["entities"] = {**e, "companies": subj["companies"], "markets": subj["markets"], "levels": subj["levels"],
+                           "topic": subj["topic"], "excluded": sorted(subj["excluded"])}
         if subj["companies"]:
             res["trace"].append("resolved " + ", ".join(_resolved_label(c) for c in subj["companies"]))
         if subj["markets"]:

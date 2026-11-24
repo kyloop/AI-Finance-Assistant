@@ -56,6 +56,17 @@ def test_company_name_prefix_picks_the_biggest_company(no_yahoo):
     assert ms.resolve_symbol("the berkshire hathaway")["symbol"] == "BRK-B"
 
 
+def test_a_brand_name_is_the_company_not_a_fund_named_after_it(no_yahoo):
+    T.set_directory(LISTING + [
+        {"symbol": "GOOGL", "name": "Alphabet Inc.", "exchange": "NASDAQ", "asset_type": "stock", "rank": 3},
+        {"symbol": "DEPW", "name": "Google DeepMind AI Lab Ecosystem ETF", "exchange": "NYSE Arca", "asset_type": "etf", "rank": T.NO_RANK},
+        {"symbol": "META", "name": "Meta Platforms, Inc.", "exchange": "NASDAQ", "asset_type": "stock", "rank": 5}])
+    assert ms.resolve_symbol("Google")["symbol"] == "GOOGL"
+    assert ms.resolve_symbol("youtube")["symbol"] == "GOOGL"
+    assert ms.resolve_symbol("Facebook")["symbol"] == "META"
+    assert ms.resolve_symbol("Google DeepMind")["symbol"] == "DEPW"           # the fund's own name still finds the fund
+
+
 def test_mistyped_ticker_is_a_ranked_guess(no_yahoo):
     hit = ms.resolve_symbol("NUU")
     assert (hit["symbol"], hit["match"]) == ("NU", "fuzzy")

@@ -205,6 +205,15 @@ def test_market_agent_quotes_a_market(db, monkeypatch):
     assert "quote:JPY=X" in calls and "1.1218" in s["final_response"] and "$1.12" not in s["final_response"]
 
 
+def test_the_market_on_its_own_quotes_the_us_indices(db, monkeypatch):
+    calls = fake_feed(monkeypatch, {})
+    s = ask("how's the market insight today so far?", db)
+    assert "market" in s["intent"] and "quote:^GSPC" in calls and "**^GSPC**" in s["final_response"]
+    assert s["context"]["markets"] == [{"key": "group:us_indices", "name": "the US stock market"}]
+    assert s["context"]["levels"] == ["market"]                              # found by the market agent itself (basic mode)
+    assert "get_market_overview" not in " ".join(s["trace"])                # today's state only: no period, no overview
+
+
 def test_a_market_follow_up_keeps_the_market(db, monkeypatch):
     fake_feed(monkeypatch, {"GC=F": [story(1, "Gold steadies")]})
     first = ask("gold news", db)
@@ -252,3 +261,12 @@ def test_negated_question_ends_with_market_headlines(db, monkeypatch):
     s = ask("I am not looking for DHSB news. I just want earler news of today", db)
     assert calls == ["MARKET"] and "Stocks rally" in s["agent_outputs"]["news"]["content"]
     assert "dhsb" in s["entities"]["excluded"] and s["question"] == "What were the market headlines earlier today?"
+
+
+def test_levels_say_what_the_subjects_cover():
+    assert M.market("XLK")["level"] == "sector" and M.market("^N225")["level"] == "region" and M.group("us_indices")["level"] == "market"
+    assert M.market("GC=F")["level"] == "asset class" and M.group("forex")["level"] == "asset class"
+    assert SYM.levels([{"symbol": "NVDA"}], [M.group("us_indices"), M.market("XLK")]) == ["company", "sector", "market"]
+    assert SYM.levels([], []) == []
+    from src.workflow import context as CTX
+    assert "Level: sector" in CTX.describe({"markets": [{"key": "XLK", "name": "Technology sector"}], "levels": ["sector"]})

@@ -3,7 +3,8 @@
 The bundled instrument list is small, so a company the router has never heard of ("Palantir") is looked up on Yahoo instead of being
 treated as an ordinary word, and a market ("forex", "gold", "Europe vs USD") in the market directory (src/rag/markets.py). With an
 LLM one call finds all of it (`SUBJECT_SYSTEM`), and an empty answer is final: "any news about forex?" names no company, so no
-phrasing cue may turn "forex" or "Any" into one. Without an LLM (or when its reply is unusable), phrasing cues such as "news on X",
+phrasing cue may turn "forex" or "Any" into one (but an empty answer given with the conversation is checked once against the
+message alone, unless the message points back at it). Without an LLM (or when its reply is unusable), phrasing cues such as "news on X",
 "X stock" and "price of X" find the companies and `markets.in_text` the markets."""
 from __future__ import annotations
 
@@ -24,15 +25,18 @@ SUBJECT_SYSTEM = (
     "the user wrote, but correct an obvious misspelling to the real company name (\"nvdia\" -> \"NVIDIA\"). If the message names a "
     "company at all, list that name even if you don't recognise it; never swap it for a company from earlier. A ticker symbol in capitals "
     "(\"NU\", \"AAPL\") is a company, however short. Use the recent "
-    "conversation only when the message names no company and points back at one (\"them\", \"it\", \"that company\", \"the same "
+    "conversation only when the message names no company or market and points back at one (\"them\", \"it\", \"that company\", \"the same "
     "sector\", or a follow-up such as \"grab the recent news\"); then name only the company discussed most recently, unless the "
     "message compares (\"which stock did better?\", \"compare them\"): then name every company the last answer covered. Do not list "
     "countries, people, central banks, markets or general topics here.\n"
     "markets: markets that are not a company, in plain words: currencies and currency pairs (\"forex\", \"EUR/USD\", \"Japanese yen\", "
     "\"US dollar index\"), crypto (\"crypto\", \"Bitcoin\"), commodities (\"gold\", \"crude oil\"), interest rates and bonds "
     "(\"10-year Treasury yield\", \"bonds\"), stock indices (\"S&P 500\", \"Nikkei\", \"the US stock market\") and sectors "
-    "(\"tech sector\"). \"Europe vs USD\" means \"EUR/USD\".\n"
-    "topic: what the news or question is about beyond those companies and markets, as a short phrase (\"contracts\", \"rate cuts\", "
+    "(\"tech sector\", \"communication services\", \"retail sector\", \"bank stocks\", \"healthcare\", \"energy stocks\"): a sector is a "
+    "market, never a company and never only a topic. \"technology sector news\" names the market \"technology sector\". \"Europe vs USD\" means \"EUR/USD\". \"The market\" or \"markets\" on their own mean \"the US stock market\" "
+    "when the message asks about its state (how it is doing, an update, overview, recap or insights); a concept or strategy that mentions the market (\"market cap\", \"timing the market\") names no market. "
+    "List only markets the message itself names or points back at, never ones that merely appear in earlier answers.\n"
+    "topic: what the news or question is about beyond those companies and markets as a short phrase (\"contracts\", \"rate cuts\", "
     "\"chip export restrictions\"); null when it just wants the latest news or figures (\"any news about forex?\", \"summarize today's "
     "news\", \"how is gold doing?\"). Time words (\"today\", \"earlier\", \"this week\") are not a topic.\n"
     "excluded: companies or markets the user says they don't want (\"not looking for DHSB news\" -> [\"DHSB\"], \"other than Apple\"); "
@@ -89,7 +93,32 @@ def keyword_mentions(text: str) -> list[str]:
                 break
         found.append(" ".join(name))
     found += [m.group(1) for m in _BEFORE.finditer(text)]
-    return list(dict.fromkeys(c for c in map(_clean, found + ticker_mentions(text)) if c))
+    return list(dict.fromkeys(c for c in map(_clean, found + ticker_mentions(text) + lowercase_mentions(text)) if c))
+
+
+# Without an LLM nothing capitalises "tesla": a lowercase name counts next to a cue ("tesla stock", "how's tesla doing")
+# and only for the best-known companies, as many names are everyday words ("visa", "target", "gap").
+LOWERCASE_RANK = 500
+_STOCK_KINDS = set("""common preferred growth value dividend income penny meme blue first best top good great new any which single
+individual foreign international domestic cheap safe defensive cyclical small large mid big one two few some each every company""".split())
+_LOWER_BEFORE = re.compile(r"\b([a-z][a-z&.\-]{2,})\s+(?:stock|shares|share price|stock price)\b")
+_LOWER_DOING = re.compile(r"\bho'?w'?(?:s|\s+is|\s+are)?\s+([a-z][a-z&.\-]{2,})(?:\s+(?:stock|shares))?\s+(?:doing|performing|trading)\b")
+
+
+def lowercase_mentions(text: str) -> list[str]:
+    """Tickers of well-known companies the message names in lower case next to a cue word: "ho'ws tesla stock doing?" → TSLA.
+    Funds are left out (their names are generic words: "total", "growth")."""
+    from src.rag.tickers import get_directory
+    d, found = get_directory(), []
+    for pattern in (_LOWER_BEFORE, _LOWER_DOING):
+        for m in pattern.finditer(text):
+            word = m.group(1)
+            if word in _NOT_COMPANIES or word in _ACRONYMS or word in _STOCK_KINDS:     # "growth stock", "first stock"
+                continue
+            hits = [r for r in d.by_name(word) if r["asset_type"] != "etf"]
+            if hits and hits[0]["rank"] < LOWERCASE_RANK:
+                found.append(hits[0]["symbol"])
+    return list(dict.fromkeys(found))
 
 
 def ticker_mentions(text: str) -> list[str]:
@@ -176,6 +205,18 @@ def _grounded(names: list[str], text: str) -> list[str]:
     return kept or named if named else names
 
 
+def _named_in(name: str, text: str) -> bool:
+    """The message itself says this market: by any of its names, so "Communication Services Sector" isn't "sector" in "tech sector news"."""
+    m = MK.lookup(name)
+    return any(w.lower() in text.lower() for w in (MK.words(m) if m else [name]))
+
+
+def _from_earlier(got: dict, text: str) -> bool:
+    """The model's subjects aren't what the message says: none found, or some that can only have come from the conversation."""
+    return (not got["companies"] and not got["markets"]) or not all(_in_text(n, text) for n in got["companies"]) \
+        or not all(_named_in(n, text) for n in got["markets"])
+
+
 def _most_recent(found: list[dict], history: list[dict] | None) -> dict:
     """Of several companies from the conversation, the one mentioned last (by ticker, name or the words the user wrote)."""
     log = " ".join(m["content"].lower() for m in _recent(history))
@@ -186,19 +227,31 @@ def _most_recent(found: list[dict], history: list[dict] | None) -> dict:
 
 
 def subjects(text: str, use_llm: bool = True, history: list[dict] | None = None) -> dict:
-    """What the message is about: {companies: [{symbol, name, mention}], markets: [markets.market / markets.group], topic, excluded}.
-    At most 3 companies and 3 markets. `topic` is the model's ("" = just the latest), or None without an LLM (the news agent then
+    """What the message is about: {companies: [{symbol, name, mention}], markets: [markets.market / markets.group], levels, topic,
+    excluded}. At most 3 companies and 3 markets; `levels` is what they cover (see `levels`). `topic` is the model's ("" = just the latest), or None without an LLM (the news agent then
     reads it from the words). `excluded` is lower-case names and symbols the user ruled out. `history` lets "them" / "the same sector"
     mean the company discussed earlier; without an LLM that works for the last question only."""
     use_llm = use_llm and current_llm() is not None
     key = (text, use_llm, tuple(m["content"] for m in _recent(history)))
     if key not in _cache:
         got = llm_subjects(text, history) if use_llm else None
+        if (got is not None and _from_earlier(got, text) and _recent(history)
+                and not _REFERS_BACK.search(text) and not _COMPARES.search(text)):
+            # The earlier conversation can crowd out what the message itself names ("can you show Google news?" after a run of
+            # Apple answers came back empty, "technology sector news" came back as the sector and index of the answer before).
+            # A message that doesn't point back is read again on its own.
+            alone = llm_subjects(text)
+            if alone is not None and (alone["companies"] or alone["markets"]):
+                got = alone
+            elif own := MK.in_text(without_excluded(text)):        # the model missed it even so; the directory knows the name
+                got = {**got, "companies": [], "markets": [m["name"] for m in own]}
         ruled_out = excluded(text) | {n.lower() for n in (got or {}).get("excluded", [])}
         plain = without_excluded(text)
         if got is not None:                                # the model answered: an empty list means none, not "try the cues"
             names, market_names = _grounded(got["companies"], text), got["markets"]
             markets = [m for m in (MK.lookup(n) for n in market_names) if m]
+            if names or markets:                           # alongside what it took from the conversation, what the message itself names
+                markets = [*MK.in_text(plain), *markets]
         else:
             names = keyword_mentions(plain)
             markets = MK.in_text(plain)
@@ -217,8 +270,17 @@ def subjects(text: str, use_llm: bool = True, history: list[dict] | None = None)
                 out.append({**hit, "mention": n})
         if len(out) > 1 and not any(_in_text(o["mention"], text) for o in out) and _SINGULAR.search(text) and not _PLURAL.search(text):
             out = [_most_recent(out, history)]            # "its price" means one company: the one talked about last
-        _cache[key] = {"companies": out, "markets": markets, "topic": got["topic"] if got is not None else None, "excluded": ruled_out}
+        _cache[key] = {"companies": out, "markets": markets, "levels": levels(out, markets),
+                       "topic": got["topic"] if got is not None else None, "excluded": ruled_out}
     return _cache[key]
+
+
+def levels(companies: list[dict], markets: list[dict]) -> list[str]:
+    """What the subjects cover, in markets.LEVELS order: ["sector"] for "the tech sector", ["company", "market"] for "NVDA vs the
+    market". Decided here once, so the router, the market and news agents, replan and the saved context all read the same."""
+    found = {"company"} if companies else set()
+    found |= {m.get("level") or MK.level_of(m["group"]) for m in markets}
+    return [lv for lv in MK.LEVELS if lv in found]
 
 
 def _ruled_out_market(m: dict, ruled_out: set[str]) -> bool:

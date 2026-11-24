@@ -1,8 +1,8 @@
 """Conversation context: what a turn worked out, saved with its answer and carried into the next turn.
 
-Each answer stores `{question, intents, companies, markets, tab, period, facts}` (see `build`): the corrected question, the companies
-and markets
-and period the agents used, and the figures they reported. The next turn starts from it instead of re-reading old
+Each answer stores `{question, intents, companies, markets, levels, tab, symbol, period, facts}` (see `build`): the corrected question,
+the companies and markets (and the levels they cover: company, sector, region, market, asset class) and period the agents used, and
+the figures they reported. The next turn starts from it instead of re-reading old
 messages: the proofread node rewrites a follow-up ("compare to starbucks") into a complete question with it, and the
 router, market agent and calculator fill what the new message leaves out (`carried`). A message that isn't a
 follow-up starts afresh, so companies and periods don't leak into unrelated questions. A message that points at the screen
@@ -101,6 +101,8 @@ def describe(ctx: dict | None) -> str:
         lines.append("Companies: " + ", ".join(f"{c.get('name') or c['symbol']} ({c['symbol']})" for c in ctx["companies"]))
     if ctx.get("markets"):
         lines.append("Markets: " + ", ".join(m["name"] for m in ctx["markets"]))
+    if ctx.get("levels"):
+        lines.append("Level: " + ", ".join(ctx["levels"]))
     if ctx.get("period"):
         lines.append(f"Period: {ctx['period']['label']} (from {ctx['period']['start']})")
     for sym, f in (ctx.get("facts") or {}).items():
@@ -108,7 +110,17 @@ def describe(ctx: dict | None) -> str:
         if "price" in f:
             bits.append(f"price {_money(f['price'])}" + (f" on {f['as_of']}" if f.get("as_of") else ""))
         if "return" in f:
-            bits.append(f"{f.get('period', 'period')} return {f['return'] * 100:+.1f}% ({_money(f.get('start_price'))} → {_money(f.get('end_price'))})")
+            moved = f" ({_money(f['start_price'])} → {_money(f.get('end_price'))})" if f.get("start_price") is not None else ""
+            bits.append(f"{f.get('period', 'period')} return {f['return'] * 100:+.1f}%{moved}")
+        # in full digits, which the calculator's no-invented-numbers guard reads ("NVIDIA's market cap at $215?")
+        if f.get("market_cap"):
+            bits.append(f"market cap ${f['market_cap']:,.0f}")
+        if f.get("shares_outstanding"):
+            bits.append(f"shares outstanding {f['shares_outstanding']:,.0f}")
+        if f.get("trailing_pe") is not None:
+            bits.append(f"P/E (trailing) {f['trailing_pe']:.2f}")
+        if f.get("dividend_yield") is not None:
+            bits.append(f"dividend yield {f['dividend_yield'] * 100:.2f}%")
         if bits:
             lines.append(f"{sym}: " + "; ".join(bits))
     return "\n".join(lines)
@@ -124,6 +136,8 @@ def merge_turn(a: dict | None, b: dict | None) -> dict:
         elif k == "markets":
             seen = {m["key"] for m in out.get("markets", [])}
             out["markets"] = [*out.get("markets", []), *(m for m in v if m["key"] not in seen)]
+        elif k == "levels":
+            out["levels"] = list(dict.fromkeys([*out.get("levels", []), *v]))
         elif k == "facts":
             facts = dict(out.get("facts") or {})
             for sym, f in v.items():
@@ -145,12 +159,23 @@ def build(state: dict) -> dict:
     named += [{"symbol": t, "name": t} for t in e.get("tickers") or [] if all(t != c["symbol"] for c in named)]
     companies = turn.get("companies") or named
     markets = turn.get("markets") or [{"key": m["key"], "name": m["name"]} for m in e.get("markets") or []]
+    levels = turn.get("levels") or e.get("levels") or []
     if not companies and not markets:                                         # nothing named this turn: keep the subject
-        companies, markets = prev.get("companies") or [], prev.get("markets") or []
+        companies, markets, levels = prev.get("companies") or [], prev.get("markets") or [], prev.get("levels") or []
     companies, markets = companies[:MAX_COMPANIES], markets[:MAX_COMPANIES]
     symbols = {c["symbol"] for c in companies}
     facts = merge_turn({"facts": prev.get("facts") or {}}, {"facts": turn.get("facts") or {}})["facts"]
     return {"question": state.get("question", ""), "intents": state.get("intent") or [], "companies": companies, "markets": markets,
+            "levels": levels,
             "tab": (state.get("view") or {}).get("tab") or None,              # so the next turn can tell the user switched tabs
+            "symbol": (state.get("view") or {}).get("selected") or None,      # ... or picked another symbol on the same tab
             "period": turn.get("period") or prev.get("period"),
-            "facts": {s: f for s, f in facts.items() if s in symbols}}
+            "facts": {s: f for s, f in facts.items() if s in symbols},
+            # topic memory (mds/topic-memory.md): the topic node's choice when it ran, else only a follow-up stays in the
+            # previous turn's topic. A calculation that doesn't point back ("how much will $10,000 grow at 7%?" after "what
+            # is an ETF?") keeps the subject above but starts a topic of its own. None = a new topic, numbered after the
+            # turn (topics.record_turn)
+            "topic_id": (state["topic"].get("topic_id") if state.get("topic") else carried(state).get("topic_id")),
+            "related": list((state.get("topic") or {}).get("related") or []),
+            "linked": list((state.get("topic") or {}).get("linked") or []),
+            "source_ids": list(dict.fromkeys(s["id"] for s in state.get("sources") or [] if isinstance(s, dict) and s.get("id")))}

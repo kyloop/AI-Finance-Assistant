@@ -138,6 +138,10 @@ def test_describe_lists_the_figures_for_prompts():
     text = CTX.describe({**CONTEXT, "facts": {"SBUX": {"price": 94.71, "as_of": "2026-10-02", "period": "last month", "return": -0.105,
                                                        "start_price": 105.82, "end_price": 94.71}}})
     assert "SBUX: price $94.71 on 2026-10-02; last month return -10.5% ($105.82 → $94.71)" in text
+    text = CTX.describe({"facts": {"NVDA": {"price": 202.06, "market_cap": 4879142617088.0, "shares_outstanding": 24300000000,
+                                            "trailing_pe": 25.54488, "dividend_yield": 0.0013682564}}})
+    assert text == ("NVDA: price $202.06; market cap $4,879,142,617,088; shares outstanding 24,300,000,000; P/E (trailing) 25.54; "
+                    "dividend yield 0.14%")
 
 
 def test_the_chat_api_saves_the_context_and_starts_the_next_turn_from_it(client, sid):
@@ -223,6 +227,27 @@ def test_a_follow_up_on_the_same_tab_keeps_the_conversation(db):
     _, second = on_tabs(db, ("How diversified is my portfolio?", PORTFOLIO_VIEW), ("What about this?", PORTFOLIO_VIEW))
     assert second["screen"] is None and second["follow_up"]
     assert "since you switched" not in second["final_response"]
+
+
+def market_view(symbol):
+    return {"tab": "Live Market", "selected": symbol, "watchlist": []}
+
+
+def test_an_answer_saves_the_symbol_it_was_asked_on(db):
+    (s,) = on_tabs(db, ("How is this stock doing?", market_view("MSFT")))
+    assert s["context"]["tab"] == "Live Market" and s["context"]["symbol"] == "MSFT"
+
+
+def test_this_after_picking_another_symbol_on_the_same_tab_means_the_new_one(db):
+    _, second = on_tabs(db, ("How is this stock doing?", market_view("MSFT")), ("What about this?", market_view("AAPL")))
+    assert second["screen"]["symbol"] == "AAPL" and second["screen"]["switched"] == "MSFT" and not second["follow_up"]
+    assert second["entities"]["tickers"][0] == "AAPL"
+    assert "since you switched from MSFT" in second["final_response"]
+
+
+def test_this_on_the_same_symbol_keeps_the_conversation(db):
+    _, second = on_tabs(db, ("How is this stock doing?", market_view("MSFT")), ("What about this?", market_view("MSFT")))
+    assert second["screen"] is None and second["follow_up"]
 
 
 def test_a_named_subject_wins_over_the_tab(db):

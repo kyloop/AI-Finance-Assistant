@@ -2,7 +2,9 @@
 
 Each tool reads through `get_market_data`, so the cache (TTL per endpoint in config.yaml), the stale-cache and sample-data
 fallbacks and the offline tests all apply. Each returns `{symbol: {section: {...}}}` with sections `quote`, `period`,
-`profile` or `fund` (or `error`), every figure computed in Python and labelled with its source and time. The LLM only
+`profile` or `fund` for one symbol, `sector` (a sector against the S&P 500, under its fund's symbol) or `overview` (the
+indices and every sector ranked, under OVERVIEW_KEY), or `error`; every figure computed in Python and labelled with its
+source and time. The LLM only
 picks tools and arguments (TOOL_SPECS, in the OpenAI function format that LangChain's `bind_tools` accepts for every
 provider); `run_tool` validates them. `describe_lines` turns the figures into the agent's text deterministically."""
 from __future__ import annotations
@@ -12,6 +14,7 @@ import re
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+from src.core import market_boards as B
 from src.core.market_service import NotAFund, SymbolNotFound, get_market_data
 
 MAX_SYMBOLS = 3                            # per tool call
@@ -195,11 +198,211 @@ def get_fund_profile(db, symbol: str) -> dict:
     return {s: {"fund": {k: v for k, v in fund.items() if v not in (None, [], {})}}}
 
 
+# ---------------------------------------------------------------- levels above one company
+BENCHMARK = "^GSPC"                        # sectors are compared with the S&P 500, the market they are part of
+OVERVIEW_KEY = "MARKET"                    # market_data key of the overview (markets.MARKET_FEED: "the US market")
+OVERVIEW_INDICES = ["^GSPC", "^IXIC", "^DJI"]
+SECTOR_HOLDINGS = 5
+DEFAULT_PERIOD = "1 month"                 # a sector or the market "doing" well or badly is read over a month, unless asked otherwise
+
+
+def _sector_market(raw) -> dict:
+    """The sector a tool argument names ("XLK", "Technology sector", "tech stocks"), from markets.yaml's `sectors` group."""
+    from src.rag import markets as MK
+    m = MK.lookup(str(raw or "").strip().lstrip("$"), meaning=False)
+    if not m or m["group"] != "sectors" or not m["symbol"]:
+        raise ToolError(f"unknown sector {raw!r}; use a sector fund symbol: {sector_list()}")
+    return m
+
+
+def sector_list() -> str:
+    from src.rag import markets as MK
+    return ", ".join(f"{e['symbol']} ({e['name'].removesuffix(' sector')})" for e in MK.entries() if e["group"] == "sectors")
+
+
+def _period_of(db, symbol: str, start: date, label: str) -> dict | None:
+    return performance(db, [symbol], start, label).get(symbol, {}).get("period")
+
+
+def _return_row(symbol: str, name: str, p: dict | None) -> dict:
+    return {"symbol": symbol, "name": name, "return": p["return"] if p else None}
+
+
+def sector_performance(db, symbol: str, start: date, label: str) -> dict:
+    """A sector's return over a period, measured by its sector fund, against the S&P 500 over the same dates, and how its largest
+    companies moved: Yahoo's list for the whole sector (yf.Sector), else the fund's top holdings (live data only either way)."""
+    m = _sector_market(symbol)
+    etf = m["symbol"]
+    own = _period_of(db, etf, start, label)
+    if own is None:
+        return {etf: {"error": {"message": "no price history for this sector's fund"}}}
+    bench = _period_of(db, BENCHMARK, start, label)
+    top, of = largest_in_sector(db, etf)
+    holdings = [{**_return_row(h["symbol"], h.get("name") or h["symbol"], _period_of(db, h["symbol"], start, label)), "weight": h.get("weight")}
+                for h in top[:SECTOR_HOLDINGS] if SYMBOL_OK.match(str(h.get("symbol") or ""))]
+    sector = {"name": m["name"], "fund": etf, "label": label, "start": start.isoformat(), "start_date": own["start_date"],
+              "end_date": own["end_date"], "return": own["return"], "partial": own["partial"],
+              "benchmark": _return_row(BENCHMARK, "S&P 500", bench) if bench else None,
+              "vs_benchmark": round(own["return"] - bench["return"], 4) if bench else None,
+              "holdings": holdings, "weights_of": of, **{k: own[k] for k in ("as_of", "source", "freshness")}}
+    return {etf: {"sector": sector}}
+
+
+def largest_in_sector(db, etf: str) -> tuple[list[dict], str]:
+    """The sector's largest companies with their weight, and what the weight is a share of ("sector" or "fund")."""
+    try:
+        return B.sector_profile(db, etf)["data"]["top_companies"], "sector"
+    except SymbolNotFound:
+        pass
+    try:
+        return get_market_data(db, "fund", etf)["data"].get("top_holdings") or [], "fund"
+    except (NotAFund, SymbolNotFound):
+        return [], "fund"
+
+
+def get_sector_performance(db, sector: str, period: str = DEFAULT_PERIOD) -> dict:
+    """A US stock-market sector's return over a period (measured by its sector fund), against the S&P 500 over the same dates,
+    and how its largest companies moved. Use for questions about a sector rather than one company."""
+    p = parse_period(period)
+    if p is None:
+        raise ToolError(f"unknown period {period!r}; use e.g. \"1 month\", \"6 months\", \"1y\" or \"ytd\"")
+    return sector_performance(db, sector, *p)
+
+
+def market_overview(db, start: date, label: str) -> dict:
+    """The US stock market over a period: the main indices, and every sector ranked from best to worst return."""
+    from src.rag import markets as MK
+    names = {s: MK.entry(s)["name"] for s in OVERVIEW_INDICES} | {e["symbol"]: e["name"] for e in MK.entries() if e["group"] == "sectors"}
+    periods = {s: _period_of(db, s, start, label) for s in names}
+    got = [p for p in periods.values() if p]
+    if not got:
+        return {OVERVIEW_KEY: {"error": {"message": "no price history for the market"}}}
+    sectors = [_return_row(s, names[s], periods[s]) for s in names if s not in OVERVIEW_INDICES]
+    first = periods[BENCHMARK] or got[0]                       # dates and freshness: the S&P 500's, else whatever was found
+    overview = {"name": "US stock market", "label": label, "start": start.isoformat(),
+                "indices": [_return_row(s, names[s], periods[s]) for s in OVERVIEW_INDICES if periods[s]],
+                "sectors": sorted((s for s in sectors if s["return"] is not None), key=lambda s: -s["return"]),
+                "missing": [s["symbol"] for s in sectors if s["return"] is None],
+                **{k: first[k] for k in ("start_date", "end_date", "as_of", "source", "freshness")}}
+    return {OVERVIEW_KEY: {"overview": overview}}
+
+
+def get_market_overview(db, period: str = DEFAULT_PERIOD) -> dict:
+    """The US stock market as a whole over a period: the S&P 500, Nasdaq and Dow, and all 11 sectors ranked from best to worst.
+    Use for "how is the market doing", market overviews and "which sectors did best"."""
+    p = parse_period(period)
+    if p is None:
+        raise ToolError(f"unknown period {period!r}; use e.g. \"1 month\", \"6 months\", \"1y\" or \"ytd\"")
+    return market_overview(db, *p)
+
+
+# ---------------------------------------------------------------- Yahoo's sector, industry, screen and market-hours data
+# Keyed in market_data by what they describe ("SECTOR:XLK", "INDUSTRY:semiconductors", "LARGEST"...), never by a company's ticker.
+# The boards are market_boards' (the Live Market tab's charts), so chat and charts agree. Live data only: no sample fallback.
+LIVE_ONLY = "this needs live data from Yahoo Finance, which isn't available right now"
+
+
+def _range(period) -> str:
+    r = str(period or "1M").upper().replace(" ", "")
+    if r not in B.RANGES:
+        raise ToolError(f"unknown period {period!r}; use one of {', '.join(B.RANGES)}")
+    return r
+
+
+def _board(kind: str, b: dict, title: str) -> dict:
+    return {"board": {"kind": kind, "title": title, **{k: b.get(k) for k in ("label", "start_date", "end_date", "items", "missing", "as_of", "freshness")},
+                      "source": "yfinance"}}
+
+
+def get_sector_profile(db, sector: str) -> dict:
+    """What a US sector is made of: its size and share of the whole market, its industries and their weights, its 10 largest
+    companies (with analysts' consensus rating) and its largest ETFs. Use for "what's in the tech sector", "biggest bank stocks"."""
+    m = _sector_market(sector)
+    key = f"SECTOR:{m['symbol']}"
+    try:
+        env = B.sector_profile(db, m["symbol"])
+    except SymbolNotFound:
+        return {key: {"error": {"message": LIVE_ONLY}}}
+    d = env["data"]
+    ov = d["overview"]
+    return {key: {"sector_profile": {"name": m["name"], "fund": m["symbol"], "companies_count": ov["companies_count"], "market_cap": ov["market_cap"],
+                                     "market_weight": ov["market_weight"], "industries": [{"name": i["name"], "key": i["key"], "weight": i["weight"]} for i in d["industries"]],
+                                     "top_companies": d["top_companies"][:10], "top_etfs": d["top_etfs"][:5], **_meta(env)}}}
+
+
+def get_industry(db, industry: str) -> dict:
+    """One industry (e.g. "semiconductors", "banks-regional", "software-infrastructure"; get_sector_profile lists a sector's): its
+    size and share of its sector, its largest companies, and the best performing (year to date) and fastest growing ones in it."""
+    slug = re.sub(r"[^a-z0-9]+", "-", str(industry or "").lower()).strip("-")
+    if not slug:
+        raise ToolError("name an industry, e.g. \"semiconductors\"")
+    key = f"INDUSTRY:{slug}"
+    try:
+        env = get_market_data(db, "industry", slug)
+    except SymbolNotFound:
+        return {key: {"error": {"message": f"no industry called {industry!r} (or {LIVE_ONLY}); get_sector_profile lists a sector's industries"}}}
+    d = env["data"]
+    ov = d["overview"]
+    return {key: {"industry": {"name": d["name"], "sector": d["sector_name"], "companies_count": ov["companies_count"], "market_cap": ov["market_cap"],
+                               "sector_weight": ov["market_weight"], "top_companies": d["top_companies"][:10],
+                               "top_performing": d["top_performing"], "top_growth": d["top_growth"], **_meta(env)}}}
+
+
+def get_industry_performance(db, sector: str, period: str = "1M") -> dict:
+    """How each industry in a sector did over a period, best to worst, with its weight in the sector. Use for "which part of
+    tech did best", "what dragged financials down"."""
+    m, rng = _sector_market(sector), _range(period)
+    key = f"INDUSTRIES:{m['symbol']}"
+    try:
+        return {key: _board("industries", B.industry_board(db, m["symbol"], rng), f"Industries in the {m['name'].lower()}")}
+    except SymbolNotFound:
+        return {key: {"error": {"message": LIVE_ONLY}}}
+
+
+def get_largest_companies(db, period: str = "1M") -> dict:
+    """The 10 largest US-listed companies by market value and how each did over a period."""
+    try:
+        return {"LARGEST": _board("largest", B.largest_board(db, _range(period)), "Largest US-listed companies")}
+    except SymbolNotFound:
+        return {"LARGEST": {"error": {"message": LIVE_ONLY}}}
+
+
+def get_region_performance(db, period: str = "1M") -> dict:
+    """Stock markets around the world: each country's or area's main index (US, UK, Eurozone, Germany, Japan, China, India...)
+    over a period, best to worst, in local currency. Use for "how is Europe / Asia doing", "which markets did best"."""
+    return {"REGIONS": _board("regions", B.region_board(db, _range(period)), "Stock markets by region")}
+
+
+def get_most_active(db) -> dict:
+    """Today's 20 most traded US stocks by share volume, with price and change."""
+    try:
+        b = B.most_active(db)
+    except SymbolNotFound:
+        return {"MOST_ACTIVE": {"error": {"message": LIVE_ONLY}}}
+    return {"MOST_ACTIVE": _board("most_active", b, b["title"])}
+
+
+def get_market_status(db) -> dict:
+    """Whether the US stock market is open or closed now, and today's trading hours."""
+    try:
+        env = get_market_data(db, "market_status", "US")
+    except SymbolNotFound:
+        return {"MARKET_STATUS": {"error": {"message": LIVE_ONLY}}}
+    return {"MARKET_STATUS": {"status": {**env["data"], **_meta(env)}}}
+
+
 TOOLS = {"get_quote": get_quote, "get_performance": get_performance,
-         "get_company_profile": get_company_profile, "get_fund_profile": get_fund_profile}
+         "get_company_profile": get_company_profile, "get_fund_profile": get_fund_profile,
+         "get_sector_performance": get_sector_performance, "get_market_overview": get_market_overview,
+         "get_sector_profile": get_sector_profile, "get_industry_performance": get_industry_performance, "get_industry": get_industry,
+         "get_largest_companies": get_largest_companies, "get_region_performance": get_region_performance,
+         "get_most_active": get_most_active, "get_market_status": get_market_status}
 
 _SYMBOLS_ARG = {"type": "array", "items": {"type": "string"}, "description": "ticker symbols, e.g. [\"TSLA\", \"SBUX\"] (at most 3)"}
 _SYMBOL_ARG = {"type": "string", "description": "one ticker symbol, e.g. \"TSLA\""}
+_PERIOD_ARG = {"type": "string", "description": "e.g. \"1 month\" (the default), \"6 months\", \"1y\", \"ytd\""}
+_RANGE_ARG = {"type": "string", "enum": list(B.RANGES), "description": "1D (today), 1M (the default), 3M, YTD or 1Y"}
+_SECTOR_ARG = {"type": "string", "description": f"the sector's fund symbol, one of {sector_list()}"}
 TOOL_SPECS = [
     {"type": "function", "function": {"name": "get_quote", "description": get_quote.__doc__,
                                       "parameters": {"type": "object", "properties": {"symbols": _SYMBOLS_ARG}, "required": ["symbols"]}}},
@@ -212,6 +415,27 @@ TOOL_SPECS = [
                                       "parameters": {"type": "object", "properties": {"symbol": _SYMBOL_ARG}, "required": ["symbol"]}}},
     {"type": "function", "function": {"name": "get_fund_profile", "description": get_fund_profile.__doc__,
                                       "parameters": {"type": "object", "properties": {"symbol": _SYMBOL_ARG}, "required": ["symbol"]}}},
+    {"type": "function", "function": {"name": "get_sector_performance", "description": get_sector_performance.__doc__,
+                                      "parameters": {"type": "object", "properties": {
+                                          "sector": _SECTOR_ARG, "period": _PERIOD_ARG}, "required": ["sector"]}}},
+    {"type": "function", "function": {"name": "get_market_overview", "description": get_market_overview.__doc__,
+                                      "parameters": {"type": "object", "properties": {"period": _PERIOD_ARG}, "required": []}}},
+    {"type": "function", "function": {"name": "get_sector_profile", "description": get_sector_profile.__doc__,
+                                      "parameters": {"type": "object", "properties": {"sector": _SECTOR_ARG}, "required": ["sector"]}}},
+    {"type": "function", "function": {"name": "get_industry_performance", "description": get_industry_performance.__doc__,
+                                      "parameters": {"type": "object", "properties": {"sector": _SECTOR_ARG, "period": _RANGE_ARG},
+                                                     "required": ["sector"]}}},
+    {"type": "function", "function": {"name": "get_industry", "description": get_industry.__doc__,
+                                      "parameters": {"type": "object", "properties": {"industry": {"type": "string", "description": "Yahoo's industry key or name, e.g. \"semiconductors\""}},
+                                                     "required": ["industry"]}}},
+    {"type": "function", "function": {"name": "get_largest_companies", "description": get_largest_companies.__doc__,
+                                      "parameters": {"type": "object", "properties": {"period": _RANGE_ARG}, "required": []}}},
+    {"type": "function", "function": {"name": "get_region_performance", "description": get_region_performance.__doc__,
+                                      "parameters": {"type": "object", "properties": {"period": _RANGE_ARG}, "required": []}}},
+    {"type": "function", "function": {"name": "get_most_active", "description": get_most_active.__doc__,
+                                      "parameters": {"type": "object", "properties": {}, "required": []}}},
+    {"type": "function", "function": {"name": "get_market_status", "description": get_market_status.__doc__,
+                                      "parameters": {"type": "object", "properties": {}, "required": []}}},
 ]
 
 
@@ -307,6 +531,8 @@ def describe_lines(data: dict) -> list[str]:
                     bits.append(f"{label} {pr[k]:.2f}")
             if pr.get("market_cap"):
                 bits.append(f"market cap ${big(pr['market_cap'])}")
+            if pr.get("shares_outstanding"):
+                bits.append(f"shares outstanding {big(pr['shares_outstanding'])}")
             if isinstance(pr.get("dividend_yield"), (int, float)):
                 bits.append(f"dividend yield {_pct(pr['dividend_yield'], signed=False)}")
             if pr.get("fifty_two_week_low") and pr.get("fifty_two_week_high"):
@@ -331,10 +557,121 @@ def describe_lines(data: dict) -> list[str]:
             if f.get("sector_weights"):
                 bits.append("largest sectors " + ", ".join(f"{s['name']} {_pct(s['weight'], signed=False)}" for s in f["sector_weights"]))
             lines.append(f"- **{name}** ({sym}) fund: " + ("; ".join(bits) or "no details available") + ".")
+        if s := d.get("sector"):
+            lines += sector_lines(s)
+        if o := d.get("overview"):
+            lines += overview_lines(o)
+        for sec, write in YAHOO_LINES.items():
+            if sec in d:
+                lines += write(d[sec])
         if "error" in d and len(d) == 1:
-            missing.append(sym)
+            if is_subject_key(sym):
+                lines.append(f"_{sym.split(':')[0].replace('_', ' ').capitalize()}: {d['error']['message']}._")
+            else:
+                missing.append(sym)
     if missing:
         lines.append(f"_I don't have data for: {', '.join(missing)}._")
+    return lines
+
+
+SUBJECT_KEYS = {OVERVIEW_KEY, "LARGEST", "REGIONS", "MOST_ACTIVE", "MARKET_STATUS"}
+
+
+def is_subject_key(key: str) -> bool:
+    """A market_data key that names a market subject (the overview, a sector's profile, an industry...), not a ticker."""
+    return key in SUBJECT_KEYS or key.split(":")[0] in ("SECTOR", "INDUSTRY", "INDUSTRIES")
+
+
+def _share(x) -> str:
+    return f"{x * 100:.1f}%" if isinstance(x, (int, float)) else "n/a"
+
+
+def board_lines(b: dict) -> list[str]:
+    """A board (industries, largest companies, regions, most active) as one ranked line, like the Live Market tab's chart."""
+    def item(i: dict) -> str:
+        if b["kind"] == "industries":
+            return f"{i['name']} {_ret(i['return'])} ({_share(i.get('weight'))} of the sector)"
+        if b["kind"] == "largest":
+            return f"{i['name']} ({i['symbol']}, ${big(i.get('market_cap'))}) {_ret(i['return'])}"
+        if b["kind"] == "regions":
+            return f"{i['region']} ({i['name']}) {_ret(i['return'])}"
+        return f"{i['name']} ({i['symbol']}): {big(i.get('volume'))} shares, {_ret(i.get('change_pct'))}"
+    order = {"industries": "best to worst", "regions": "best to worst, in local currency", "largest": "by market value",
+             "most_active": "by shares traded"}[b["kind"]]
+    lines = [f"- **{b['title']}**, {b['label']}{_dates(b)} ({order}): " + "; ".join(item(i) for i in b.get("items") or []) + "."]
+    if b.get("missing"):
+        lines.append(f"_No figures for: {', '.join(b['missing'])}._")
+    return lines
+
+
+def sector_profile_lines(p: dict) -> list[str]:
+    lines = [f"- **{p['name']}** (fund {p['fund']}): {p.get('companies_count') or 'n/a'} companies worth ${big(p.get('market_cap'))}, "
+             f"{_share(p.get('market_weight'))} of the US stock market."]
+    if p.get("industries"):
+        lines.append("- Its industries by weight: " + ", ".join(f"{i['name']} {_share(i['weight'])}" for i in p["industries"]) + ".")
+    if p.get("top_companies"):
+        lines.append("- Its largest companies: " + ", ".join(f"{c['name']} ({c['symbol']}, {_share(c['weight'])}"
+                                                          + (f", analysts: {c['rating']}" if c.get("rating") else "") + ")" for c in p["top_companies"]) + ".")
+    if p.get("top_etfs"):
+        lines.append("- Its largest ETFs: " + ", ".join(f"{e['name']} ({e['symbol']})" for e in p["top_etfs"]) + ".")
+    return lines
+
+
+def industry_lines(p: dict) -> list[str]:
+    lines = [f"- **{p['name']}** industry ({p['sector']} sector): {p.get('companies_count') or 'n/a'} companies worth ${big(p.get('market_cap'))}, "
+             f"{_share(p.get('sector_weight'))} of its sector."]
+    if p.get("top_companies"):
+        lines.append("- Largest companies: " + ", ".join(f"{c['name']} ({c['symbol']}, {_share(c['weight'])})" for c in p["top_companies"]) + ".")
+    if p.get("top_performing"):
+        lines.append("- Best performing this year: " + ", ".join(f"{c['name']} ({c['symbol']}) {_ret(c.get('ytd_return'))}" for c in p["top_performing"]) + ".")
+    if p.get("top_growth"):
+        lines.append("- Fastest expected earnings growth: " + ", ".join(f"{c['name']} ({c['symbol']}, growth estimate {_ret(c.get('growth_estimate'))})"
+                                                                         for c in p["top_growth"]) + ".")
+    return lines
+
+
+def status_lines(s: dict) -> list[str]:
+    hours = f" Regular hours today: {s['open'][11:16]}–{s['close'][11:16]} UTC." if s.get("open") and s.get("close") else ""
+    return [f"- **{s.get('name') or 'US markets'}**: {s.get('message') or s.get('status')}.{hours}"]
+
+
+YAHOO_LINES = {"board": board_lines, "sector_profile": sector_profile_lines, "industry": industry_lines, "status": status_lines}
+
+
+def _ret(x) -> str:
+    return f"{x * 100:+.1f}%" if isinstance(x, (int, float)) else "n/a"
+
+
+def _dates(sec: dict) -> str:
+    return f" ({sec['start_date']} to {sec['end_date']})" if sec.get("start_date") and sec.get("end_date") else ""
+
+
+def sector_lines(s: dict) -> list[str]:
+    """"Technology sector, last month: -3.6%, against +0.9% for the S&P 500 (4.5 points behind)", then its largest holdings' moves."""
+    short = " (data available for part of the period only)" if s.get("partial") else ""
+    line = f"- **{s['name']}**, {s['label']}{_dates(s)}{short}: **{_ret(s['return'])}**"
+    if (b := s.get("benchmark")) and isinstance(s.get("vs_benchmark"), (int, float)):
+        gap = s["vs_benchmark"] * 100
+        line += f", against {_ret(b['return'])} for the {b['name']} over the same dates ({abs(gap):.1f} percentage points {'ahead' if gap >= 0 else 'behind'})"
+    lines = [line + f". Measured by the {s['fund']} sector fund, which holds the sector's companies."]
+    moved = [h for h in s.get("holdings") or [] if h.get("return") is not None]
+    if moved:
+        lines.append(f"- Largest companies in the {s['name'].lower()}, same period: "
+                     + ", ".join(f"{h['name']} ({h['symbol']}" + (f", {_pct(h['weight'], signed=False)} of the {s.get('weights_of', 'fund')}" if h.get("weight") else "")
+                                 + f") {_ret(h['return'])}" for h in moved) + ".")
+    return lines
+
+
+def overview_lines(o: dict) -> list[str]:
+    """The market overview: the indices on one line, the sectors ranked best to worst on the next."""
+    lines = []
+    if o.get("indices"):
+        lines.append(f"- **{o['name']}**, {o['label']}{_dates(o)}: " + ", ".join(f"{i['name']} **{_ret(i['return'])}**" for i in o["indices"]) + ".")
+    if o.get("sectors"):
+        lines.append(f"- Sectors, best to worst over the {o['label']}: "
+                     + ", ".join(f"{s['name'].removesuffix(' sector')} {_ret(s['return'])}" for s in o["sectors"]) + ".")
+    if o.get("missing"):
+        lines.append(f"_No figures for: {', '.join(o['missing'])}._")
     return lines
 
 
@@ -347,6 +684,8 @@ def data_block(data: dict) -> str:
             return big(v)
         return v
     skip = {"source", "name", "partial"}
-    return "\n".join(f"{sym} {sec}: " + " ".join(f"{k}={fmt(k, v)}" for k, v in fields.items() if k not in skip and v is not None)
+    readable = {"sector": sector_lines, "overview": overview_lines, **YAHOO_LINES}     # nested figures: the same sentences as the answer text
+    return "\n".join(f"{sym} {sec}: " + (" ".join(l.removeprefix("- ") for l in readable[sec](fields)) if sec in readable else
+                                         " ".join(f"{k}={fmt(k, v)}" for k, v in fields.items() if k not in skip and v is not None))
                      for sym, d in data.items() if not sym.startswith("_")
                      for sec, fields in d.items() if isinstance(fields, dict) and sec != "error")

@@ -28,6 +28,10 @@ log = logging.getLogger(__name__)
 
 MARKET, GROUP = "market", "market_group"
 GROUP_QUOTES = 4                 # a group ("forex") is quoted by its first few symbols
+# What a subject covers, which decides the figures the market agent fetches: one company, a sector, a region or country, the market
+# as a whole, or an asset class (currencies, crypto, commodities, rates). Companies are "company" (symbols.subjects).
+LEVELS = ("company", "sector", "region", "market", "asset class")
+GROUP_LEVEL = {"sectors": "sector", "world_indices": "region", "us_indices": "market"}      # any other group: "asset class"
 # Names that are also everyday words: found by `in_text` only when capitalised mid-sentence (basic mode has no LLM to tell)
 _EVERYDAY = {"stellar", "ripple", "tron", "ether", "brent", "the market", "utilities", "financials", "cable", "sterling", "rice",
              "sugar", "cotton", "corn", "coffee", "hogs", "cattle", "wheat", "silver", "copper", "oil", "gold"}
@@ -126,17 +130,22 @@ def entry(symbol: str) -> dict | None:
     return next((e for e in entries() if e["symbol"] == symbol), None)
 
 
+def level_of(group_key: str) -> str:
+    return GROUP_LEVEL.get(group_key, "asset class")
+
+
 def market(symbol: str) -> dict:
-    """A symbol as a subject: {kind, key, symbol, name, group, quotes, news}. `news` is the Yahoo search terms for its headlines
-    (its own term, else its ETF); `quotes` the symbols to price."""
+    """A symbol as a subject: {kind, key, symbol, name, group, level, quotes, news}. `news` is the Yahoo search terms for its
+    headlines (its own term, else its ETF); `quotes` the symbols to price."""
     e = entry(symbol)
     news = [e["news"]] if e["news"] else [e["etf"]] if e["etf"] else []
-    return {"kind": MARKET, "key": symbol, "symbol": symbol, "name": e["name"], "group": e["group"], "quotes": [symbol], "news": news}
+    return {"kind": MARKET, "key": symbol, "symbol": symbol, "name": e["name"], "group": e["group"], "level": level_of(e["group"]),
+            "quotes": [symbol], "news": news}
 
 
 def group(key: str) -> dict:
     g = load()[key]
-    return {"kind": GROUP, "key": f"group:{key}", "symbol": None, "name": g["label"], "group": key,
+    return {"kind": GROUP, "key": f"group:{key}", "symbol": None, "name": g["label"], "group": key, "level": level_of(key),
             "quotes": [s["symbol"] for s in g["symbols"][:GROUP_QUOTES]], "news": list(g["news"])}
 
 
