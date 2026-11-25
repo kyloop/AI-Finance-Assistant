@@ -414,8 +414,8 @@ def test_married_filing_separately_uses_half_the_joint_lines_and_no_earned_incom
 def test_household_counts_need_words_for_them_in_the_message():
     raw = {"children_under_17": 2, "age_65_or_older": 1, "students": 1, "graduate_school": True}
     assert TC.household_of(raw, "I earn $50,000 and have two kids") == {"children_under_17": 2, "graduate_school": True}
-    assert TC.household_of(raw, "I'm 67, retired, my daughter is in college") == {
-        "children_under_17": 2, "age_65_or_older": 1, "students": 1, "graduate_school": True}
+    assert TC.household_of(raw, "I'm 67, retired, my daughter is in college") == {       # a college student isn't under 17
+        "age_65_or_older": 1, "students": 1, "graduate_school": True}
     assert TC.household_of({"children_under_17": 3}, "I earn $50,000") == {}                      # invented children
 
 
@@ -663,3 +663,23 @@ def test_the_users_numbers_follow_an_explanation_word_for_word():
     out = N.tax_node({"question": q, "original_question": q, "history": [], "profile": {}, "entities": {"wiki_query": q},
                       "context_in": {"tax": prof}}, {})["agent_outputs"]["tax"]
     assert out["verbatim_tail"].startswith("**In your estimate (2025 rules, computed by Finnie):**")
+
+
+def test_a_curly_apostrophe_still_says_single_and_an_ira_withdrawal_is_income():
+    assert TC.status_from(None, "I’m single. I made $60,000 freelancing") == "single"
+    r, _ = TC.reading_from([{"text": "IRA", "amount": 50000, "kind": "retirement_withdrawal", "loss": False}], "single")
+    assert r.inputs.other_income == 50_000 and r.inputs.pre_tax_retirement == 0
+
+
+def test_what_the_proofreader_dropped_is_read_from_the_typed_message():
+    typed = "I'm single. I made $60,000 freelancing as a 1099 contractor. How much federal tax do I owe?"
+    reworded = "How much federal tax do I owe on $60,000 from freelancing as a 1099 contractor?"
+    llm_module.set_llm(SortingLLM({"items": [{"amount": 60000, "kind": "self_employment", "text": "freelancing"}]}))
+    est, _ = TC.answer(reworded, typed=typed)
+    assert est.profile["filing_status"] == "single" and est.choices == []
+
+
+def test_a_son_in_college_is_not_a_child_under_17():
+    q = "I'm single, I earn $85,000 and paid $6,000 of tuition for my son's first year of college."
+    assert TC.household_of({"children_under_17": 1}, q) == {}
+    assert TC.household_of({"children_under_17": 1}, "My 6-year-old son; I paid $6,000 of tuition") == {"children_under_17": 1}

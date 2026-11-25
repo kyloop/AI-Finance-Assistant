@@ -718,7 +718,7 @@ def tax_node(state: FinanceState, config: RunnableConfig):
             trace_first.append(f"tax tool estimate_income_tax {note}")
         if est is None and (TAXC.asks_income_tax(question) or (figure and not profile)):   # new figures, or a first one
             recent = H.transcript(state.get("history")) if state.get("follow_up") else ""
-            est, note = TT.estimate_income_tax(question, f"Recent conversation:\n{recent}" if recent else "")
+            est, note = TT.estimate_income_tax(question, f"Recent conversation:\n{recent}" if recent else "", typed=typed)
             trace_first.append(f"tax tool estimate_income_tax: {note}")
         if est is not None:
             res = _out("tax", est.text, verbatim=True, explains_itself=True, origin="tax_tools",

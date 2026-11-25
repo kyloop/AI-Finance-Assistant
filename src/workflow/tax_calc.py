@@ -25,7 +25,8 @@ KINDS = {
     "short_term_gains": "profit from selling investments held a year or less",
     "long_term_gains": "profit from selling investments held more than a year",
     "stock_unspecified": "stock or investment earnings/profit/gains without saying how long they were held",
-    "pre_tax_retirement": "traditional 401(k)/403(b)/IRA contributions",
+    "pre_tax_retirement": "money put INTO a traditional 401(k)/403(b)/IRA (contributions)",
+    "retirement_withdrawal": "money taken OUT of a traditional IRA or 401(k), or a pension or annuity payment (taxable income)",
     "state_local_taxes": "state or local income tax paid",
     "property_tax": "property / real estate tax paid",
     "mortgage_interest": "mortgage interest paid",
@@ -164,7 +165,7 @@ class Reading:
 
 
 INCOME_KINDS = {"wages", "self_employment", "job_unspecified", "interest_dividends", "qualified_dividends", "other_income",
-                "short_term_gains", "long_term_gains", "stock_unspecified", "tips", "overtime"}
+                "short_term_gains", "long_term_gains", "stock_unspecified", "tips", "overtime", "retirement_withdrawal"}
 TREATED = {"wages": "wages (job pay)", "self_employment": "self-employment income", "job_unspecified": "wages (job pay), assumed W-2",
            "interest_dividends": "interest / ordinary dividends", "qualified_dividends": "qualified dividends",
            "other_income": "other taxable income", "short_term_gains": "short-term capital gains",
@@ -172,7 +173,7 @@ TREATED = {"wages": "wages (job pay)", "self_employment": "self-employment incom
            "pre_tax_retirement": "pre-tax retirement contribution", "state_local_taxes": "state/local tax (itemized deduction)",
            "property_tax": "property tax (itemized deduction)", "mortgage_interest": "mortgage interest (itemized deduction)",
            "charity": "charitable gift (itemized deduction)", "not_tax_input": "not used: doesn't change federal tax",
-           "tips": "tips (pay, and a deduction)", "overtime": "overtime pay (pay, and a deduction for the premium)",
+           "tips": "tips (pay, and a deduction)", "retirement_withdrawal": "retirement withdrawal / pension (income)", "overtime": "overtime pay (pay, and a deduction for the premium)",
            "car_loan_interest": "car-loan interest (deduction)", "student_loan_interest": "student loan interest (deduction)", "care_expenses": "child/dependent care (credit)",
            "college_expenses": "college costs (credit)"}
 
@@ -217,21 +218,22 @@ def _items(raw: list, allowed: list[float], must_use: list[float], base: list[di
     return out, ""
 
 
-def read(question: str, reply: dict | None) -> tuple[Reading | None, str]:
-    """(reading, "") or (None, why it was rejected). Every amount must be one of the user's, and every amount of theirs used."""
+def read(question: str, reply: dict | None, typed: str = "") -> tuple[Reading | None, str]:
+    """(reading, "") or (None, why it was rejected). Every amount must be one of the user's, and every amount of theirs used.
+    `typed` is the message as the user wrote it: the proofreader's rewrite once dropped "I'm single", and may add a total."""
     if not reply or not isinstance(reply.get("items"), list) or not reply["items"]:
         return None, "no amounts sorted"
-    given = amounts(question)
-    items, why = _items(reply["items"], given, given)
+    both = f"{typed} {question}"
+    allowed = list(dict.fromkeys(amounts(question) + amounts(typed)))
+    items, why = _items(reply["items"], allowed, amounts(typed) if typed else amounts(question))
     if items is None:
         return None, why
-    if re.search(r"\b(includ\w*|of which|out of which)\b", question, re.I):     # "$38,000 including $12,000 in tips"
+    if re.search(r"\b(includ\w*|of which|out of which)\b", both, re.I):     # "$38,000 including $12,000 in tips"
         for it in items:
             if it["kind"] in ("tips", "overtime"):
                 it["included"] = True
-    return reading_from(items, status_from(reply.get("filing_status"), question), reply.get("year"),
-                        household_of(reply.get("household"), question))
-
+    return reading_from(items, status_from(reply.get("filing_status"), both), reply.get("year"),
+                        household_of(reply.get("household"), both))
 
 HOUSEHOLD = {"children_under_17": r"\b(kids?|child|children|sons?|daughters?|toddler|baby|babies|dependents?)\b",
              "other_dependents": r"\b(dependents?|parents?|mother|father|mom|dad|son|daughter|kids?|child|children|student)\b",
@@ -247,7 +249,8 @@ _STATUS_WORDS = {
                                     r"widow(ed|er)?)\b", re.I),
     "single": re.compile(r"\bsingle\b|\bunmarried\b", re.I),
 }
-_SAYS_SINGLE = re.compile(r"\b(i'?m|i am|she'?s|he'?s|is a|as a|file as|filing as)\s+(a\s+)?single\b(?!\s+(mom|mother|dad|father|parent))", re.I)
+_SAYS_SINGLE = re.compile(r"\b(i['’]?m|i am|she['’]?s|he['’]?s|is a|as a|file as|filing as)\s+(a\s+)?single\b"
+                          r"(?!\s+(mom|mother|dad|father|parent))", re.I)     # the proofreader writes I’m with a curly quote
 
 
 def status_from(status, text: str):
@@ -277,6 +280,12 @@ def household_of(raw, text: str) -> dict:
             out[key] = n
     if (raw or {}).get("graduate_school") is True:
         out["graduate_school"] = True
+    # "my son's first year of college": the model has counted a college student as a child under 17 (a $2,200 credit
+    # he can't get). With college in the message, a child under 17 needs a sign of a young age.
+    young = re.search(r"\b(under (1[0-7]|[1-9])|(\d|1[0-6])[- ]?(year|yr)s?[- ]old|aged? (\d|1[0-6])\b|kids?|toddler|bab(y|ies)|"
+                      r"daycare|preschool|elementary|middle school)\b", text, re.I)
+    if out.get("children_under_17") and re.search(r"\b(college|universit\w*|tuition)\b", text, re.I) and not young:
+        out.pop("children_under_17")
     return out
 
 
@@ -306,6 +315,8 @@ def reading_from(items: list[dict], status: str | None, year=None, household: di
             unspecified_stock += amount
         elif kind == "job_unspecified":
             unspecified_job += amount
+        elif kind == "retirement_withdrawal":
+            inp.other_income += amount                  # taxed as ordinary income (not wages: no payroll tax)
         elif kind == "tips":
             inp.tips += amount
             if not it.get("included"):
@@ -698,13 +709,18 @@ def estimate(r: Reading, change: str = "", before: dict | None = None) -> Estima
     return Estimate(text, note, {**profile_of(r, est), "choices": choices}, choices, topics_of(est))
 
 
-def answer(question: str, context: str = "") -> tuple[Estimate | None, str]:
-    """(estimate, trace) for an income-tax question; (None, why) when it isn't one this path can work out."""
-    reply = first_json(ask_llm(SYSTEM, f"{context}\n\nMessage: {question}" if context else f"Message: {question}"))
-    reading, why = read(question, reply)
+def answer(question: str, context: str = "", typed: str = "") -> tuple[Estimate | None, str]:
+    """(estimate, trace) for an income-tax question; (None, why) when it isn't one this path can work out. `typed` is the
+    message as the user wrote it, when the proofreader reworded it."""
+    typed = typed if typed and typed.strip() != question.strip() else ""
+    said = f"Message: {typed}\n(Reworded: {question})" if typed else f"Message: {question}"
+    reply = first_json(ask_llm(SYSTEM, f"{context}\n\n{said}" if context else said))
+    reading, why = read(question, reply, typed)
     if reading is None and why == "no income among the amounts":           # "I have $10,000 property tax": keep it
-        items, _ = _items(reply["items"], amounts(question), amounts(question))
-        out = noted(items or [], reply.get("filing_status"), household_of(reply.get("household"), question), reply.get("year"))
+        both = f"{typed} {question}"
+        items, _ = _items(reply["items"], amounts(both), amounts(typed or question))
+        out = noted(items or [], status_from(reply.get("filing_status"), both), household_of(reply.get("household"), both),
+                    reply.get("year"))
         return out, out.note
     if reading is None:
         return None, f"income tax: {why}"

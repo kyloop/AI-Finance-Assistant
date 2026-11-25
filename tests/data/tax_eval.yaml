@@ -38,7 +38,7 @@
   expect:
     - tax_only: true
       filing_status: married_joint
-      figures: {40000: other_income, 30000: [wages, job_unspecified]}
+      figures: {40000: [other_income, retirement_withdrawal], 30000: [wages, job_unspecified]}
       household: {age_65_or_older: 2}
       income_tax: 2250             # standard $35,500 + senior $12,000 → taxable $22,500 at 10%
       total_federal: 4545
@@ -123,7 +123,7 @@
   expect:
     - tax_only: true
       filing_status: single
-      figures: {50000: other_income, 20000: [wages, job_unspecified]}
+      figures: {50000: [other_income, retirement_withdrawal], 20000: [wages, job_unspecified]}
       household: {age_65_or_older: 1}
       income_tax: 5254             # standard $18,150 + senior $6,000
       total_federal: 6784
@@ -187,7 +187,7 @@
              "How are the long-term capital gains taxed differently from ordinary salary income?"]
   expect:
     - {total_federal: 17542.83}
-    - {tax_only: true, contains: ["$900", "$48,350"]}
+    - {tax_only: true, contains: ["$900", "2025 rules"]}   # her own figures, worked out with the 2025 rules
 
 - id: c07
   about: an unmarried parent is asked about head of household and answers with the button
