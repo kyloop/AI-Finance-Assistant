@@ -683,3 +683,39 @@ def test_a_son_in_college_is_not_a_child_under_17():
     q = "I'm single, I earn $85,000 and paid $6,000 of tuition for my son's first year of college."
     assert TC.household_of({"children_under_17": 1}, q) == {}
     assert TC.household_of({"children_under_17": 1}, "My 6-year-old son; I paid $6,000 of tuition") == {"children_under_17": 1}
+
+
+def test_an_age_counts_as_a_child_and_tuition_alone_is_no_dependent():
+    assert TC.household_of({"children_under_17": 1}, "I'm a single dad with a 12-year-old") == {"children_under_17": 1}
+    assert TC.household_of({"other_dependents": 1}, "I paid $6,000 of tuition for my son's first year of college") == {}
+    assert TC.household_of({"other_dependents": 1}, "Yes, my student is my dependent") == {"other_dependents": 1}
+    assert TC.states_tax_figure("I paid $2,000 of student loan interest this year")
+
+
+def test_a_rejected_sort_gets_one_repair_round():
+    replies = [{"items": [{"amount": 65000, "kind": "wages", "text": "pay"}]},                       # left out 40,000
+               {"items": [{"amount": 65000, "kind": "wages", "text": "pay"}, {"amount": 40000, "kind": "wages", "text": "wife"}],
+                "filing_status": "married_joint"}]
+
+    class Seq:
+        model = "x"
+
+        def invoke(self, m):
+            import json
+            return type("R", (), {"content": json.dumps(replies.pop(0))})()
+    llm_module.set_llm(Seq())
+    est, _ = TC.answer("We file jointly. I earn $65,000 and my wife earns $40,000. How much tax?")
+    assert est is not None and est.profile["filing_status"] == "married_joint" and len(est.profile["items"]) == 2
+
+
+def test_the_yes_dependent_button_adds_the_dependent_and_pay_is_never_ignored():
+    items = [{"text": "I earn $85,000", "amount": 85000, "kind": "wages", "loss": False, "included": False},
+             {"text": "tuition", "amount": 6000, "kind": "college_expenses", "loss": False, "included": False}]
+    profile = {"year": 2026, "filing_status": "single", "items": items, "household": {"students": 1}, "total_federal": 15122.5,
+               "choices": TC.QUESTIONS["dependent"][1]}
+    kept = [{**i, "from": n} for n, i in enumerate(items)]
+    llm_module.set_llm(update_llm(kept, "single"))
+    est, _ = TC.follow_up("Yes, my student is my dependent", profile)
+    assert est.profile["household"]["other_dependents"] == 1 and est.profile["total_federal"] == pytest.approx(14622.5)
+    got, _ = TC._items([{"amount": 70000, "kind": "not_tax_input", "text": "I earn $70,000"}], [70000], [70000])
+    assert got[0]["kind"] == "wages"

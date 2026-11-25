@@ -77,7 +77,8 @@ def asks_income_tax(text: str) -> bool:
 _MINE = re.compile(r"\b(i|i'm|im|i've|ive|my|we|we're|our|me)\b", re.I)
 _FIGURE = re.compile(r"\b(earn\w*|salary|income|wages?|job|bonus|stocks?|shares|trading|capital gains?|dividends?|"
                      r"property tax|real estate tax|state tax|local tax|mortgage|charit\w*|donat\w*|tips?|overtime|tuition|"
-                     r"college|daycare|child ?care|pension|freelanc\w*|1099|w-?2|rental income)\b|\bma(?:k|d)e\s+\$?\d", re.I)
+                     r"college|daycare|child ?care|pension|freelanc\w*|1099|w-?2|rental income|student loans?|loan interest|ira)\b"
+                     r"|\bma(?:k|d)e\s+\$?\d", re.I)
 # a question about something else that happens to mention a figure: a price, the news, a loan or savings calculation
 _OTHER_QUESTION = re.compile(r"\b(stock price|price of|quote|news|how(?:'s| is) .{0,20} doing|should i (?:buy|sell)|"
                              r"how many (?:months|years)|how long|grow|be worth|monthly payment|pay (?:it )?off|save for|"
@@ -198,6 +199,11 @@ def _items(raw: list, allowed: list[float], must_use: list[float], base: list[di
             kind = str(it.get("kind") or (src or {}).get("kind"))
         except (KeyError, TypeError, ValueError):
             return None, f"unreadable item {it!r}"
+        if kind in HOUSEHOLD or kind == "graduate_school":
+            continue                                # a household count put among the figures; it's read from "household"
+        words = f"{it.get('text') or ''}"
+        if kind == "not_tax_input" and re.search(r"\b(earn\w*|salary|wages?|job|paycheck|make|made)\b", words, re.I):
+            kind = "wages"                          # "I earn $70,000" once came back as not a tax input
         if kind not in KINDS:
             return None, f"unknown kind {kind}"
         # a carried figure may be kept, or changed by an amount the message gives ("$10,000 more" on top of $200,000)
@@ -235,8 +241,9 @@ def read(question: str, reply: dict | None, typed: str = "") -> tuple[Reading | 
     return reading_from(items, status_from(reply.get("filing_status"), both), reply.get("year"),
                         household_of(reply.get("household"), both))
 
-HOUSEHOLD = {"children_under_17": r"\b(kids?|child|children|sons?|daughters?|toddler|baby|babies|dependents?)\b",
-             "other_dependents": r"\b(dependents?|parents?|mother|father|mom|dad|son|daughter|kids?|child|children|student)\b",
+HOUSEHOLD = {"children_under_17": r"\b(kids?|child|children|sons?|daughters?|toddler|baby|babies|dependents?|\d{1,2}[- ](year|yr)s?[- ]old)\b",
+             # a student or relative is a dependent only when the message says so: tuition for "my son" doesn't make him one
+             "other_dependents": r"\b(dependents?|claim(s|ed)? (him|her|them)|support(s|ing)? (my|our) (mother|father|mom|dad|parents?))\b",
              "age_65_or_older": r"\b(6[5-9]|[7-9]\d|retired|retiree|senior|over 65|older)\b",
              "students": r"\b(college|tuition|universit\w*|school|students?)\b"}
 _NUMBER_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "both": 2, "twins": 2}
@@ -714,8 +721,16 @@ def answer(question: str, context: str = "", typed: str = "") -> tuple[Estimate 
     message as the user wrote it, when the proofreader reworded it."""
     typed = typed if typed and typed.strip() != question.strip() else ""
     said = f"Message: {typed}\n(Reworded: {question})" if typed else f"Message: {question}"
-    reply = first_json(ask_llm(SYSTEM, f"{context}\n\n{said}" if context else said))
+    prompt = f"{context}\n\n{said}" if context else said
+    reply = first_json(ask_llm(SYSTEM, prompt))
     reading, why = read(question, reply, typed)
+    if reading is None and why not in ("no amounts sorted", "no income among the amounts") and reply:   # one repair round
+        retry = first_json(ask_llm(SYSTEM, f"{prompt}\n\nYour last reply was rejected: {why}. Every dollar amount the user "
+                                           "typed must be one item, and only those. Reply again with the full JSON."))
+        if retry:
+            reading2, why2 = read(question, retry, typed)
+            if reading2 is not None or why2 == "no income among the amounts":
+                reply, reading, why = retry, reading2, why2
     if reading is None and why == "no income among the amounts":           # "I have $10,000 property tax": keep it
         both = f"{typed} {question}"
         items, _ = _items(reply["items"], amounts(both), amounts(typed or question))
@@ -746,7 +761,8 @@ UPDATE_SYSTEM = (
     "numbered. Reply with the full new list: copy each current figure the message doesn't remove, with \"from\": its "
     "number; change its kind when the message says what it is (\"the stocks were short-term\" -> short_term_gains, \"the "
     "side job is freelance\" -> self_employment, \"I held them over a year\" -> long_term_gains); change its amount only "
-    "to an amount the message gives; add a figure the message adds with \"from\": null. Each figure: {\"from\", "
+    "to an amount the message gives; add a figure the message adds with \"from\": null (pay the user earns, \"I earn "
+    "$70,000\", is wages). Each figure: {\"from\", "
     "\"amount\", \"kind\", \"loss\", \"text\"}. Kinds:\n" + "\n".join(f"- {k}: {v}" for k, v in KINDS.items())
     + "\nfiling_status: what the message says (\"married_joint\", \"married_separate\", \"head_of_household\", "
     "\"single\"), otherwise the current one. household: the full new counts (children_under_17, other_dependents, "
@@ -785,9 +801,18 @@ def follow_up(question: str, profile: dict, typed: str = "") -> tuple[Estimate |
     short-term", "and if I earn $10,000 more?"); (None, why) when it changes nothing or can't be read. `typed` is the
     message as the user wrote it, when the proofreader reworded it (a rewrite once lost "tax" and "what if")."""
     said = f"Message: {typed}\n(Reworded: {question})" if typed and typed.strip() != question.strip() else f"Message: {question}"
-    reply = first_json(ask_llm(UPDATE_SYSTEM, f"{describe_profile(profile)}\n\n{said}"))
+    prompt = f"{describe_profile(profile)}\n\n{said}"
+    reply = first_json(ask_llm(UPDATE_SYSTEM, prompt))
     if not reply or not isinstance(reply.get("items"), list):
         return None, "tax follow-up: no usable reply"
+    base0, given0 = profile.get("items") or [], list(dict.fromkeys(amounts(question) + amounts(typed)))
+    _, why0 = _items(reply["items"], given0 + [b["amount"] for b in base0], amounts(typed) if typed else amounts(question), base0)
+    if why0 and why0 != "no amounts sorted":                # one repair round ("left out 40,000": the wife's pay was dropped)
+        retry = first_json(ask_llm(UPDATE_SYSTEM, f"{prompt}\n\nYour last reply was rejected: {why0}. Keep every current "
+                                                  "figure the message doesn't remove, and add every amount the message gives. "
+                                                  "Reply again with the full JSON."))
+        if retry and isinstance(retry.get("items"), list):
+            reply = retry
     said = f"{question} {typed}"
     status = status_from(reply.get("filing_status"), said) or profile.get("filing_status")
     base = profile.get("items") or []
@@ -807,6 +832,9 @@ def follow_up(question: str, profile: dict, typed: str = "") -> tuple[Estimate |
                 it["text"] = base[n]["text"]
     old_house = profile.get("household") or {}
     house = {**old_house, **household_of(reply.get("household"), f"{question} {typed}")} if reply.get("household") else old_house
+    said_now = " ".join((typed or question).lower().strip(" .!?").split())
+    if said_now == QUESTIONS["dependent"][1][0].lower():      # the "yes, my student is my dependent" button
+        house = {**house, "other_dependents": max(house.get("other_dependents", 0), house.get("students", 0) or 1)}
     same = (status == profile.get("filing_status") and house == old_house and
             [(i["amount"], i["kind"], i["loss"]) for i in items] == [(b["amount"], b["kind"], b["loss"]) for b in base])
     if same:

@@ -679,8 +679,10 @@ def tax_node(state: FinanceState, config: RunnableConfig):
     trace_first = []
     last = (state.get("context_in") or {}).get("tax") or {}
     typed_now = state.get("original_question") or question
+    statement = not TAXC.is_question(typed_now) and not re.search(r"\bwhat if\b", typed_now, re.I)
     answering = bool(last.get("pending") and TAXC.amounts(typed_now)) or bool(
-        last.get("choices") and TAXC.changes_estimate(typed_now, last) and not TAXC.is_question(typed_now))
+        last.get("choices") and TAXC.changes_estimate(typed_now, last) and statement) or bool(
+        last.get("items") and statement and TAXC.states_tax_figure(typed_now))   # "We also gave $5,000 to charity": add it
     # the model picks a tool and its arguments; Python runs it. An answer to "how much mortgage interest?" goes straight
     # into the running estimate instead.
     picked = None if answering else _pick_tax_tool(state)

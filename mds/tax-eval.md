@@ -1,6 +1,6 @@
 # Tax agent eval
 
-`python -m scripts.eval_tax` on 2026-11-24: **20/20 cases passed** (32/32 messages). Provider `auto`; models anthropic: claude-sonnet-5-5, openai: gpt-4o-mini, gemini: gemini-2.0-flash. Cases: [tests/data/tax_eval.yaml](../tests/data/tax_eval.yaml); design: [agent-tax-agent.md](agent-tax-agent.md).
+`python -m scripts.eval_tax` on 2026-11-24: **40/40 cases passed** (74/74 messages). Provider `auto`; models anthropic: claude-sonnet-5-5, openai: gpt-4o-mini, gemini: gemini-2.0-flash. Cases: [tests/data/tax_eval.yaml](../tests/data/tax_eval.yaml); design: [agent-tax-agent.md](agent-tax-agent.md).
 
 Each case is replayed through the real workflow with the real model, the conversation's memory carried between messages as in the app. After every message the check compares who answered, the filing status, how each amount was sorted, the household, the income tax and federal total (within $1), the question asked and required phrases. Expected inputs are set by hand; the totals come from them by hand or with the hand-tested estimator. The model varies between runs, so a case can pass one run and fail the next: a failure is a lead to look at.
 
@@ -26,3 +26,23 @@ Each case is replayed through the real workflow with the real model, the convers
 | c06 | chain (2) | an explanation after an estimate uses that person's numbers and year | pass | $10,275 | $17,543 | none |  |
 | c07 | chain (2) | an unmarried parent is asked about head of household and answers with the button | pass | $-4,869 | $-1,044 | none |  |
 | c08 | chain (2) | a deduction given before any income is kept, then the income | pass | $17,570 | $26,750 | status |  |
+| d01 | chain (2) | head-of-household button for a parent with one young child | pass | $1,748 | $6,338 | none |  |
+| d02 | chain (2) | a figure added after the estimate | pass | $8,120 | $13,858 | none |  |
+| d03 | chain (2) | an amount corrected, which switches from itemizing to the standard deduction | pass | $10,970 | $17,855 | none |  |
+| d04 | chain (2) | an unmarried-parent question answered "married filing jointly" | pass | $-1,836 | $1,989 | none |  |
+| d05 | chain (2) | what a charitable gift saves when already itemizing | pass | $12,752 | $20,402 | none |  |
+| d06 | chain (2) | Roth vs traditional after an estimate | pass | $17,570 | $26,750 | none |  |
+| d07 | chain (2) | a stock sale after an estimate | pass | $6,570 | $11,925 | none |  |
+| d08 | chain (2) | a wash sale, then a question about it | pass | — | — | none |  |
+| d09 | chain (2) | retired couple, then a Social Security question | pass | $0 | $0 | none |  |
+| d10 | chain (2) | a single dad who then says he's married and adds his wife's pay | pass | $6,040 | $14,072 | none |  |
+| d11 | chain (3) | deductions added one by one until itemizing wins | pass | $14,724 | $26,199 | none |  |
+| d12 | chain (2) | a freelancer, then estimated tax | pass | $7,527 | $18,830 | none |  |
+| d13 | chain (2) | tips, then overtime added | pass | $3,700 | $8,366 | none |  |
+| d14 | chain (2) | a single mom corrects the number of children | pass | $-7,323 | $-4,263 | none |  |
+| d15 | chain (2) | the filing-status button answered "single" | pass | $10,620 | $17,122 | none |  |
+| d16 | chain (2) | a deduction first, then income and status | pass | $6,130 | $11,485 | none |  |
+| d17 | chain (3) | an estimate, a side question, then a what-if bonus | pass | $12,070 | $19,338 | none |  |
+| d18 | chain (2) | crypto held under a year, then "what if I'd held it longer" | pass | $5,020 | $9,610 | none |  |
+| d19 | chain (2) | the student-dependent question answered yes | pass | $8,120 | $14,622 | none |  |
+| d20 | chain (2) | a low-income family with credits, then a raise | pass | $-9,083 | $-5,258 | none |  |

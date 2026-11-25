@@ -7,8 +7,8 @@ from src.workflow import tax_calc as TC
 
 def test_every_case_has_one_expectation_per_message():
     cases = yaml.safe_load(open(E.CASES))
-    assert len(cases) == 20 and len({c["id"] for c in cases}) == 20
-    assert sum(len(c["messages"]) > 1 for c in cases) == 8
+    assert len(cases) == 40 and len({c["id"] for c in cases}) == 40
+    assert sum(len(c["messages"]) > 1 for c in cases) == 28
     for c in cases:
         assert len(c["expect"]) == len(c["messages"]), c["id"]
 

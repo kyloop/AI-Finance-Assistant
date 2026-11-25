@@ -203,3 +203,159 @@
   expect:
     - {tax_only: true, total_federal: null, contains: ["Noted for your tax estimate"]}
     - {tax_only: true, total_federal: 26750, figures: {10000: property_tax, 120000: wages}}
+
+# ---------------------------------------------------------------- more chains (2026-11-25): conversation flows
+- id: d01
+  about: head-of-household button for a parent with one young child
+  messages: ["I earn $60,000 and have one kid, age 5. How much tax will I owe?", "I file as head of household"]
+  expect:
+    - {tax_only: true, asks: status_hoh, household: {children_under_17: 1}, total_federal: 7410}
+    - {tax_only: true, filing_status: head_of_household, total_federal: 6338}
+
+- id: d02
+  about: a figure added after the estimate
+  messages: ["I'm single and earn $75,000. How much federal tax do I owe?", "I also got $3,000 in qualified dividends"]
+  expect:
+    - {tax_only: true, filing_status: single, total_federal: 13407.5}
+    - {tax_only: true, total_federal: 13857.5, figures: {75000: wages, 3000: qualified_dividends}}
+
+- id: d03
+  about: an amount corrected, which switches from itemizing to the standard deduction
+  messages: ["I'm single, I earn $90,000 and paid $14,000 of mortgage interest and $8,000 of property tax. How much tax?",
+             "Actually my mortgage interest was only $5,000"]
+  expect:
+    - {tax_only: true, total_federal: 16557}
+    - {tax_only: true, total_federal: 17855, figures: {90000: wages, 5000: mortgage_interest, 8000: property_tax}}
+
+- id: d04
+  about: an unmarried-parent question answered "married filing jointly"
+  messages: ["I earn $50,000 and have a 4-year-old daughter. How much tax will I owe?", "We're married filing jointly"]
+  expect:
+    - {tax_only: true, asks: status_hoh, total_federal: 5190.58}
+    - {tax_only: true, filing_status: married_joint, total_federal: 1988.83}
+
+- id: d05
+  about: what a charitable gift saves when already itemizing
+  messages: ["I'm single and earn $100,000. I paid $12,000 of mortgage interest and $6,000 of state income tax. How much tax do I owe?",
+             "What if I give $5,000 to charity?"]
+  expect:
+    - {tax_only: true, total_federal: 20402}
+    - {tax_only: true, contains: ["$20,402", "$19,302"]}
+
+- id: d06
+  about: Roth vs traditional after an estimate
+  messages: ["I'm single and earn $120,000. How much federal tax do I owe?", "How do Roth and traditional 401(k) compare for $10,000?"]
+  expect:
+    - {tax_only: true, total_federal: 26750}
+    - {tax_only: true, contains: ["Traditional vs Roth", "$2,200"]}
+
+- id: d07
+  about: a stock sale after an estimate
+  messages: ["I'm single and earn $70,000. How much tax do I owe?",
+             "I sold 50 shares I bought at $40 for $100 each after holding them 2 years. How much tax is that?"]
+  expect:
+    - {tax_only: true, total_federal: 11925}
+    - {tax_only: true, contains: ["$3,000"]}
+
+- id: d08
+  about: a wash sale, then a question about it
+  messages: ["I sold shares for $3,000 that cost me $7,000 and bought the same stock back a week later. Can I deduct the loss?",
+             "How long do I have to wait before buying it back?"]
+  expect:
+    - {tax_only: true, contains: ["ash sale"]}
+    - {contains: ["30 days"]}
+
+- id: d09
+  about: retired couple, then a Social Security question
+  messages: ["My husband and I are both 68 and file jointly. We have $45,000 of pension income. How much tax do we owe?",
+             "Are our Social Security benefits taxable?"]
+  expect:
+    - {tax_only: true, filing_status: married_joint, household: {age_65_or_older: 2}, income_tax: 0}
+    - {tax_only: true, contains: ["$32,000"]}
+
+- id: d10
+  about: a single dad who then says he's married and adds his wife's pay
+  messages: ["I'm a single dad with a 12-year-old. I earn $65,000. How much tax?",
+             "Actually I'm married now and we file jointly; my wife earns $40,000"]
+  expect:
+    - {tax_only: true, filing_status: head_of_household, total_federal: 7320.5}
+    - {tax_only: true, filing_status: married_joint, total_federal: 14072.5}
+
+- id: d11
+  about: deductions added one by one until itemizing wins
+  messages: ["We file jointly and earn $150,000 together. How much federal tax do we owe?",
+             "We have $12,000 of property tax and $18,000 of mortgage interest", "We also gave $5,000 to charity"]
+  expect:
+    - {tax_only: true, filing_status: married_joint, total_federal: 26815}
+    - {tax_only: true, total_federal: 26815, contains: ["standard deduction is larger"]}
+    - {tax_only: true, total_federal: 26199, contains: ["Itemizing is larger"]}
+
+- id: d12
+  about: a freelancer, then estimated tax
+  messages: ["I'm single and made $80,000 freelancing as a 1099 contractor. How much tax do I owe?",
+             "Do I need to pay estimated taxes quarterly?"]
+  expect:
+    - {tax_only: true, filing_status: single, total_federal: 18830.24}
+    - {tax_only: true, contains: ["$1,000"]}
+
+- id: d13
+  about: tips, then overtime added
+  messages: ["I'm single. I'm a bartender making $45,000 plus $10,000 in tips. How much tax do I owe?",
+             "I also earned $6,000 of overtime pay at time-and-a-half"]
+  expect:
+    - {tax_only: true, total_federal: 7427.5}
+    - {tax_only: true, total_federal: 8366.5}
+
+- id: d14
+  about: a single mom corrects the number of children
+  messages: ["I'm a single mom. I earn $40,000 and pay $5,000 for daycare for my 3-year-old. How much tax?",
+             "Actually I have two kids, the other one is 7"]
+  expect:
+    - {tax_only: true, filing_status: head_of_household, household: {children_under_17: 1}, total_federal: -492.42}
+    - {tax_only: true, household: {children_under_17: 2}, total_federal: -4263.23}
+
+- id: d15
+  about: the filing-status button answered "single"
+  messages: ["I earn $85,000 and have $5,000 of long-term capital gains. How much tax will I owe?", "I file as single"]
+  expect:
+    - {tax_only: true, asks: status, total_federal: 17122.5}
+    - {tax_only: true, filing_status: single, total_federal: 17122.5, asks: none}
+
+- id: d16
+  about: a deduction first, then income and status
+  messages: ["I paid $2,000 of student loan interest this year", "I'm single and I earn $70,000"]
+  expect:
+    - {tax_only: true, total_federal: null}
+    - {tax_only: true, filing_status: single, total_federal: 11485, figures: {2000: student_loan_interest, 70000: wages}}
+
+- id: d17
+  about: an estimate, a side question, then a what-if bonus
+  messages: ["I'm single and earn $95,000. How much tax do I owe?", "What is the standard deduction?", "What if I get a $5,000 bonus?"]
+  expect:
+    - {tax_only: true, total_federal: 19337.5}
+    - {contains: ["$16,100"]}
+    - {tax_only: true, contains: ["$20,820"]}
+
+- id: d18
+  about: crypto held under a year, then "what if I'd held it longer"
+  messages: ["I'm single, I earn $60,000 and sold bitcoin for a $4,000 profit after holding it 8 months. How much tax?",
+             "What if I had held it more than a year?"]
+  expect:
+    - {tax_only: true, total_federal: 10090}
+    - {tax_only: true, contains: ["$9,610"]}
+
+- id: d19
+  about: the student-dependent question answered yes
+  messages: ["I'm single, I earn $85,000 and paid $6,000 of tuition for my son's first year of college. How much tax?",
+             "Yes, my student is my dependent"]
+  expect:
+    - {tax_only: true, asks: dependent, total_federal: 15122.5}
+    - {tax_only: true, total_federal: 14622.5, household: {students: 1, other_dependents: 1}}
+
+- id: d20
+  about: a low-income family with credits, then a raise
+  messages: ["We're married filing jointly, we earn $45,000 and have three kids under 12. How much tax will we owe?",
+             "What if we earn $5,000 more?"]
+  expect:
+    - {tax_only: true, filing_status: married_joint, household: {children_under_17: 3}, total_federal: -6973.3}
+    - {tax_only: true, contains: ["-$5,258"]}
