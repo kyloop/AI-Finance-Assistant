@@ -836,3 +836,34 @@ def plan_tax_text(g: dict, projection: dict, year: int | None = None) -> tuple[s
             "income or the account and I'll work it out for you. State tax not included; Finnie computed every number in Python._"])
     return text, (f"plan tax by account ({money(paid_in)} in, {money(value)} out): taxable {money(taxable_tax)}, "
                   f"traditional {money(traditional_tax)} at sample {pct(SAMPLE_INCOME_RATE)}, Roth $0")
+
+
+
+# ---------------------------------------------------------------- the last estimate, for an explanation that follows it
+def estimate_facts(profile: dict | None, question: str) -> str:
+    """Lines tying an explanation to the user's last estimate ("how are long-term gains taxed differently from salary?"
+    right after it): the figures of theirs the question is about, computed here. '' when there's no estimate or no match."""
+    if not profile or not profile.get("items") or profile.get("total_federal") is None:
+        return ""
+    reading, _ = reading_from(profile["items"], profile.get("filing_status"), profile.get("year"), profile.get("household"))
+    if reading is None:
+        return ""
+    est = T.estimate(reading.inputs, reading.year)
+    i, lines = est["inputs"], []
+    if re.search(r"capital gains?|long[- ]term|short[- ]term|stock|shares|dividend", question, re.I) and est["preferential_rows"]:
+        gain = est["preferential_income"]
+        rows = "; ".join(f"{money(b['amount'])} at {pct(b['rate'])} = {money(b['tax'])}" for b in est["preferential_rows"])
+        lines.append(f"Their long-term gains and qualified dividends ({money(gain)}) sit on top of {money(est['ordinary_taxable'])} "
+                     f"of ordinary taxable income: {rows}. Taxed like salary at their {pct(est['marginal_rate'])} bracket they "
+                     f"would have cost about {money(gain * est['marginal_rate'])}, so the lower rate saves about "
+                     f"{money(gain * est['marginal_rate'] - est['preferential_tax'])}. The gains owe no payroll tax; their wages "
+                     f"owe {money(est['payroll']['total'])} of Social Security and Medicare.")
+    if re.search(r"itemi[sz]|standard deduction|deduct", question, re.I):
+        lines.append(f"They {'itemize' if est['itemizes'] else 'take the standard deduction'}: itemized {money(est['itemized'])} "
+                     f"vs standard {money(est['standard'])}.")
+    if re.search(r"bracket|marginal|effective|rate", question, re.I) and not lines:
+        lines.append(f"Their top bracket is {pct(est['marginal_rate'])}; income tax is {est['effective_rate'] * 100:.1f}% of "
+                     f"total income.")
+    if not lines:
+        return ""
+    return f"**From the user's last estimate ({est['year']} rules, computed by Finnie):**\n" + "\n".join(f"- {x}" for x in lines) + "\n\n"

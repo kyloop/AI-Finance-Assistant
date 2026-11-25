@@ -610,3 +610,27 @@ def test_a_third_person_tax_scenario_is_never_off_topic():
          "$7,500 in state income taxes.")
     assert N._tax_scenario(q) and not N._tax_scenario("What is the capital of France?")
     assert N._route({"question": q, "original_question": q, "history": []})["intent"] == ["tax"]
+
+
+def test_an_explanation_after_an_estimate_uses_the_users_own_figures():
+    items = [{"text": t, "amount": a, "kind": k, "loss": False, "included": False} for t, a, k in [
+        ("salary", 95000, "wages"), ("interest", 1200, "interest_dividends"), ("stock", 6000, "long_term_gains"),
+        ("401(k)", 8000, "pre_tax_retirement"), ("mortgage", 12000, "mortgage_interest"), ("CA tax", 7500, "state_local_taxes"),
+        ("charity", 2000, "charity"), ("student loan", 4000, "student_loan_interest")]]
+    profile = {"year": 2025, "filing_status": "single", "items": items, "household": {}, "total_federal": 17542.83}
+    facts = TC.estimate_facts(profile, "How are long-term capital gains taxed differently from salary?")
+    assert facts.startswith("**From the user's last estimate (2025 rules, computed by Finnie):**")
+    assert "($6,000) sit on top of $65,733 of ordinary taxable income: $6,000 at 15% = $900" in facts
+    assert "at their 22% bracket they would have cost about $1,320, so the lower rate saves about $420" in facts
+    assert TC.estimate_facts(profile, "What is an HSA?") == "" and TC.estimate_facts(None, "capital gains") == ""
+
+
+def test_with_the_tax_agent_there_qa_is_dropped_for_a_tax_question():
+    assert N._tax_to_tax_agent(["tax", "qa"], {"question": "How are long-term capital gains taxed?"}) == ["tax"]
+
+
+def test_no_worked_example_is_added_to_a_tax_answer():
+    s = {"question": "How are long-term capital gains taxed?", "agent_outputs": {
+        "tax": {"agent": "tax", "status": "answered", "content": "Gains are taxed at 0/15/20%.", "sources": []}}}
+    llm_module.set_llm(SortingLLM({}))
+    assert N.illustrate_node(s, {}) == {"trace": []}

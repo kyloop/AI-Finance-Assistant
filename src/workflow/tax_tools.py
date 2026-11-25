@@ -61,7 +61,10 @@ def _figure_lines(year: int, r: dict) -> list[tuple[str, str]]:
         (r"capital gain|long[- ]term|dividend|sell|sold|stock|crypto", f"Long-term capital gains: 0% up to {_m(cg['single'][0][0])} "
          f"of taxable income single ({_m(cg['married_joint'][0][0])} joint), 15% up to {_m(cg['single'][1][0])} "
          f"({_m(cg['married_joint'][1][0])}), 20% above; plus 3.8% net investment income tax above "
-         f"{_m(r['niit']['threshold']['single'])} ({_m(r['niit']['threshold']['married_joint'])} joint)"),
+         f"{_m(r['niit']['threshold']['single'])} ({_m(r['niit']['threshold']['married_joint'])} joint). The gain is stacked "
+         "on top of ordinary income: salary fills the brackets first, and the gain is taxed at the capital-gains rate of the "
+         "band where it lands (so the same gain can be 0% for one person and 15% for another). Gains held a year or less are "
+         "taxed like salary. Investment gains owe no Social Security or Medicare tax; salary does (7.65%)."),
         (r"salt|state and local|property tax", f"SALT deduction cap: {_m(r['salt']['cap'])} (reduced above "
          f"{_m(r['salt']['phase_down_start'])} of income, never below {_m(r['salt']['floor'])}); it was $10,000 for 2018-2024"),
         (r"child tax credit|child credit|kids?|children|dependent", f"Child tax credit: {_m(ct['amount'])} per child under 17, up "

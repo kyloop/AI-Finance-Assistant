@@ -440,7 +440,7 @@ def _tax_to_tax_agent(intents: list[str], state: FinanceState) -> list[str]:
     """A question about a tax rule goes to the tax agent rather than Q&A: it states this year's figures (the router LLM
     sent "What is the SALT deduction cap?" to Q&A, which repeated Wikipedia's out-of-date $10,000)."""
     q = f"{state.get('original_question') or ''} {state['question']}"
-    if "qa" in intents and "tax" not in intents and _TAX_TOPIC.search(q):
+    if "qa" in intents and _TAX_TOPIC.search(q):            # with the tax agent there, Q&A would only repeat it
         return list(dict.fromkeys(["tax" if i == "qa" else i for i in intents]))
     return intents
 
@@ -726,7 +726,11 @@ def tax_node(state: FinanceState, config: RunnableConfig):
             res["trace"] = trace_first
             return res
     g = state.get("saved_goal")
-    figures = TT.current_figures(f"{state.get('original_question') or ''} {question}")    # this year's limits, not Wikipedia's
+    last_tax = (state.get("context_in") or {}).get("tax")
+    # this year's limits (or the year of the user's last estimate), not Wikipedia's; and the user's own figures if the
+    # question follows an estimate ("how are long-term gains taxed differently?" after Sarah's)
+    figures = (TAXC.estimate_facts(last_tax, f"{state.get('original_question') or ''} {question}")
+               + TT.current_figures(f"{state.get('original_question') or ''} {question}", (last_tax or {}).get("year")))
     if not (g and saved_plan_figures(state)):
         res = _kb_answer("tax", state, q, TAX_PREFIX + figures, categories=TT.TAX_CATEGORIES)
         res["trace"] = trace_first + ["tax tool search_tax_pages"] + res["trace"]
@@ -2036,7 +2040,7 @@ def illustrate_node(state: FinanceState, config: RunnableConfig):
     outputs = state.get("agent_outputs") or {}
     concept = [o for k, o in outputs.items() if k in ("qa", "tax") and o.get("status", "answered") == "answered" and o.get("content")
                and o.get("origin") != "tax_tools" and not o.get("verbatim_tail")]    # the tax agent's own figures need no example
-    if not concept or "calc" in outputs or current_llm() is None or any(o.get("origin") == "tax_tools" for o in outputs.values()):
+    if not concept or "calc" in outputs or current_llm() is None or "tax" in outputs:   # tax figures are the tax agent's
         return {"trace": []}
     figures = CTX.describe({"facts": {**(CTX.carried(state).get("facts") or {}), **_key_facts(state.get("market_data") or {})}})
     reply = _json(ask_llm(CALC.EXAMPLE_SYSTEM, f"Question: {state['question']}\n\nAnswer so far:\n{concept[0]['content'][:2500]}"
