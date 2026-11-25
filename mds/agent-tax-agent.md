@@ -112,6 +112,17 @@ rule go to the tax agent rather than Q&A (`_tax_to_tax_agent`). An estimate's "R
 used (`tax_calc.topics_of` → `_named_pages`), and tuition paid for a son or daughter adds the "is your student your
 dependent?" alternative ($500 credit).
 
+## Figures given one message at a time
+
+A message that states one of the user's own figures, with or without a question (`tax_calc.states_tax_figure`: first
+person, an amount, an income or deduction word; not a price, news, loan or savings question), goes to the tax agent
+(`_with_income_tax`). The first one starts an estimate (`answer`); a deduction with no income yet is kept and the income
+asked for (`noted`); each later one is added by the follow-up path and the total recalculated ("**Updated:** added
+$109,000 of wages. Federal taxes go from $0 to $25,079"). An only job counts as wages. A deductible cost named without
+an amount ("I have a monthly mortgage payment") gets a question for the yearly amount (`missing_amount`), with how much
+it would take to beat the standard deduction against the running estimate; the profile keeps `pending` so the answer
+("about $12,000 a year") goes straight into the estimate, skipping the tool picker.
+
 ## Next
 
 4. A tax eval set (about 20 cases with hand-checked answers), run after any prompt or rules change.

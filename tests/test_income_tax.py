@@ -471,3 +471,93 @@ def test_an_only_job_is_wages_and_tips_included_in_pay_are_not_counted_twice():
 def test_an_income_tax_question_drops_the_goal_agent_unless_it_is_about_the_plan():
     s = {"question": "My wife and I are 67 and retired, we have $40,000 of pension income. How much tax do we owe?"}
     assert N._with_income_tax(["tax", "goal"], s) == ["tax"]
+
+
+# ---------------------------------------------------------------- figures given one message at a time
+def test_a_stated_figure_is_recognised_but_not_a_loan_or_market_question():
+    assert TC.states_tax_figure("i earned $10600 from stock trading")
+    assert TC.states_tax_figure("i have fix income from my job $109000")
+    assert TC.states_tax_figure("I have $10,000 property tax")
+    assert not TC.states_tax_figure("I owe $5,000 and pay $200 a month. How many months?")
+    assert not TC.states_tax_figure("I bought 10 AAPL shares at $150, how is it doing?")
+
+
+def test_a_first_figure_starts_an_estimate_and_goes_to_the_tax_agent():
+    llm_module.set_llm(SortingLLM({"items": [{"amount": 10600, "kind": "stock_unspecified", "text": "earned $10600 from stock trading"}]}))
+    q = "i earned $10600 from stock trading"
+    s = {"question": q, "original_question": q, "history": [], "profile": {}, "entities": {"wiki_query": q}}
+    assert N._with_income_tax(["qa"], s) == ["tax"]
+    res = N.tax_node(s, {})
+    assert res["agent_outputs"]["tax"]["content"].startswith("**Estimated 2026 federal taxes** (single)")
+    assert res["turn_context"]["tax"]["items"][0]["amount"] == 10600
+
+
+def test_a_deduction_with_no_income_yet_is_noted_and_income_asked_for():
+    llm_module.set_llm(SortingLLM({"items": [{"amount": 10000, "kind": "property_tax", "text": "$10000 property tax"}]}))
+    est, note = TC.answer("i have $10000 property tax")
+    assert est.text.startswith("**Noted for your tax estimate:** $10,000 property tax (itemized deduction).")
+    assert est.profile["total_federal"] is None and "no income yet" in note
+
+
+def test_each_later_figure_is_added_and_the_total_recalculated():
+    llm_module.set_llm(SortingLLM({"items": [{"amount": 10600, "kind": "stock_unspecified", "text": "stock trading"}]}))
+    first, _ = TC.answer("i earned $10600 from stock trading")
+    kept = [{**i, "from": n} for n, i in enumerate(first.profile["items"])]
+    llm_module.set_llm(update_llm([*kept, {"from": None, "amount": 109000, "kind": "job_unspecified", "text": "my job $109000"}]))
+    second, note = TC.follow_up("i have fix income from my job $109000", first.profile)
+    assert second.profile["items"][1]["kind"] == "wages"                                  # an only job is wages
+    assert second.profile["total_federal"] == pytest.approx(25_078.5)
+    assert second.text.startswith("**Updated:** added $109,000 of wages. Federal taxes go from $0 to **$25,079**")
+    kept = [{**i, "from": n} for n, i in enumerate(second.profile["items"])]
+    llm_module.set_llm(update_llm([*kept, {"from": None, "amount": 10000, "kind": "property_tax", "text": "property tax"}]))
+    third, _ = TC.follow_up("i have $10000 property tax", second.profile)
+    assert third.profile["total_federal"] == pytest.approx(25_078.5)                       # under the standard deduction
+    assert "Your property tax doesn't lower your income tax here" in third.text
+
+
+def test_a_mortgage_without_an_amount_asks_for_the_interest_and_what_it_would_take():
+    items = [{"text": "job", "amount": 109000, "kind": "wages", "loss": False},
+             {"text": "stocks", "amount": 10600, "kind": "stock_unspecified", "loss": False},
+             {"text": "property tax", "amount": 10000, "kind": "property_tax", "loss": False}]
+    profile = {"year": 2026, "filing_status": None, "items": items, "household": {}, "total_federal": 25078.5}
+    ask = TC.missing_amount("i have monthly mortgage payment .", profile)
+    assert ask.startswith("How much **mortgage interest** do you pay in a year? Only the interest counts")
+    assert "you have $10,000 so far (your $10,000 of state, local and property tax), so it would need to be more than $6,100" in ask
+    s = {"question": "What is my monthly mortgage payment?", "original_question": "i have monthly mortgage payment .",
+         "history": [], "profile": {}, "entities": {"wiki_query": "mortgage"}, "context_in": {"tax": profile}}
+    llm_module.set_llm(SortingLLM({}))
+    res = N.tax_node(s, {})
+    assert res["agent_outputs"]["tax"]["status"] == "need_info" and res["turn_context"]["tax"]["pending"] == "mortgage_interest"
+    assert N._with_income_tax(["calc"], s) == ["tax"]
+
+
+def test_the_answer_to_the_interest_question_updates_the_estimate():
+    items = [{"text": "job", "amount": 109000, "kind": "wages", "loss": False, "included": False},
+             {"text": "stocks", "amount": 10600, "kind": "stock_unspecified", "loss": False, "included": False},
+             {"text": "property tax", "amount": 10000, "kind": "property_tax", "loss": False, "included": False}]
+    profile = {"year": 2026, "filing_status": None, "items": items, "household": {}, "total_federal": 25078.5,
+               "pending": "mortgage_interest"}
+    assert TC.changes_estimate("about $12,000", profile)
+    kept = [{**i, "from": n} for n, i in enumerate(items)]
+    llm_module.set_llm(update_llm([*kept, {"from": None, "amount": 12000, "kind": "mortgage_interest", "text": "about $12,000"}]))
+    est, _ = TC.follow_up("about $12,000", profile)
+    assert est.profile["total_federal"] == pytest.approx(25_078.5 - 0.22 * 5_900)           # itemizing $22,000 beats $16,100
+    assert "Federal taxes go from $25,079 to **$23,781**" in est.text
+
+
+def test_an_answer_to_the_amount_question_skips_the_tool_picker_and_updates_the_estimate():
+    items = [{"text": "job", "amount": 109000, "kind": "wages", "loss": False, "included": False},
+             {"text": "property tax", "amount": 10000, "kind": "property_tax", "loss": False, "included": False}]
+    profile = {"year": 2026, "filing_status": "single", "items": items, "household": {}, "total_federal": 1.0,
+               "pending": "mortgage_interest"}
+    kept = [{**i, "from": n} for n, i in enumerate(items)]
+
+    class Both(SortingLLM):
+        def bind_tools(self, specs):
+            raise AssertionError("the tool picker must not run for an answer to the amount question")
+    llm_module.set_llm(Both({"items": [*kept, {"from": None, "amount": 12000, "kind": "mortgage_interest", "text": "$12,000"}],
+                             "filing_status": "single"}))
+    q = "about $12,000 a year"
+    res = N.tax_node({"question": q, "original_question": q, "history": [], "profile": {}, "entities": {"wiki_query": q},
+                      "context_in": {"tax": profile}}, {})
+    assert [i["kind"] for i in res["turn_context"]["tax"]["items"]] == ["wages", "property_tax", "mortgage_interest"]

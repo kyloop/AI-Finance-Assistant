@@ -443,7 +443,10 @@ def _tax_to_tax_agent(intents: list[str], state: FinanceState) -> list[str]:
 def _with_income_tax(intents: list[str], state: FinanceState) -> list[str]:
     """"I earn $200,000 ... how much tax do I pay?" is the tax agent's: it works out the figure with its tools and explains
     each step, so the calculator and Q&A would only repeat it."""
-    follows_estimate = bool(_last_estimate(state)) and set(intents) <= {"qa", "tax", "calc", "goal", "clarify"}
+    plain = set(intents) <= {"qa", "tax", "calc", "goal", "clarify"}
+    typed = state.get("original_question") or state["question"]
+    follows_estimate = plain and (bool(_last_estimate(state)) or TAXC.states_tax_figure(typed)
+                                  or bool(TAXC.missing_amount(typed, None) and (state.get("context_in") or {}).get("tax")))
     if not TAXC.asks_income_tax(state["question"]) and not follows_estimate:
         if "tax" in intents and TW.TAX_FIGURE.search(state["question"]) and TAXC.amounts(state["question"]):
             return [i for i in intents if i not in ("calc", "qa")]  # Roth vs traditional for $10k, a sale's gain: the tax tools
@@ -658,7 +661,11 @@ def tax_node(state: FinanceState, config: RunnableConfig):
     question = state["question"]
     profile = _last_estimate(state)                  # the last estimate's figures, for "what if I'm married?"
     trace_first = []
-    picked = _pick_tax_tool(state)                   # the model picks a tool and its arguments; Python runs it
+    last = (state.get("context_in") or {}).get("tax") or {}
+    answering = bool(last.get("pending") and TAXC.amounts(state.get("original_question") or question))
+    # the model picks a tool and its arguments; Python runs it. An answer to "how much mortgage interest?" goes straight
+    # into the running estimate instead.
+    picked = None if answering else _pick_tax_tool(state)
     if picked:
         name, args, note = picked
         trace_first.append(note)
@@ -675,12 +682,21 @@ def tax_node(state: FinanceState, config: RunnableConfig):
             profile = (state.get("context_in") or {}).get("tax")
         elif name == "explain_rules" and not (state.get("saved_goal") and saved_plan_figures(state)):
             profile = None if not CTX.carried(state).get("tax") else profile
-    if current_llm() is not None and (profile or TAXC.asks_income_tax(question)):
+    typed = state.get("original_question") or question
+    if current_llm() is not None and (ask := TAXC.missing_amount(typed, profile or (state.get("context_in") or {}).get("tax"))):
+        # "I have a monthly mortgage payment": ask for the yearly interest; the figures so far stay for the answer
+        kept = {**((state.get("context_in") or {}).get("tax") or {"items": [], "year": None, "filing_status": None}),
+                "pending": TAXC.pending_kind(typed)}
+        res = _out("tax", ask, status="need_info", confidence="medium", trace=f"tax: asks for the amount ({kept['pending']})")
+        res["turn_context"] = {"tax": kept}
+        return res
+    figure = TAXC.states_tax_figure(typed) or TAXC.states_tax_figure(question)
+    if current_llm() is not None and (profile or TAXC.asks_income_tax(question) or figure):
         est, note = None, ""
         if profile:
             est, note = TT.estimate_income_tax(question, profile=profile, typed=state.get("original_question") or "")
             trace_first.append(f"tax tool estimate_income_tax {note}")
-        if est is None and TAXC.asks_income_tax(question):        # new figures, or the follow-up couldn't be read
+        if est is None and (TAXC.asks_income_tax(question) or (figure and not profile)):   # new figures, or a first one
             recent = H.transcript(state.get("history")) if state.get("follow_up") else ""
             est, note = TT.estimate_income_tax(question, f"Recent conversation:\n{recent}" if recent else "")
             trace_first.append(f"tax tool estimate_income_tax: {note}")

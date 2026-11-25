@@ -70,6 +70,66 @@ def asks_income_tax(text: str) -> bool:
     return bool(ASKS.search(text) and INCOME.search(text) and amounts(text))
 
 
+# "I earned $10,600 from stock trading", "I have $10,000 property tax": one of the user's own tax figures, stated
+_MINE = re.compile(r"\b(i|i'm|im|i've|ive|my|we|we're|our|me)\b", re.I)
+_FIGURE = re.compile(r"\b(earn\w*|salary|income|wages?|job|bonus|stocks?|shares|trading|capital gains?|dividends?|"
+                     r"property tax|real estate tax|state tax|local tax|mortgage|charit\w*|donat\w*|tips?|overtime|tuition|"
+                     r"college|daycare|child ?care|pension|freelanc\w*|1099|w-?2|rental income)\b|\bma(?:k|d)e\s+\$?\d", re.I)
+# a question about something else that happens to mention a figure: a price, the news, a loan or savings calculation
+_OTHER_QUESTION = re.compile(r"\b(stock price|price of|quote|news|how(?:'s| is) .{0,20} doing|should i (?:buy|sell)|"
+                             r"how many (?:months|years)|how long|grow|be worth|monthly payment|pay (?:it )?off|save for|"
+                             r"retire with)\b", re.I)
+
+
+def states_tax_figure(text: str) -> bool:
+    """A message giving one of the user's own figures (an amount of their income or a deductible cost), with or
+    without a question: the tax agent collects it into the running estimate."""
+    return bool(amounts(text) and _MINE.search(text) and _FIGURE.search(text) and not _OTHER_QUESTION.search(text))
+
+
+# A deductible cost mentioned without its amount: what to ask for
+_NEEDS_AMOUNT = [
+    (re.compile(r"\bmortgage\b", re.I), "mortgage_interest",
+     "How much **mortgage interest** do you pay in a year? Only the interest counts, not the whole payment (it's on the "
+     "Form 1098 your lender sends each January)."),
+    (re.compile(r"\b(property|real estate) tax\b", re.I), "property_tax", "How much **property tax** do you pay in a year?"),
+    (re.compile(r"\b(charit\w*|donat\w*)\b", re.I), "charity", "How much did you **give to charity** this year?"),
+    (re.compile(r"\b(daycare|child ?care|nanny|babysit\w*)\b", re.I), "care_expenses",
+     "How much do you pay for **child care** in a year?"),
+    (re.compile(r"\b(tuition|college)\b", re.I), "college_expenses", "How much **tuition and fees** did you pay this year?"),
+]
+
+
+def pending_kind(text: str) -> str:
+    """The kind of figure missing_amount asked for."""
+    return next((kind for cue, kind, _ in _NEEDS_AMOUNT if cue.search(text)), "")
+
+
+def missing_amount(text: str, profile: dict | None) -> str:
+    """The question to ask when a message names a deductible cost without an amount ("I have a monthly mortgage
+    payment"), with what it would take to matter against the user's last estimate; '' when there's nothing to ask."""
+    if amounts(text):
+        return ""
+    for cue, kind, ask in _NEEDS_AMOUNT:
+        if not cue.search(text):
+            continue
+        if kind in ("mortgage_interest", "property_tax", "charity") and profile:
+            reading, _ = reading_from(profile.get("items") or [], profile.get("filing_status"), profile.get("year"),
+                                      profile.get("household"))
+            if reading is not None:
+                est = T.estimate(reading.inputs, reading.year)
+                gap = est["standard"] - est["itemized"]
+                if gap > 0:
+                    ask += (f" It lowers your tax only if your itemized deductions beat the {money(est['standard'])} standard "
+                            f"deduction: you have {money(est['itemized'])} so far"
+                            + (f" (your {money(est['salt_deduction'])} of state, local and property tax)" if est["salt_deduction"] else "")
+                            + f", so it would need to be more than {money(gap)} to make a difference.")
+                else:
+                    ask += " You already itemize, so every dollar of it lowers your taxable income."
+        return ask
+    return ""
+
+
 def amounts(text: str) -> list[float]:
     out = []
     for m in AMOUNT.finditer(text):
@@ -161,11 +221,6 @@ def read(question: str, reply: dict | None) -> tuple[Reading | None, str]:
         for it in items:
             if it["kind"] in ("tips", "overtime"):
                 it["included"] = True
-    if not any(it["kind"] == "wages" for it in items):                     # an only job is pay, not a side job
-        for it in items:
-            if it["kind"] == "job_unspecified":
-                it["kind"] = "wages"
-                break
     return reading_from(items, reply.get("filing_status"), reply.get("year"), household_of(reply.get("household"), question))
 
 
@@ -196,6 +251,10 @@ def reading_from(items: list[dict], status: str | None, year=None, household: di
     """The estimate's inputs from checked items: what is unknown (filing status, holding period, W-2 or 1099) is assumed,
     said, and kept as an alternative to work out too."""
     inp, r = T.TaxInputs(), Reading(T.TaxInputs())
+    if not any(it["kind"] == "wages" for it in items):                     # an only job is pay, not a side job
+        first = next((it for it in items if it["kind"] == "job_unspecified"), None)
+        if first:
+            first["kind"] = "wages"
     r.items = [{k: it.get(k, False) for k in ("text", "amount", "kind", "loss", "included")} for it in items]
     r.status_given = status in T.STATUSES
     r.household = dict(household or {})
@@ -577,10 +636,12 @@ def estimate(r: Reading, change: str = "", before: dict | None = None) -> Estima
     worth = [w for w in worth if w[0] >= max(ASK_MIN_DOLLARS, ASK_MIN_SHARE * est["total_federal"])]
     ask = max(worth, key=lambda w: w[0]) if worth else None
     text = render(r, est, [(label, a) for _, label, a in alts])
-    if change and before:
-        diff = est["total_federal"] - before.get("total_federal", est["total_federal"])
+    if change and before and before.get("total_federal") is not None:
+        diff = est["total_federal"] - before["total_federal"]
         text = (f"**Updated:** {change}. Federal taxes go from {money(before['total_federal'])} to "
                 f"**{money(est['total_federal'])}** ({'+' if diff >= 0 else '−'}{money(abs(diff))}).\n\n" + text)
+    elif change and before:
+        text = f"**Updated:** {change}. With your income, federal taxes are **{money(est['total_federal'])}**.\n\n" + text
     choices = []
     if ask:
         key = "status_hoh" if ask[1] in ("status", "status_hoh") and any(k == "status_hoh" for k, _, _ in r.alternatives) else ask[1]
@@ -598,10 +659,27 @@ def answer(question: str, context: str = "") -> tuple[Estimate | None, str]:
     """(estimate, trace) for an income-tax question; (None, why) when it isn't one this path can work out."""
     reply = first_json(ask_llm(SYSTEM, f"{context}\n\nMessage: {question}" if context else f"Message: {question}"))
     reading, why = read(question, reply)
+    if reading is None and why == "no income among the amounts":           # "I have $10,000 property tax": keep it
+        items, _ = _items(reply["items"], amounts(question), amounts(question))
+        out = noted(items or [], reply.get("filing_status"), household_of(reply.get("household"), question), reply.get("year"))
+        return out, out.note
     if reading is None:
         return None, f"income tax: {why}"
     out = estimate(reading)
     return out, out.note
+
+
+def noted(items: list[dict], status, household: dict, year=None, change: str = "") -> Estimate:
+    """Figures with no income yet (a deduction or a credit cost): kept for the estimate, and the income asked for."""
+    kept = [{k: it.get(k, False) for k in ("text", "amount", "kind", "loss", "included")} for it in items]
+    listed = "; ".join(f"{money(it['amount'])} {TREATED[it['kind']]}" for it in kept) or "nothing yet"
+    text = ((f"**Updated:** {change}.\n\n" if change else "")
+            + f"**Noted for your tax estimate:** {listed}.\n\nThere's no income yet to work the tax out from. Tell me what "
+            "you earn (pay from a job, freelance income, investment gains or dividends) and I'll estimate your federal "
+            "tax with everything you've given me.")
+    profile = {"year": year, "filing_status": status if status in T.STATUSES else None, "items": kept, "household": household,
+               "total_federal": None, "income_tax": None, "choices": []}
+    return Estimate(text, f"noted {listed}; no income yet", profile, [], [])
 
 
 UPDATE_SYSTEM = (
@@ -629,7 +707,9 @@ def changes_estimate(text: str, profile: dict | None) -> bool:
     if not profile:
         return False
     said = " ".join(text.lower().strip(" .!?").split())
-    return any(said == " ".join(c.lower().split()) for c in profile.get("choices") or []) or bool(_CHANGES.search(text))
+    return (any(said == " ".join(c.lower().split()) for c in profile.get("choices") or []) or bool(_CHANGES.search(text))
+            or states_tax_figure(text) or bool(missing_amount(text, None))
+            or bool(profile.get("pending") and amounts(text)))                 # "$12,000" after "how much interest?"
 
 
 def describe_profile(p: dict) -> str:
@@ -637,7 +717,8 @@ def describe_profile(p: dict) -> str:
     figures = "\n".join(f"{n}. {it['amount']:.0f} {it['kind']}{' (loss)' if it['loss'] else ''}: \"{it['text']}\""
                         for n, it in enumerate(p.get("items") or []))
     household = ", ".join(f"{k} {v}" for k, v in (p.get("household") or {}).items()) or "none given"
-    return f"Filing status: {status}\nHousehold: {household}\nCURRENT FIGURES:\n{figures}"
+    asked = f"\nThe assistant just asked for: {p['pending']} (an amount in the message is that)" if p.get("pending") else ""
+    return f"Filing status: {status}\nHousehold: {household}{asked}\nCURRENT FIGURES:\n{figures or '(none yet)'}"
 
 
 def follow_up(question: str, profile: dict, typed: str = "") -> tuple[Estimate | None, str]:
@@ -671,6 +752,9 @@ def follow_up(question: str, profile: dict, typed: str = "") -> tuple[Estimate |
     if same:
         return None, "tax follow-up: nothing changed"
     reading, why = reading_from(items, status, profile.get("year"), house)
+    if reading is None and why == "no income among the amounts":
+        out = noted(items, status, house, profile.get("year"), what_changed(base, items, profile.get("filing_status"), status))
+        return out, f"follow-up: {out.note}"
     if reading is None:
         return None, f"tax follow-up: {why}"
     change = what_changed(base, items, profile.get("filing_status"), status)
