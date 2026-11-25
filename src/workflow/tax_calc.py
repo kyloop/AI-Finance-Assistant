@@ -21,15 +21,18 @@ KINDS = {
                        "only or main job is wages)",
     "interest_dividends": "interest, or dividends not said to be qualified",
     "qualified_dividends": "dividends the message says are qualified",
-    "other_income": "other taxable income that isn't pay from a job (rent received, prizes, ...)",
+    "other_income": "other taxable income that isn't pay from a job or a rental property (prizes, jury pay, ...)",
+    "rental_income": "rent received from a rental property the person owns (gross rents)",
+    "rental_expense": "a cost of a rental property: management fees, repairs and maintenance, insurance, utilities, the "
+                      "rental's property tax, the rental's mortgage interest, depreciation, advertising",
     "short_term_gains": "profit from selling investments held a year or less",
     "long_term_gains": "profit from selling investments held more than a year",
     "stock_unspecified": "stock or investment earnings/profit/gains without saying how long they were held",
     "pre_tax_retirement": "money put INTO a traditional 401(k)/403(b)/IRA (contributions)",
     "retirement_withdrawal": "money taken OUT of a traditional IRA or 401(k), or a pension or annuity payment (taxable income)",
     "state_local_taxes": "state or local income tax paid",
-    "property_tax": "property / real estate tax paid",
-    "mortgage_interest": "mortgage interest paid",
+    "property_tax": "property / real estate tax paid on the home the person lives in (a rental's is rental_expense)",
+    "mortgage_interest": "mortgage interest paid on the home the person lives in (a rental's is rental_expense)",
     "charity": "charitable donations",
     "tips": "tips received (cash or card tips at a job that gets tips)",
     "overtime": "overtime pay",
@@ -89,6 +92,20 @@ def states_tax_figure(text: str) -> bool:
     """A message giving one of the user's own figures (an amount of their income or a deductible cost), with or
     without a question: the tax agent collects it into the running estimate."""
     return bool(amounts(text) and _MINE.search(text) and _FIGURE.search(text) and not _OTHER_QUESTION.search(text))
+
+
+# a tax situation laid out with its figures, about the user or anyone ("David is a single taxpayer who earns $120,000 ...
+# rental income received: $30,000 ... What is David's net rental income?"): the tax agent works it out
+_RENTAL = re.compile(r"\b(rental (?:income|property|properties|house|home|unit|apartment)|rents? (?:received|collected)|"
+                     r"landlord|schedule e)\b", re.I)
+_TAX_SITUATION = re.compile(rf"{_TAX}|\b(taxpayer|deduct\w*|filing (?:status|jointly|separately)|itemi[sz]\w*|"
+                            r"student loan interest|charit\w*)\b", re.I)
+
+
+def is_scenario(text: str) -> bool:
+    """Three or more amounts, income among them, and tax words or a rental property: a tax situation to work out."""
+    return bool(len(amounts(text)) >= 3 and INCOME.search(text) and _FIGURE.search(text)
+                and (_TAX_SITUATION.search(text) or _RENTAL.search(text)) and not _OTHER_QUESTION.search(text))
 
 
 # A deductible cost mentioned without its amount: what to ask for
@@ -176,7 +193,8 @@ TREATED = {"wages": "wages (job pay)", "self_employment": "self-employment incom
            "charity": "charitable gift (itemized deduction)", "not_tax_input": "not used: doesn't change federal tax",
            "tips": "tips (pay, and a deduction)", "retirement_withdrawal": "retirement withdrawal / pension (income)", "overtime": "overtime pay (pay, and a deduction for the premium)",
            "car_loan_interest": "car-loan interest (deduction)", "student_loan_interest": "student loan interest (deduction)", "care_expenses": "child/dependent care (credit)",
-           "college_expenses": "college costs (credit)"}
+           "college_expenses": "college costs (credit)", "rental_income": "rent received (rental income)",
+           "rental_expense": "rental expense (subtracted from the rent)"}
 
 
 def _items(raw: list, allowed: list[float], must_use: list[float], base: list[dict] | None = None) -> tuple[list[dict] | None, str]:
@@ -322,6 +340,8 @@ def reading_from(items: list[dict], status: str | None, year=None, household: di
             unspecified_stock += amount
         elif kind == "job_unspecified":
             unspecified_job += amount
+        elif kind == "rental_expense":
+            inp.rental_expenses += amount               # subtracted from the rent, not itemized (no SALT cap on it)
         elif kind == "retirement_withdrawal":
             inp.other_income += amount                  # taxed as ordinary income (not wages: no payroll tax)
         elif kind == "tips":
@@ -367,7 +387,7 @@ def reading_from(items: list[dict], status: str | None, year=None, household: di
     except (TypeError, ValueError):
         r.year = None
     income = (inp.wages + inp.self_employment + inp.interest_dividends + inp.other_income + inp.short_term_gains
-              + inp.long_term_gains + inp.qualified_dividends)
+              + inp.long_term_gains + inp.qualified_dividends + inp.rental_income)
     if income <= 0:
         return None, "no income among the amounts"
     return r, ""
@@ -376,6 +396,19 @@ def reading_from(items: list[dict], status: str | None, year=None, household: di
 def changed(inp: T.TaxInputs, deltas: dict) -> T.TaxInputs:
     """The inputs with one assumption turned the other way (each alternative changes only its own amounts)."""
     return T.TaxInputs(**{**vars(inp), **{k: v if isinstance(v, str) else getattr(inp, k) + v for k, v in deltas.items()}})
+
+
+def label_of(text: str) -> str:
+    """The user's label for a figure listed as "Repairs and maintenance: $3,000" -> "Repairs and maintenance"; '' when the
+    amount sits inside a sentence ("paid $4,000 of property tax on the rental")."""
+    m = re.fullmatch(r"\s*(.*?\w)\s*[:=-]?\s*\$?\s*\d[\d,]*(?:\.\d+)?\s*(?:k|thousand)?\s*", text, re.I)
+    return m.group(1) if m and not AMOUNT.search(m.group(1)) else ""
+
+
+def figure_words(text: str, amount: float) -> str:
+    """A figure in the user's words: "$3,000 (repairs and maintenance)", or their sentence as it is."""
+    label = label_of(text)
+    return f"{money(amount)} ({label[0].lower() + label[1:]})" if label else text
 
 
 def money(x: float) -> str:
@@ -436,12 +469,38 @@ def render(r: Reading, est: dict, alts: list[tuple[str, dict]]) -> str:
         step += 1
         L.extend(["", f"**Step {step}. {title}**"] + ([why] if why else []) + [""])
 
-    # 1. income
+    # 1. a rental property
+    rent = est["rental"]
+    if rent["income"] or rent["expenses"]:
+        head("Work out the rental property's profit",
+             "Rent is income, but every ordinary cost of the rental comes off it first (on Schedule E): management fees, "
+             "repairs, insurance, the rental's property tax and mortgage interest, and depreciation of the building. Its "
+             "property tax is a rental expense, so the cap on deducting state and local taxes doesn't limit it.")
+        costs = [(text, amount) for text, amount, _, kind in r.rows if kind == "rental_expense"]
+        L.append(f"- Rent received: {money(rent['income'])}")
+        if costs:
+            L.append(f"- Expenses: {' + '.join(figure_words(t, a) for t, a in costs)} = {money(rent['expenses'])}")
+        L.append(f"- Net rental {'income' if rent['net'] >= 0 else 'loss'}: {money(rent['income'])} − {money(rent['expenses'])} "
+                 f"= **{money(rent['net'])}**")
+        if rent["net"] < 0:
+            a = rules["rental_loss_allowance"]
+            L.append(f"- A rental loss is passive: up to {money(a['amount'])} of it can offset your other income if you actively "
+                     f"manage the rental, reduced by half of your income over {money(a['phase_out_start'])} "
+                     f"({money(rent['magi'])} here) → {money(rent['allowance'])} allowed"
+                     + (" (none married filing separately)" if est["filing_status"] == "married_separate" else ""))
+            L.append(f"- Subtracted from income this year: **{money(-rent['allowed'])}**"
+                     + (f"; the other {money(rent['carried_forward'])} carries forward to later years (or until you sell)"
+                        if rent["carried_forward"] else ""))
+
+    # 2. income
     parts = [(label, i[k]) for k, label in INCOME_LABELS if i[k]]
     head("Add up your income",
          "Income tax starts from everything you earned in the year: pay from jobs and profit from investments you sold. "
          + ("Taxes you paid, like property tax, are not income; they come in at step 2." if i["property_tax"] or i["state_local_taxes"] else ""))
     yours = [(amount, treated) for _, amount, treated, kind in r.rows if kind in INCOME_KINDS]
+    if rent["allowed"]:
+        yours.append((rent["allowed"], "net rental income"))
+        parts.append(("Net rental income", rent["allowed"]))
     if yours:                                           # each of the user's amounts, in their order
         L.append(f"- {' + '.join(money(a) for a, _ in yours).replace('+ -$', '− $')} = **{money(sum(a for a, _ in yours))}**")
     else:
@@ -460,7 +519,8 @@ def render(r: Reading, est: dict, alts: list[tuple[str, dict]]) -> str:
             sl = rules.get("student_loan_interest") or {}
             lo, hi = (sl.get("phase_out") or {}).get(est["filing_status"], (0, 0))
             L.append(f"- Student loan interest: you paid {money(i['student_loan_interest'])}; at most $2,500 counts"
-                     + (f", reduced because income is between {money(lo)} and {money(hi)}" if hi else "")
+                     + ((f", and none once income is over {money(hi)}" if est["agi"] + est["student_loan_deduction"] >= hi
+                         else f", reduced because income is between {money(lo)} and {money(hi)}") if hi else "")
                      + f" → {money(est['student_loan_deduction'])}")
 
     # 2. deduction
@@ -663,6 +723,8 @@ def topics_of(est: dict) -> list[str]:
         out.append("Earned income tax credit")
     if "child_and_dependent_care" in names:
         out.append("Child and Dependent Care Credit")
+    if est["rental"]["income"] or est["rental"]["expenses"]:
+        out.append("How rental income is taxed")
     if est["new_deductions"]:
         out.append("One Big Beautiful Bill Act")
     if i["long_term_gains"] or i["short_term_gains"] or i["qualified_dividends"]:
@@ -920,7 +982,21 @@ def estimate_facts(profile: dict | None, question: str) -> str:
     if reading is None:
         return ""
     est = T.estimate(reading.inputs, reading.year)
-    i, lines = est["inputs"], []
+    i, lines, rent = est["inputs"], [], est["rental"]
+    if re.search(r"\brent|landlord|schedule e|depreciat", question, re.I) and (rent["income"] or rent["expenses"]):
+        costs = [figure_words(it["text"], it["amount"]) for it in profile["items"] if it["kind"] == "rental_expense"]
+        lines.append(f"Your rental: {money(rent['income'])} of rent"
+                     + (f" minus {money(rent['expenses'])} of expenses ({'; '.join(costs)})" if costs else "")
+                     + f" = net rental {'income' if rent['net'] >= 0 else 'loss'} of **{money(rent['net'])}**. "
+                     + ("Every one of these expenses is deductible against the rent on Schedule E. " if costs else "")
+                     + "The rental's property tax and mortgage interest are rental expenses, not itemized deductions, so the "
+                     "SALT cap doesn't limit them and they count even with the standard deduction."
+                     + (f" {money(-rent['allowed'])} of the loss offsets other income this year; {money(rent['carried_forward'])} "
+                        "carries forward." if rent["net"] < 0 else ""))
+    if re.search(r"capital gains?|short[- ]term|stock|shares|ordinary", question, re.I) and est["short_term_taxed"] > 0:
+        lines.append(f"Your {money(est['short_term_taxed'])} of short-term gains (shares held a year or less) is taxed as "
+                     f"ordinary income, like salary, in your brackets (your top one is {pct(est['marginal_rate'])}), not at "
+                     "the lower 0%/15%/20% long-term rates. Like other investment profit, it owes no payroll tax.")
     if re.search(r"capital gains?|long[- ]term|short[- ]term|stock|shares|dividend", question, re.I) and est["preferential_rows"]:
         gain = est["preferential_income"]
         rows = "; ".join(f"{money(b['amount'])} at {pct(b['rate'])} = {money(b['tax'])}" for b in est["preferential_rows"])

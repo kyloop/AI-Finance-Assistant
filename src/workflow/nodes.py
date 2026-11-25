@@ -232,7 +232,7 @@ AGENTS AND THEIR RESPONSIBILITIES
 - market: Live and recent market DATA at every level. A company or fund: prices, quotes, valuation (P/E, dividend yield, market cap), performance over a period, comparisons between tickers. A sector: its return against the S&P 500 and how its largest companies moved. A sector's industries and what it is made of. A region or country: its stock index. The US market as a whole: the main indices, every sector ranked, the largest companies, today's most active stocks, whether the market is open. Asset classes: rates, commodities, currencies, crypto. Anything about the current STATE or PERFORMANCE of a security, sector, region, market or asset class.
 - news: Recent headlines and developments ("latest", "recent", "what happened", "what's being reported", "any news") about a company, sector, region, topic or the whole market. Summarizes and gives context.
 - goal: Builds a savings plan: monthly amount needed to reach a target amount by a date (risk appetite may apply). Only when they want a plan or "how much should I save". Also reads and explains the plan the user saved on the Goals tab whenever they ask about "my plan", "my goal(s)", "the plan" or whether they are on track.
-- tax: Tax rules and account types (401k, IRA, Roth, HSA, 529), contribution limits, capital gains, deductions, tax treatment of investments.
+- tax: Tax rules and account types (401k, IRA, Roth, HSA, 529), contribution limits, capital gains, deductions, tax treatment of investments. Also works out anyone's own taxes from their figures: income, taxable income, rental income and expenses, deductions, credits, the tax owed, what-ifs.
 - calc: Computes a specific number: future value, loan/mortgage payment, doubling time, present value, real return, APY, bond yield, how long savings last with yearly withdrawals, or any other finance formula. Use when the user wants a figure calculated, not explained.
 
 ROUTING RULES
@@ -266,6 +266,7 @@ EXAMPLES
 "Is my portfolio too concentrated in tech?" -> ["portfolio","qa"]
 "What's the monthly payment on a $400k mortgage at 6.5% for 30 years?" -> ["calc"]
 "I want $50k for a down payment in 4 years, how much per month?" -> ["goal"]
+"Dana earns $90,000, gets $18,000 of rent and pays $6,000 of rental repairs and $4,000 of property tax on the rental. What is her net rental income?" -> ["tax"] (a tax situation: the tax agent works out its figures)
 "If I split $600 a month equally into 3 accounts, how much goes into each and how much does it grow at 6%?" -> ["calc"] (two calculations, nothing to explain)
 "Can you show me an example of how to calculate WACC?" -> ["calc"]
 "I plan to retire with $1 million and need $50,000 a year" -> ["calc","qa"] (how long the money lasts, not a savings plan)
@@ -452,7 +453,10 @@ def _with_income_tax(intents: list[str], state: FinanceState) -> list[str]:
     typed = state.get("original_question") or state["question"]
     follows_estimate = plain and (bool(_last_estimate(state)) or TAXC.states_tax_figure(typed)
                                   or bool(TAXC.missing_amount(typed, None) and (state.get("context_in") or {}).get("tax")))
-    if not TAXC.asks_income_tax(state["question"]) and not follows_estimate:
+    # a whole tax situation with its figures ("David earns $120,000, rent received $30,000 ... his net rental income?"):
+    # the router LLM sent it to the calculator, which can't place a dozen tax figures
+    scenario = plain and (TAXC.is_scenario(typed) or TAXC.is_scenario(state["question"]))
+    if not TAXC.asks_income_tax(state["question"]) and not follows_estimate and not scenario:
         if "tax" in intents and TW.TAX_FIGURE.search(state["question"]) and TAXC.amounts(state["question"]):
             return [i for i in intents if i not in ("calc", "qa")]  # Roth vs traditional for $10k, a sale's gain: the tax tools
         return intents
@@ -711,7 +715,7 @@ def tax_node(state: FinanceState, config: RunnableConfig):
         res["turn_context"] = {"tax": kept}
         return res
     # the model picked the estimate ("Sarah is a single taxpayer ... salary $95,000 ..."): a scenario with no question
-    figure = TAXC.states_tax_figure(typed) or TAXC.states_tax_figure(question) or bool(
+    figure = TAXC.states_tax_figure(typed) or TAXC.states_tax_figure(question) or TAXC.is_scenario(typed) or bool(
         picked and picked[0] == "estimate_income_tax" and TAXC.amounts(question))
     if current_llm() is not None and (profile or TAXC.asks_income_tax(question) or figure):
         est, note = None, ""

@@ -8,7 +8,7 @@
 
 ## Why it exists
 
-Its pages: `taxes-and-accounts` (338 Wikipedia pages, 6,997 chunks, US sections only; see kb-token-stats-taxes-and-accounts.md) and `retirement` (15). The agent covers US federal tax only.
+Its pages: `tax-notes` (9 notes of our own, from IRS pages), `taxes-and-accounts` (338 Wikipedia pages, 6,997 chunks, US sections only; see kb-token-stats-taxes-and-accounts.md) and `retirement` (15). The agent covers US federal tax only.
 
 Before this, the Tax agent was the Q&A agent with "tax" added to its fallback query and a caveat: the same function
 (`_kb_answer`), the same 336 pages, no calculation. Tax figures came from the general calculator, which used a flat
@@ -19,8 +19,8 @@ sample rate and subtracted property tax in full. A tax expert does five things, 
 2. **Understands the situation**: the user's amounts, filing status, holding period, account type.
 3. **Calculates**: in Python, with the working shown.
 4. **Explains**: the rule in plain words, then the user's numbers, then the source page.
-5. **Knows its limits**: says what it covers (US federal, single or married filing jointly, this year) and what it
-   doesn't (state tax, credits, AMT); explains and estimates, never advises.
+5. **Knows its limits**: says what it covers (US federal, all four filing statuses, 2025 and 2026) and what it
+   doesn't (state tax, the AMT, less common credits); explains and estimates, never advises.
 
 ## Tools
 
@@ -90,16 +90,39 @@ sample rate and subtracted property tax in full. A tax expert does five things, 
 
 `src/core/income_tax.py` now covers single, married filing jointly, married filing separately and head of household
 (brackets, standard deduction, capital-gains bands, SALT cap, NIIT and additional-Medicare lines for each, in
-`tax_rules.yaml`), the extra standard deduction for 65+/blind, the One Big Beautiful Bill Act deductions (seniors ,000
+`tax_rules.yaml`), the extra standard deduction for 65+/blind, the One Big Beautiful Bill Act deductions (seniors $6,000
 each, tips, the overtime premium, car-loan interest; each capped and phased out; `obbba_deductions`) and the common credits
-(`credits`): child tax credit and credit for other dependents (,200 / ,  per ,000 over k/k, refundable
-up to ,700 a child at 15% of earnings over ,500), earned income credit (2026 table), child and dependent care credit
+(`credits`): child tax credit and credit for other dependents ($2,200 / $500, reduced $50 per $1,000 over $200k/$400k, refundable
+up to $1,700 a child at 15% of earnings over $2,500), earned income credit (2026 table), child and dependent care credit
 (50% falling to 35%, then to 20%, as amended in 2025), American Opportunity (40% refundable) and Lifetime Learning credits.
 Nonrefundable credits come off the income tax before NIIT; refundable ones can make the result negative (a refund beyond
 withholding). The sorter reads the household (children under 17, other dependents, people 65+, students), each count kept
 only when the message has a word for it (`household_of`); tips and overtime are pay plus a deduction, not counted twice
 when "including"; an only job is wages; an unmarried parent is asked about head of household. Left out: the saver's credit
 (2026 limits not confirmed), the earned income credit's investment-income test, the AMT, state tax.
+
+## Rental property (Schedule E)
+
+Added 2026-11-25 after a rental-owner scenario ("David earns $120,000 ... rental income $30,000, management fees,
+repairs, property taxes, mortgage interest, depreciation ... what is his net rental income?") went to the calculator,
+which couldn't place the figures. Now:
+
+- **Sorting.** Two kinds: `rental_income` (rent received) and `rental_expense` (any cost of the rental: fees, repairs,
+  insurance, utilities, its property tax and mortgage interest, depreciation). `property_tax` and `mortgage_interest`
+  are for the home the user lives in.
+- **Maths** (`income_tax.rental`). Net = rent − expenses, added to income and to net investment income (NIIT). The
+  rental's property tax is a rental expense, so the SALT cap doesn't touch it. A loss is passive: up to $25,000 offsets
+  other income with active participation, reduced by half of modified AGI over $100,000 (gone at $150,000; none married
+  filing separately, assuming the couple lived together); the rest carries forward (`rental_loss_allowance` in the rules).
+  Left out: real-estate professionals, depreciation recapture on a sale, personal-use and short-rental rules (the
+  `how-rental-income-is-taxed` note explains them).
+- **Answer.** The estimate opens with "Work out the rental property's profit" (each expense in the user's words, the
+  net in bold); explanations after it ("which rental expenses are deductible?") add the user's own rental lines, and a
+  question about a gain the estimate holds as short-term says it is taxed as ordinary income (`estimate_facts`).
+- **Routing.** A message laying out a tax situation (three or more amounts, income, and tax words or a rental:
+  `tax_calc.is_scenario`) goes to the tax agent even when the router LLM picks the calculator; the router prompt now says
+  the tax agent works out anyone's own taxes from their figures.
+- **Test.** `d21` in `tests/data/tax_eval.yaml` (David's three questions).
 
 ## This year's figures in explanations
 

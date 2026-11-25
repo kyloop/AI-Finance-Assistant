@@ -79,7 +79,7 @@ FLOW_NODES = [
     ("router", "Router", 1, "Reads your question and decides which agents should handle it (several can run at once)."),
     ("topic", "Topic", 2, "Decides which topic of the conversation the message belongs to: the one just discussed, an older one it names again (\"back to Tesla\") or a new one, linked to earlier chats about the same thing."),
     ("qa_agent", "Q&A", 3, "Answers finance concepts from the knowledge base."),
-    ("tax_agent", "Tax", 3, "Explains tax rules and accounts in general terms, from the knowledge base."),
+    ("tax_agent", "Tax", 3, "Works out your federal tax step by step from your figures (pay, investments, a rental, deductions, credits), answers what-ifs, and explains the rules with this year's IRS figures."),
     ("market_agent", "Market", 3, "Looks up prices and index moves."),
     ("news_agent", "News", 3, "Finds recent headlines for a company, its industry peers, or the market."),
     ("portfolio_agent", "Portfolio", 3, "Analyses your holdings: allocation, diversification, risk."),

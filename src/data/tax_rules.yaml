@@ -30,6 +30,7 @@ years:
       married_separate: [[49450, 0.0], [306850, 0.15], [null, 0.20]]
       head_of_household: [[66200, 0.0], [579600, 0.15], [null, 0.20]]
     capital_loss_limit: 3000        # net capital loss deductible against ordinary income per year
+    rental_loss_allowance: {amount: 25000, phase_out_start: 100000, phase_out_rate: 0.5}   # 26 U.S.C. 469(i): a rental loss you actively manage, against other income; not indexed (none married filing separately, if you lived together)
     salt:                           # state and local tax deduction (itemized): cap, reduced by 30% of MAGI above the threshold, never below the floor
       cap: 40400
       phase_down_start: 505000
@@ -110,6 +111,7 @@ years:
       married_separate: [[48350, 0.0], [300025, 0.15], [null, 0.20]]
       head_of_household: [[64750, 0.0], [566700, 0.15], [null, 0.20]]
     capital_loss_limit: 3000
+    rental_loss_allowance: {amount: 25000, phase_out_start: 100000, phase_out_rate: 0.5}
     salt:
       cap: 40000
       phase_down_start: 500000

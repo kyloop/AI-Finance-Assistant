@@ -719,3 +719,73 @@ def test_the_yes_dependent_button_adds_the_dependent_and_pay_is_never_ignored():
     assert est.profile["household"]["other_dependents"] == 1 and est.profile["total_federal"] == pytest.approx(14622.5)
     got, _ = TC._items([{"amount": 70000, "kind": "not_tax_input", "text": "I earn $70,000"}], [70000], [70000])
     assert got[0]["kind"] == "wages"
+
+
+# ---------------------------------------------------------------- rental property (Schedule E)
+DAVID = ("David is a single taxpayer who earns $120,000 annually as a software engineer. In 2025, he also owns a rental house:\n"
+         "Rental income received: $30,000\nProperty management fees: $2,500\nRepairs and maintenance: $3,000\n"
+         "Property taxes: $4,000\nMortgage interest: $8,000\nDepreciation expense: $7,500\n"
+         "Contributed $10,000 to a traditional 401(k)\nReceived $1,500 in bank interest\n"
+         "Sold stock for a $12,000 short-term capital gain\nPaid $3,500 in student loan interest\n"
+         "Made $1,000 in charitable donations\nWhat is David's net rental income (or loss)?")
+DAVID_ITEMS = [("earns $120,000", 120000, "wages"), ("Rental income received: $30,000", 30000, "rental_income"),
+               ("Property management fees: $2,500", 2500, "rental_expense"), ("Repairs and maintenance: $3,000", 3000, "rental_expense"),
+               ("Property taxes: $4,000", 4000, "rental_expense"), ("Mortgage interest: $8,000", 8000, "rental_expense"),
+               ("Depreciation expense: $7,500", 7500, "rental_expense"), ("Contributed $10,000 to a traditional 401(k)", 10000, "pre_tax_retirement"),
+               ("Received $1,500 in bank interest", 1500, "interest_dividends"),
+               ("Sold stock for a $12,000 short-term capital gain", 12000, "short_term_gains"),
+               ("Paid $3,500 in student loan interest", 3500, "student_loan_interest"),
+               ("Made $1,000 in charitable donations", 1000, "charity")]
+
+
+def test_rental_profit_is_rent_minus_expenses_and_its_property_tax_isnt_salt():
+    # worked by hand: AGI 120,000 + 1,500 + 12,000 + 5,000 - 10,000 = 128,500; student loan interest phased out (over $100k);
+    # taxable 128,500 - 15,750 = 112,750 -> 1,192.50 + 4,386 + 12,072.50 + 2,256 = 19,907; payroll 9,180
+    est = T.estimate(T.TaxInputs(wages=120000, rental_income=30000, rental_expenses=25000, pre_tax_retirement=10000,
+                                 interest_dividends=1500, short_term_gains=12000, student_loan_interest=3500, charity=1000), 2025)
+    assert est["rental"]["net"] == 5000 and est["gross_income"] == 138500 and est["agi"] == 128500
+    assert est["salt_paid"] == 0 and est["student_loan_deduction"] == 0
+    assert est["income_tax"] == pytest.approx(19907) and est["total_federal"] == pytest.approx(29087)
+
+
+def test_a_rental_loss_is_limited_by_the_passive_loss_allowance():
+    loss = T.TaxInputs(wages=120000, rental_income=20000, rental_expenses=50000)       # a $30,000 loss
+    r = T.estimate(loss, 2025)["rental"]
+    assert r["allowance"] == 15000 and r["allowed"] == -15000 and r["carried_forward"] == 15000   # 25,000 - (120k - 100k)/2
+    assert T.estimate(T.TaxInputs(wages=160000, rental_income=10000, rental_expenses=20000), 2025)["rental"]["allowed"] == 0
+    small = T.estimate(T.TaxInputs(wages=80000, rental_income=10000, rental_expenses=14000), 2025)
+    assert small["rental"]["allowed"] == -4000 and small["gross_income"] == 76000
+    mfs = T.TaxInputs(filing_status="married_separate", wages=80000, rental_income=10000, rental_expenses=14000)
+    assert T.estimate(mfs, 2025)["rental"]["carried_forward"] == 4000
+
+
+def test_net_rental_income_counts_for_the_net_investment_income_tax():
+    est = T.estimate(T.TaxInputs(wages=250000, rental_income=40000, rental_expenses=10000), 2026)
+    assert est["niit"] == pytest.approx(0.038 * 30000)
+
+
+def test_davids_rental_scenario_goes_to_the_tax_agent_and_is_worked_out():
+    assert TC.is_scenario(DAVID)
+    assert not TC.is_scenario("I retire with $1,000,000 and withdraw $45,000 a year, rising 3%: how long will it last?")
+    assert not TC.is_scenario("Which rental expenses are deductible against rental income?")
+    assert N._with_income_tax(["calc"], {"question": DAVID}) == ["tax"]
+    items = [{"text": t, "amount": a, "kind": k, "loss": False} for t, a, k in DAVID_ITEMS]
+    reading, why = TC.reading_from(items, "single", 2025)
+    assert why == "" and reading.inputs.rental_income == 30000 and reading.inputs.rental_expenses == 25000
+    assert reading.inputs.property_tax == 0 and reading.inputs.mortgage_interest == 0
+    est = TC.estimate(reading)
+    assert "**Step 1. Work out the rental property's profit**" in est.text
+    assert "$3,000 (repairs and maintenance)" in est.text and "Net rental income: $30,000 − $25,000 = **$5,000**" in est.text
+    assert "$120,000 + $1,500 + $12,000 + $5,000 = **$138,500**" in est.text and "none once income is over $100,000" in est.text
+    assert est.profile["total_federal"] == pytest.approx(29087) and "How rental income is taxed" in est.topics
+
+
+def test_explanations_after_davids_estimate_use_his_figures():
+    items = [{"text": t, "amount": a, "kind": k, "loss": False, "included": False} for t, a, k in DAVID_ITEMS]
+    profile = {"year": 2025, "filing_status": "single", "items": items, "household": {}, "total_federal": 29087}
+    rent = TC.estimate_facts(profile, "Which rental expenses are deductible against rental income?")
+    assert "net rental income of **$5,000**" in rent and "$7,500 (depreciation expense)" in rent and "SALT cap" in rent
+    gain = TC.estimate_facts(profile, "Is the $12,000 stock gain taxed at ordinary income rates or capital gains rates?")
+    assert "$12,000 of short-term gains" in gain and "taxed as ordinary income" in gain and "24%" in gain
+    from src.workflow import tax_tools
+    assert "Rental property (Schedule E)" in tax_tools.current_figures("which rental expenses can I deduct?", 2025)

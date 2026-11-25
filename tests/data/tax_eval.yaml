@@ -359,3 +359,17 @@
   expect:
     - {tax_only: true, filing_status: married_joint, household: {children_under_17: 3}, total_federal: -6973.3}
     - {tax_only: true, contains: ["-$5,258"]}
+
+- id: d21
+  about: a rental property owner (Schedule E), then which rental expenses count and how a short-term gain is taxed
+  messages: ["David is a single taxpayer who earns $120,000 annually as a software engineer. In 2025, he also owns a rental house that generated the following activity:\nRental income received: $30,000\nProperty management fees: $2,500\nRepairs and maintenance: $3,000\nProperty taxes: $4,000\nMortgage interest: $8,000\nDepreciation expense: $7,500\nContributed $10,000 to a traditional 401(k)\nReceived $1,500 in bank interest\nSold stock for a $12,000 short-term capital gain\nPaid $3,500 in student loan interest\nMade $1,000 in charitable donations\nWhat is David's net rental income (or loss)?",
+             "Which rental expenses are deductible against rental income?",
+             "Is the $12,000 stock gain taxed at ordinary income rates or preferential capital gains rates?"]
+  expect:
+    - {tax_only: true, filing_status: single, income_tax: 19907, total_federal: 29087,
+       figures: {120000: wages, 30000: rental_income, 2500: rental_expense, 3000: rental_expense, 4000: rental_expense,
+                 8000: rental_expense, 7500: rental_expense, 10000: pre_tax_retirement, 1500: interest_dividends,
+                 12000: short_term_gains, 3500: student_loan_interest, 1000: charity},
+       contains: ["Net rental income: $30,000 − $25,000 = **$5,000**"]}
+    - {tax_only: true, contains: ["net rental income of **$5,000**", "SALT cap"]}
+    - {tax_only: true, contains: ["taxed as ordinary income"]}

@@ -2,7 +2,8 @@
 (brackets, standard deduction, capital-gains breakpoints, SALT cap, NIIT, FICA) are in src/data/tax_rules.yaml.
 
 Covers all four filing statuses; wages, self-employment income, interest and dividends, other ordinary income, short- and
-long-term capital gains; pre-tax retirement contributions; the standard deduction (with the 65+/blind addition) or the
+long-term capital gains; a rental property's net income or loss (Schedule E, with the passive-loss limit); pre-tax
+retirement contributions; the standard deduction (with the 65+/blind addition) or the
 itemized deductions most people have (state/local taxes, mortgage interest, charity); the One Big Beautiful Bill Act
 deductions (seniors, tips, overtime, car-loan interest); and the common credits: child tax credit and credit for other
 dependents, earned income credit, child and dependent care credit, American Opportunity and Lifetime Learning credits.
@@ -29,6 +30,9 @@ class TaxInputs:
     self_employment: float = 0.0             # net self-employment / 1099 earnings (self-employment tax applies)
     interest_dividends: float = 0.0          # interest and non-qualified dividends: ordinary rates, counts for NIIT
     other_income: float = 0.0                # other ordinary income (not investment income)
+    rental_income: float = 0.0               # rent received from a rental property (Schedule E)
+    rental_expenses: float = 0.0             # that property's costs: fees, repairs, insurance, its property tax and
+                                             # mortgage interest, depreciation (not itemized: subtracted from the rent)
     short_term_gains: float = 0.0            # assets held a year or less
     long_term_gains: float = 0.0             # assets held more than a year
     qualified_dividends: float = 0.0
@@ -110,6 +114,22 @@ def _net_gains(st: float, lt: float, loss_limit: float) -> tuple[float, float, f
     return st, lt, 0.0
 
 
+def rental(inp: TaxInputs, magi: float, r: dict) -> dict:
+    """A rental property's net income (rent minus its expenses). A loss is passive: up to $25,000 of it can offset other
+    income if you actively manage the property, reduced by half of modified AGI over $100,000 (none from $150,000), and
+    none married filing separately (it assumes you lived together); the rest is carried forward to later years."""
+    net = inp.rental_income - inp.rental_expenses
+    out = {"income": inp.rental_income, "expenses": inp.rental_expenses, "net": net, "allowed": net, "carried_forward": 0.0,
+           "allowance": 0.0, "magi": magi}
+    if net >= 0:
+        return out
+    a = r["rental_loss_allowance"]
+    allowance = 0.0 if inp.filing_status == "married_separate" else \
+        max(0.0, a["amount"] - a["phase_out_rate"] * max(0.0, magi - a["phase_out_start"]))
+    allowed = min(-net, allowance)
+    return {**out, "allowed": -allowed, "carried_forward": -net - allowed, "allowance": allowance}
+
+
 def payroll_taxes(inp: TaxInputs, r: dict) -> dict:
     p, status = r["payroll"], inp.filing_status
     wages, se = max(inp.wages, 0.0), max(inp.self_employment, 0.0)
@@ -134,6 +154,8 @@ def estimate(inp: TaxInputs, year: int | None = None) -> dict:
     qdiv = max(inp.qualified_dividends, 0.0)
     payroll = payroll_taxes(inp, r)
     gross = (inp.wages + inp.self_employment + inp.interest_dividends + inp.other_income + st + lt + qdiv + loss)
+    rent = rental(inp, max(0.0, gross - payroll["half_se_deduction"] - inp.pre_tax_retirement), r)
+    gross += rent["allowed"]
     agi_before = max(0.0, gross - payroll["half_se_deduction"] - inp.pre_tax_retirement)
     student_loan = student_loan_deduction(inp, agi_before, r)
     agi = max(0.0, agi_before - student_loan)
@@ -156,7 +178,7 @@ def estimate(inp: TaxInputs, year: int | None = None) -> dict:
     ordinary_taxable = taxable - preferential
     ordinary_tax, ordinary_rows = bracket_tax(ordinary_taxable, r["brackets"][status])
     pref_tax, pref_rows = preferential_tax(ordinary_taxable, preferential, r["capital_gains"][status])
-    nii = max(0.0, inp.interest_dividends + st + lt + qdiv + loss)
+    nii = max(0.0, inp.interest_dividends + st + lt + qdiv + loss + rent["allowed"])
     niit = r["niit"]["rate"] * min(nii, max(0.0, agi - r["niit"]["threshold"][status]))
     tax_before_credits = ordinary_tax + pref_tax + niit
     cr = credits(inp, agi, ordinary_tax + pref_tax, r)
@@ -164,7 +186,7 @@ def estimate(inp: TaxInputs, year: int | None = None) -> dict:
     marginal = ordinary_rows[-1]["rate"] if ordinary_rows else _bands(r["brackets"][status])[0][1]
     return {
         "year": year, "filing_status": status, "inputs": asdict(inp),
-        "gross_income": gross, "short_term_taxed": st, "long_term_taxed": lt, "capital_loss_deducted": loss,
+        "gross_income": gross, "rental": rent, "short_term_taxed": st, "long_term_taxed": lt, "capital_loss_deducted": loss,
         "adjustments": payroll["half_se_deduction"] + inp.pre_tax_retirement + student_loan, "agi": agi,
         "student_loan_deduction": student_loan,
         "salt_paid": salt_paid, "salt_cap": salt_cap, "salt_deduction": salt, "itemized": itemized, "standard": standard,

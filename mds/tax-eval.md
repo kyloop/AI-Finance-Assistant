@@ -1,6 +1,6 @@
 # Tax agent eval
 
-`python -m scripts.eval_tax` on 2026-11-24: **40/40 cases passed** (74/74 messages). Provider `auto`; models anthropic: claude-sonnet-5-5, openai: gpt-4o-mini, gemini: gemini-2.0-flash. Cases: [tests/data/tax_eval.yaml](../tests/data/tax_eval.yaml); design: [agent-tax-agent.md](agent-tax-agent.md).
+`python -m scripts.eval_tax` on 2026-11-25: **41/41 cases passed** (77/77 messages). Provider `auto`; models anthropic: claude-sonnet-5-5, openai: gpt-4o-mini, gemini: gemini-2.0-flash. Cases: [tests/data/tax_eval.yaml](../tests/data/tax_eval.yaml); design: [agent-tax-agent.md](agent-tax-agent.md).
 
 Each case is replayed through the real workflow with the real model, the conversation's memory carried between messages as in the app. After every message the check compares who answered, the filing status, how each amount was sorted, the household, the income tax and federal total (within $1), the question asked and required phrases. Expected inputs are set by hand; the totals come from them by hand or with the hand-tested estimator. The model varies between runs, so a case can pass one run and fail the next: a failure is a lead to look at.
 
@@ -30,7 +30,7 @@ Each case is replayed through the real workflow with the real model, the convers
 | d02 | chain (2) | a figure added after the estimate | pass | $8,120 | $13,858 | none |  |
 | d03 | chain (2) | an amount corrected, which switches from itemizing to the standard deduction | pass | $10,970 | $17,855 | none |  |
 | d04 | chain (2) | an unmarried-parent question answered "married filing jointly" | pass | $-1,836 | $1,989 | none |  |
-| d05 | chain (2) | what a charitable gift saves when already itemizing | pass | $12,752 | $20,402 | none |  |
+| d05 | chain (2) | what a charitable gift saves when already itemizing | pass | $11,652 | $19,302 | none |  |
 | d06 | chain (2) | Roth vs traditional after an estimate | pass | $17,570 | $26,750 | none |  |
 | d07 | chain (2) | a stock sale after an estimate | pass | $6,570 | $11,925 | none |  |
 | d08 | chain (2) | a wash sale, then a question about it | pass | — | — | none |  |
@@ -46,3 +46,4 @@ Each case is replayed through the real workflow with the real model, the convers
 | d18 | chain (2) | crypto held under a year, then "what if I'd held it longer" | pass | $5,020 | $9,610 | none |  |
 | d19 | chain (2) | the student-dependent question answered yes | pass | $8,120 | $14,622 | none |  |
 | d20 | chain (2) | a low-income family with credits, then a raise | pass | $-9,083 | $-5,258 | none |  |
+| d21 | chain (3) | a rental property owner (Schedule E), then which rental expenses count and how a short-term gain is taxed | pass | $19,907 | $29,087 | none |  |

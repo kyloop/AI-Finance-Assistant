@@ -72,6 +72,11 @@ def _figure_lines(year: int, r: dict) -> list[tuple[str, str]]:
          f"{_m(ct['phase_out_start']['single'])} ({_m(ct['phase_out_start']['married_joint'])} joint)"),
         (r"earned income|eitc|\beic\b", f"Earned income credit: up to {_m(ei['max_credit'][0])} (no children), "
          f"{_m(ei['max_credit'][1])} (one), {_m(ei['max_credit'][2])} (two), {_m(ei['max_credit'][3])} (three or more)"),
+        (r"\brent|landlord|schedule e|depreciat", f"Rental property (Schedule E): rent minus its expenses (management fees, "
+         "repairs, insurance, its property tax and mortgage interest, depreciation over 27.5 years) is added to income; the "
+         "rental's property tax isn't limited by the SALT cap. A net loss is passive: up to "
+         f"{_m(r['rental_loss_allowance']['amount'])} offsets other income if you actively manage it, reduced by $1 for every $2 "
+         f"of income over {_m(r['rental_loss_allowance']['phase_out_start'])} (none from $150,000); the rest carries forward"),
         (r"senior|65|tip|overtime|car loan|auto loan|big beautiful", "2025-2028 deductions (One Big Beautiful Bill Act): $6,000 "
          "per person 65+, tips up to $25,000, overtime premium up to $12,500 ($25,000 joint), car-loan interest up to $10,000; "
          "each reduced at higher incomes"),
