@@ -518,3 +518,17 @@ def test_a_result_whose_unit_doesnt_match_its_inputs_is_rejected():
         run(plan("percent", 0.08, 0.02, "rate", "rate"), CAPM_Q)         # would show 0.09%
     assert "its unit is \"percent\" but it's computed from rates" in str(e.value)
     assert run(plan("percent", 8, 2, "percent", "percent"), CAPM_Q)["values"]["er"] == pytest.approx(9.2)
+
+
+def test_a_percentage_multiplied_into_money_must_be_divided_by_100():
+    """A worked example once showed "tax owed = 5000 * 15 = $75,000" for a 15% tax rate."""
+    q = "Show me an example of the tax on a long-term capital gain"
+    plan = {"label": "tax on a gain", "inputs": {"gain": inp(5000, "money", "sample"), "tax_rate": inp(15, "percent", "sample")},
+            "steps": [{"name": "tax", "label": "tax owed", "expr": "gain * tax_rate", "unit": "money"}]}
+    with pytest.raises(P.PlanError, match="tax_rate is a percentage .* multiplied into a money amount"):
+        P.run(plan, q, q, require_checks=False, example=True)
+    plan["steps"][0]["expr"] = "gain * tax_rate / 100"
+    assert P.run(plan, q, q, require_checks=False, example=True)["values"]["tax"] == pytest.approx(750)
+    plan["inputs"]["tax_rate"] = inp(0.15, "rate", "sample")
+    plan["steps"][0]["expr"] = "gain * tax_rate"
+    assert P.run(plan, q, q, require_checks=False, example=True)["values"]["tax"] == pytest.approx(750)

@@ -318,6 +318,16 @@ def check_numbers(p: dict, question: str, known_text: str) -> None:
             if bad := [k for k in percents if re.search(rf"\b1\s*[-+]\s*{re.escape(k)}\b|\b{re.escape(k)}\s*[-+]\s*1\b", f)]:
                 raise PlanError(f"step {s['name']}: {', '.join(bad)} is a percentage (unit \"percent\") added to 1 in "
                                 f"{f.strip()!r}; give it as a rate, a decimal (0.07 for 7%)")
+    for s in p["steps"]:                                # 5000 * tax_rate with tax_rate = 15 gave $75,000: a percent needs /100
+        if s["unit"] != "money":
+            continue
+        for f in _checked_formulas(s):
+            if re.search(r"\b100\b", f):
+                continue
+            if bad := sorted(k for k in percents if re.search(rf"[*/]\s*\(?\s*{re.escape(k)}\b|\b{re.escape(k)}\s*\)?\s*[*/]", f)):
+                raise PlanError(f"step {s['name']}: {', '.join(bad)} is a percentage (unit \"percent\", e.g. 15 for 15%) "
+                                f"multiplied into a money amount in {f.strip()!r}; divide it by 100, or give it as a rate, a "
+                                "decimal (0.15 for 15%)")
     rates = {k for k, i in p["inputs"].items() if i["unit"] == "rate"} | {s["name"] for s in p["steps"] if s["unit"] == "rate"}
     for s in p["steps"]:                                # rm - rf with rm = 8 and rf = 0.03: 8 - 0.03 is a unit error
         for f in _checked_formulas(s):
