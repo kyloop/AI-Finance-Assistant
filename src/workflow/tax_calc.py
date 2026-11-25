@@ -17,7 +17,8 @@ from .jsonreply import first_json
 KINDS = {
     "wages": "pay from a job (salary, wages, an employer's bonus, a W-2 part-time job)",
     "self_employment": "freelance, contractor, 1099 or own-business profit (only when the message says so)",
-    "job_unspecified": "pay from a side or part-time job without saying whether it is W-2 or freelance",
+    "job_unspecified": "pay from a SECOND, side or part-time job without saying whether it is W-2 or freelance (a person's "
+                       "only or main job is wages)",
     "interest_dividends": "interest, or dividends not said to be qualified",
     "qualified_dividends": "dividends the message says are qualified",
     "other_income": "other taxable income that isn't pay from a job (rent received, prizes, ...)",
@@ -29,6 +30,11 @@ KINDS = {
     "property_tax": "property / real estate tax paid",
     "mortgage_interest": "mortgage interest paid",
     "charity": "charitable donations",
+    "tips": "tips received (cash or card tips at a job that gets tips)",
+    "overtime": "overtime pay",
+    "car_loan_interest": "interest paid on a car loan",
+    "care_expenses": "child care or dependent care paid (daycare, after-school care, a nanny) so the user can work",
+    "college_expenses": "college tuition, fees and course materials paid",
     "not_tax_input": "an amount that doesn't change the federal tax (rent paid, savings, a price, a target)",
 }
 
@@ -37,9 +43,16 @@ SYSTEM = (
     "message, give one item {\"amount\": <number as a plain number, 200k -> 200000>, \"kind\": <kind>, \"loss\": "
     "<true only for a capital loss>, \"text\": <the words it came from>}. Kinds:\n"
     + "\n".join(f"- {k}: {v}" for k, v in KINDS.items())
-    + "\nfiling_status: \"married_joint\" if the message says they file jointly or are married and file together, "
-    "\"single\" if it says single, otherwise null. year: a tax year the message names, otherwise null.\n"
-    "Reply with ONLY JSON: {\"items\": [...], \"filing_status\": null, \"year\": null}")
+    + "\nFor tips and overtime also give \"included_in_pay\": true when the message says the job pay already includes "
+    "them (\"I earn $60k including $10k in tips\").\n"
+    "filing_status: \"married_joint\" (married filing jointly, or married and filing together), \"married_separate\" "
+    "(married filing separately), \"head_of_household\" (head of household, or an unmarried parent supporting their "
+    "children: \"single mom\", \"single dad\", \"single parent\"), \"single\" if the message says single, "
+    "otherwise null. year: a tax year the message names, otherwise null.\n"
+    "household (counts the message states, else 0): children_under_17, other_dependents (dependents 17 or older, e.g. a "
+    "college student or a parent), age_65_or_older (the user, and a spouse if filing jointly), students (for college "
+    "expenses), graduate_school (true if the college costs are for graduate school or past the first four years).\n"
+    "Reply with ONLY JSON: {\"items\": [...], \"filing_status\": null, \"year\": null, \"household\": {}}")
 
 # "tax", and its common typos ("tsx", "tex", "tx"): the proofreader doesn't always get to fix them
 _TAX = r"\b(?:tax(?:es)?|tsx|tex|txa?)\b"
@@ -78,18 +91,22 @@ class Reading:
     ignored: list[str] = field(default_factory=list)
     rows: list[tuple[str, float, str, str]] = field(default_factory=list)   # (the user's words, amount, how it is treated, kind)
     items: list[dict] = field(default_factory=list)       # the checked figures {text, amount, kind, loss}, for the next turn
+    household: dict = field(default_factory=dict)         # children, dependents, 65+, students (household_of)
     status_given: bool = False
 
 
 INCOME_KINDS = {"wages", "self_employment", "job_unspecified", "interest_dividends", "qualified_dividends", "other_income",
-                "short_term_gains", "long_term_gains", "stock_unspecified"}
+                "short_term_gains", "long_term_gains", "stock_unspecified", "tips", "overtime"}
 TREATED = {"wages": "wages (job pay)", "self_employment": "self-employment income", "job_unspecified": "wages (job pay), assumed W-2",
            "interest_dividends": "interest / ordinary dividends", "qualified_dividends": "qualified dividends",
            "other_income": "other taxable income", "short_term_gains": "short-term capital gains",
            "long_term_gains": "long-term capital gains", "stock_unspecified": "long-term capital gains (assumed)",
            "pre_tax_retirement": "pre-tax retirement contribution", "state_local_taxes": "state/local tax (itemized deduction)",
            "property_tax": "property tax (itemized deduction)", "mortgage_interest": "mortgage interest (itemized deduction)",
-           "charity": "charitable gift (itemized deduction)", "not_tax_input": "not used: doesn't change federal tax"}
+           "charity": "charitable gift (itemized deduction)", "not_tax_input": "not used: doesn't change federal tax",
+           "tips": "tips (pay, and a deduction)", "overtime": "overtime pay (pay, and a deduction for the premium)",
+           "car_loan_interest": "car-loan interest (deduction)", "care_expenses": "child/dependent care (credit)",
+           "college_expenses": "college costs (credit)"}
 
 
 def _items(raw: list, allowed: list[float], must_use: list[float], base: list[dict] | None = None) -> tuple[list[dict] | None, str]:
@@ -122,6 +139,7 @@ def _items(raw: list, allowed: list[float], must_use: list[float], base: list[di
         text = " ".join(str(it.get("text") or (src or {}).get("text") or "").split()) or f"{amount:,.0f}"
         out.append({"text": text, "amount": amount, "kind": kind,
                     "loss": bool(it.get("loss")) and kind in ("short_term_gains", "long_term_gains"),
+                    "included": bool(it.get("included_in_pay", (src or {}).get("included"))) and kind in ("tips", "overtime"),
                     "from": it["from"] if src else None})
     missing = [g for g in must_use if not any(abs(g - u) < 0.5 for u in used)]
     if missing:
@@ -139,31 +157,84 @@ def read(question: str, reply: dict | None) -> tuple[Reading | None, str]:
     items, why = _items(reply["items"], given, given)
     if items is None:
         return None, why
-    return reading_from(items, reply.get("filing_status"), reply.get("year"))
+    if re.search(r"\b(includ\w*|of which|out of which)\b", question, re.I):     # "$38,000 including $12,000 in tips"
+        for it in items:
+            if it["kind"] in ("tips", "overtime"):
+                it["included"] = True
+    if not any(it["kind"] == "wages" for it in items):                     # an only job is pay, not a side job
+        for it in items:
+            if it["kind"] == "job_unspecified":
+                it["kind"] = "wages"
+                break
+    return reading_from(items, reply.get("filing_status"), reply.get("year"), household_of(reply.get("household"), question))
 
 
-def reading_from(items: list[dict], status: str | None, year=None) -> tuple[Reading | None, str]:
+HOUSEHOLD = {"children_under_17": r"\b(kids?|child|children|sons?|daughters?|toddler|baby|babies|dependents?)\b",
+             "other_dependents": r"\b(dependents?|parents?|mother|father|mom|dad|son|daughter|kids?|child|children|student)\b",
+             "age_65_or_older": r"\b(6[5-9]|[7-9]\d|retired|retiree|senior|over 65|older)\b",
+             "students": r"\b(college|tuition|universit\w*|school|students?)\b"}
+_NUMBER_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "both": 2, "twins": 2}
+
+
+def household_of(raw, text: str) -> dict:
+    """The household counts the model read, kept only when the message talks about them (a count of children needs a
+    word for children in it). Counts are 0-10; graduate_school a bool."""
+    out = {}
+    for key, cue in HOUSEHOLD.items():
+        try:
+            n = int((raw or {}).get(key) or 0)
+        except (TypeError, ValueError):
+            n = 0
+        if 0 < n <= 10 and re.search(cue, text, re.I):
+            out[key] = n
+    if (raw or {}).get("graduate_school") is True:
+        out["graduate_school"] = True
+    return out
+
+
+def reading_from(items: list[dict], status: str | None, year=None, household: dict | None = None) -> tuple[Reading | None, str]:
     """The estimate's inputs from checked items: what is unknown (filing status, holding period, W-2 or 1099) is assumed,
     said, and kept as an alternative to work out too."""
     inp, r = T.TaxInputs(), Reading(T.TaxInputs())
-    r.items = [{k: it[k] for k in ("text", "amount", "kind", "loss")} for it in items]
+    r.items = [{k: it.get(k, False) for k in ("text", "amount", "kind", "loss", "included")} for it in items]
     r.status_given = status in T.STATUSES
+    r.household = dict(household or {})
+    for key, n in r.household.items():
+        setattr(inp, key, n)
     unspecified_stock = unspecified_job = 0.0
     for it in items:
         amount, kind, loss = it["amount"], it["kind"], it["loss"]
-        r.rows.append((it["text"], -amount if loss else amount, TREATED[kind] + (" (loss)" if loss else ""), kind))
+        included = it.get("included") and kind in ("tips", "overtime")
+        r.rows.append((it["text"], -amount if loss else amount,
+                       TREATED[kind] + (" (loss)" if loss else "") + (" (already in your pay)" if included else ""),
+                       "included" if included else kind))
         if kind == "not_tax_input":
             r.ignored.append(it["text"])
         elif kind == "stock_unspecified":
             unspecified_stock += amount
         elif kind == "job_unspecified":
             unspecified_job += amount
+        elif kind == "tips":
+            inp.tips += amount
+            if not it.get("included"):
+                inp.wages += amount                 # tips are pay too; the deduction then takes them back out
+        elif kind == "overtime":
+            inp.overtime_premium += amount / 3      # the deductible part: the extra "half" of time-and-a-half
+            if not it.get("included"):
+                inp.wages += amount
+            r.assumed.append(f"the ${amount:,.0f} of overtime is paid at time-and-a-half, so the deductible part is the extra "
+                             f"half: ${amount / 3:,.0f}")
         else:
             setattr(inp, kind, getattr(inp, kind) + (-amount if loss else amount))
     inp.filing_status = status if status in T.STATUSES else "single"
+    if inp.college_expenses and not inp.students:
+        inp.students = 1
     if not r.status_given:
         r.assumed.append("you file as **single** (married couples filing jointly get wider brackets and a $32,200 standard deduction)")
         r.alternatives.append(("status", "you file jointly with a spouse", {"filing_status": "married_joint"}))
+        if inp.children_under_17 or inp.other_dependents:
+            r.alternatives.append(("status_hoh", "you're unmarried and pay most of the cost of a home for your children "
+                                   "(head of household)", {"filing_status": "head_of_household"}))
     if unspecified_job:
         inp.wages += unspecified_job
         r.assumed.append(f"the ${unspecified_job:,.0f} job pays a W-2 wage (if it is freelance or 1099 work, self-employment tax applies instead)")
@@ -206,13 +277,41 @@ INCOME_LABELS = [("wages", "Wages"), ("self_employment", "Self-employment income
                  ("short_term_gains", "Short-term capital gains"), ("long_term_gains", "Long-term capital gains")]
 
 
+NEW_DEDUCTION_WORDS = {"senior": "Senior deduction ($6,000 per person 65+)", "tips": "Tips", "overtime": "Overtime premium",
+                       "car_loan_interest": "Car-loan interest"}
+REFUNDABLE_WORDS = {"additional_child_tax_credit": "Refundable part of the child tax credit",
+                    "earned_income_credit": "Earned income credit", "american_opportunity_refundable":
+                    "Refundable 40% of the American Opportunity credit"}
+
+
+def credit_line(c: dict, est: dict) -> str:
+    """One nonrefundable credit, with how it was worked out."""
+    i = est["inputs"]
+    if c["name"] == "child_tax_credit":
+        kids = [f"{i['children_under_17']} × $2,200 (children under 17)"] if i["children_under_17"] else []
+        kids += [f"{i['other_dependents']} × $500 (other dependents)"] if i["other_dependents"] else []
+        cut = f" − {money(c['reduced_by'])} (income over the limit)" if c["reduced_by"] else ""
+        return f"Child tax credit: {' + '.join(kids)}{cut} = **{money(c['amount'])}**"
+    if c["name"] == "child_and_dependent_care":
+        return (f"Child and dependent care credit: {pct(c['rate'])} of {money(c['base'])} of care costs "
+                f"= **{money(c['amount'])}**")
+    if c["name"] == "american_opportunity":
+        part = "" if c["share"] >= 1 else f", reduced to {c['share'] * 100:.0f}% by income"
+        return (f"American Opportunity credit: {money(c['total'])}{part}; the 60% that isn't refundable is "
+                f"**{money(c['amount'])}**")
+    if c["name"] == "lifetime_learning":
+        part = "" if c["share"] >= 1 else f", reduced to {c['share'] * 100:.0f}% by income"
+        return f"Lifetime Learning credit: 20% of {money(c['base'])}{part} = **{money(c['amount'])}**"
+    return f"{c['name']}: {money(c['amount'])}"
+
+
 def render(r: Reading, est: dict, alts: list[tuple[str, dict]]) -> str:
     """The estimate as numbered steps: what each step means in plain words, then the working with the user's numbers."""
     i, p, year = est["inputs"], est["payroll"], est["year"]
-    single = est["filing_status"] == "single"
-    who = "single filers" if single else "married couples filing jointly"
+    who = {"single": "single filers", "married_joint": "married couples filing jointly", "head_of_household": "heads of household",
+           "married_separate": "married people filing separately"}[est["filing_status"]]
     _, rules = T.rules(year)
-    L = [f"**Estimated {year} federal taxes** ({'single' if single else 'married filing jointly'}), step by step", "",
+    L = [f"**Estimated {year} federal taxes** ({STATUS_WORDS[est['filing_status']]}), step by step", "",
          "**Your numbers**", "", "| You said | Amount | Treated as |", "|---|---|---|"]
     L += [f"| {text} | {money(amount)} | {treated} |" for text, amount, treated, _ in r.rows]
     step = 0
@@ -257,7 +356,9 @@ def render(r: Reading, est: dict, alts: list[tuple[str, dict]]) -> str:
         items.append(f"charity {money(i['charity'])}")
     L.append(f"- Itemized: {' + '.join(items)} = {money(est['itemized'])}" if len(items) > 1
              else f"- Itemized: {items[0] if items else 'nothing you mentioned, $0'}")
-    L.append(f"- Standard: {money(est['standard'])}")
+    base_std = rules["standard_deduction"][est["filing_status"]]
+    L.append(f"- Standard: {money(est['standard'])}" + (f" ({money(base_std)} + {money(est['standard'] - base_std)} for being 65 "
+                                                         "or older or blind)" if est["standard"] > base_std else ""))
     if est["itemizes"]:
         L.append(f"- Itemizing is larger, so you deduct **{money(est['deduction'])}**.")
     else:
@@ -265,11 +366,32 @@ def render(r: Reading, est: dict, alts: list[tuple[str, dict]]) -> str:
                  + (". Your property tax doesn't lower your income tax here: you'd get the same deduction without it."
                     if i["property_tax"] else "."))
 
+    # 2b. the One Big Beautiful Bill Act deductions
+    nd = est["new_deductions"]
+    if nd:
+        head("The new deductions (2025–2028)",
+             "The 2025 tax law added deductions you get on top of the standard or itemized deduction, each capped and "
+             "phased out at higher incomes: $6,000 for each person 65 or older, tips, the extra half of overtime pay, and "
+             "car-loan interest.")
+        for d in nd:
+            label = NEW_DEDUCTION_WORDS[d["name"]]
+            line = f"- {label}: {money(d['claimed'])}" + (f", capped at {money(d['cap'])}" if d["claimed"] > d["cap"] else "")
+            if est["filing_status"] == "married_separate" and d["name"] != "car_loan_interest":
+                line += " → **$0** (needs a joint return if you're married)"
+            elif d["reduced_by"] > 0 and d["claimed"] <= d["cap"] or d["reduced_by"] > max(0.0, d["claimed"] - d["cap"]):
+                line += f", reduced because income is over {money(d['start'])} → **{money(d['amount'])}**"
+            else:
+                line += f" → **{money(d['amount'])}**"
+            L.append(line)
+
     # 3. taxable income
-    head("Work out your taxable income", "Taxable income is income minus the deduction. "
-         + ("Long-term gains and qualified dividends in it are taxed at their own, lower rates (step 5), so they are split off."
+    head("Work out your taxable income", "Taxable income is income minus the deduction"
+         + (" and the new deductions" if nd else "") + ". "
+         + ("Long-term gains and qualified dividends in it are taxed at their own, lower rates, so they are split off."
             if est["preferential_income"] else ""))
-    L.append(f"- {money(est['agi'])} − {money(est['deduction'])} = **{money(est['taxable_income'])}**")
+    extra = sum(d["amount"] for d in nd)
+    L.append(f"- {money(est['agi'])} − {money(est['deduction'])}" + (f" − {money(extra)}" if extra else "")
+             + f" = **{money(est['taxable_income'])}**")
     if est["preferential_income"]:
         L.append(f"- Of this, {money(est['preferential_income'])} is long-term gains and qualified dividends, and "
                  f"{money(est['taxable_income'])} − {money(est['preferential_income'])} = **{money(est['ordinary_taxable'])}** "
@@ -309,9 +431,23 @@ def render(r: Reading, est: dict, alts: list[tuple[str, dict]]) -> str:
 
     # 7. income tax
     pieces = [est["ordinary_tax"], est["preferential_tax"], est["niit"]]
-    head("Federal income tax", "Add the pieces.")
-    L.append(f"- {' + '.join(money(x) for x in pieces if x)} = **{money(est['income_tax'])}**")
-    L.append(f"- That is {est['effective_rate'] * 100:.1f}% of your total income; your next dollar of ordinary income "
+    cr = est["credits"]
+    has_credits = bool(cr["nonrefundable"] or cr["refundable_rows"])
+    head("Federal income tax" + (" before credits" if has_credits else ""), "Add the pieces.")
+    L.append(f"- {' + '.join(money(x) for x in pieces if x) or '$0'} = **{money(est['tax_before_credits'])}**")
+    if has_credits:
+        head("Credits",
+             "Credits come off the tax itself, dollar for dollar. Most can only bring the tax down to zero; the refundable "
+             "ones (part of the child tax credit, the earned income credit, part of the American Opportunity credit) are "
+             "paid to you even beyond that.")
+        for c in cr["nonrefundable"]:
+            L.append(f"- {credit_line(c, est)}" + (f"; {money(c['used'])} of it used against your tax" if c["used"] < c["amount"] - 0.5 else ""))
+        for c in cr["refundable_rows"]:
+            L.append(f"- {REFUNDABLE_WORDS[c['name']]}: **{money(c['amount'])}** (refundable)")
+        L.append(f"- Income tax after credits: {money(est['tax_before_credits'])} − {money(cr['nonrefundable_used'])}"
+                 + (f" − {money(cr['refundable'])}" if cr["refundable"] else "") + f" = **{money(est['income_tax'])}**"
+                 + (" (negative: the IRS pays you this much beyond what was withheld)" if est["income_tax"] < 0 else ""))
+    L.append(f"- That is {max(est['effective_rate'], 0) * 100:.1f}% of your total income; your next dollar of ordinary income "
              f"would be taxed at {pct(est['marginal_rate'])}.")
 
     # 8. payroll
@@ -356,8 +492,8 @@ def render(r: Reading, est: dict, alts: list[tuple[str, dict]]) -> str:
                      f"({'+' if diff >= 0 else '−'}{money(abs(diff))})")
     if r.ignored:
         L += ["", "Not used (doesn't change federal tax): " + "; ".join(r.ignored) + "."]
-    L += ["", "_Not included: state and local income tax, tax credits (child, education, ...), the alternative minimum "
-              "tax and the newer deductions for seniors, tips and overtime. This is an estimate from the published "
+    L += ["", "_Not included: state and local income tax, the alternative minimum tax, the saver's and less common "
+              "credits, and the earned income credit's limit on investment income. This is an estimate from the published "
               f"{year} rules, not a tax return; Finnie computed every number in Python._"]
     return "\n".join(L)
 
@@ -372,6 +508,8 @@ QUESTIONS = {
     "job": ("Is the side job regular W-2 pay, or freelance (1099) work?",
             ["The side job is W-2 pay", "The side job is freelance (1099) work"]),
     "status": ("Do you file as single, or married filing jointly?", ["I file as single", "We're married filing jointly"]),
+    "status_hoh": ("Are you married filing jointly, or unmarried and supporting your children (head of household)?",
+                   ["I file as head of household", "We're married filing jointly"]),
 }
 
 
@@ -386,6 +524,7 @@ class Estimate:
 def profile_of(r: Reading, est: dict) -> dict:
     """What the next turn needs to redo the estimate: the user's figures as sorted, and what they said or we assumed."""
     return {"year": est["year"], "filing_status": est["filing_status"] if r.status_given else None, "items": r.items,
+            "household": r.household,
             "total_federal": round(est["total_federal"], 2), "income_tax": round(est["income_tax"], 2), "choices": []}
 
 
@@ -406,7 +545,8 @@ def estimate(r: Reading, change: str = "", before: dict | None = None) -> Estima
                 f"**{money(est['total_federal'])}** ({'+' if diff >= 0 else '−'}{money(abs(diff))}).\n\n" + text)
     choices = []
     if ask:
-        question, choices = QUESTIONS[ask[1]]
+        key = "status_hoh" if ask[1] in ("status", "status_hoh") and any(k == "status_hoh" for k, _, _ in r.alternatives) else ask[1]
+        question, choices = QUESTIONS[key]
         text = text.replace("\n\n_Not included:", f"\n\n**One question:** {question} It changes your federal taxes by about "
                                                   f"{money(ask[0])}; tap an answer below and I'll redo it.\n\n_Not included:", 1)
     i = est["inputs"]
@@ -433,9 +573,11 @@ UPDATE_SYSTEM = (
     "side job is freelance\" -> self_employment, \"I held them over a year\" -> long_term_gains); change its amount only "
     "to an amount the message gives; add a figure the message adds with \"from\": null. Each figure: {\"from\", "
     "\"amount\", \"kind\", \"loss\", \"text\"}. Kinds:\n" + "\n".join(f"- {k}: {v}" for k, v in KINDS.items())
-    + "\nfiling_status: what the message says (\"married_joint\" for married filing jointly, \"single\"), otherwise the "
-    "current one. A message about something else: copy everything unchanged.\n"
-    "Reply with ONLY JSON: {\"items\": [...], \"filing_status\": null}")
+    + "\nfiling_status: what the message says (\"married_joint\", \"married_separate\", \"head_of_household\", "
+    "\"single\"), otherwise the current one. household: the full new counts (children_under_17, other_dependents, "
+    "age_65_or_older, students, graduate_school): copy the current ones and change only what the message changes. A "
+    "message about something else: copy everything unchanged.\n"
+    "Reply with ONLY JSON: {\"items\": [...], \"filing_status\": null, \"household\": {}}")
 
 
 # A message that may change the last estimate: an answer button, or a "what if" about the figures it used
@@ -453,10 +595,11 @@ def changes_estimate(text: str, profile: dict | None) -> bool:
 
 
 def describe_profile(p: dict) -> str:
-    status = {"single": "single", "married_joint": "married filing jointly"}.get(p.get("filing_status") or "", "not given")
+    status = STATUS_WORDS.get(p.get("filing_status"), "not given")
     figures = "\n".join(f"{n}. {it['amount']:.0f} {it['kind']}{' (loss)' if it['loss'] else ''}: \"{it['text']}\""
                         for n, it in enumerate(p.get("items") or []))
-    return f"Filing status: {status}\nCURRENT FIGURES:\n{figures}"
+    household = ", ".join(f"{k} {v}" for k, v in (p.get("household") or {}).items()) or "none given"
+    return f"Filing status: {status}\nHousehold: {household}\nCURRENT FIGURES:\n{figures}"
 
 
 def follow_up(question: str, profile: dict, typed: str = "") -> tuple[Estimate | None, str]:
@@ -483,19 +626,28 @@ def follow_up(question: str, profile: dict, typed: str = "") -> tuple[Estimate |
                 it["from"] = n
                 taken.add(n)
                 it["text"] = base[n]["text"]
-    same = (status == profile.get("filing_status") and
+    old_house = profile.get("household") or {}
+    house = {**old_house, **household_of(reply.get("household"), f"{question} {typed}")} if reply.get("household") else old_house
+    same = (status == profile.get("filing_status") and house == old_house and
             [(i["amount"], i["kind"], i["loss"]) for i in items] == [(b["amount"], b["kind"], b["loss"]) for b in base])
     if same:
         return None, "tax follow-up: nothing changed"
-    reading, why = reading_from(items, status, profile.get("year"))
+    reading, why = reading_from(items, status, profile.get("year"), house)
     if reading is None:
         return None, f"tax follow-up: {why}"
     change = what_changed(base, items, profile.get("filing_status"), status)
+    moved = [f"{HOUSEHOLD_WORDS.get(k, k)}: {house.get(k, 0)}" for k in sorted(set(house) | set(old_house))
+             if house.get(k, 0) != old_house.get(k, 0)]
+    if moved:
+        change = "; ".join([*([] if change == "your figures changed" else [change]), *moved])
     out = estimate(reading, change, profile)
     return out, f"follow-up ({change}): " + out.note
 
 
-STATUS_WORDS = {"single": "single", "married_joint": "married filing jointly", None: "not given"}
+STATUS_WORDS = {"single": "single", "married_joint": "married filing jointly", "married_separate": "married filing separately",
+                "head_of_household": "head of household", None: "not given"}
+HOUSEHOLD_WORDS = {"children_under_17": "children under 17", "other_dependents": "other dependents",
+                   "age_65_or_older": "people 65 or older", "students": "students", "graduate_school": "graduate school"}
 
 
 def what_changed(base: list[dict], items: list[dict], old_status, new_status) -> str:

@@ -86,6 +86,21 @@ sample rate and subtracted property tax in full. A tax expert does five things, 
 - Routing: a tax question with amounts and a what-if cue (Roth, traditional, 401(k), sold, shares, raise, bonus,
   deduction, contribution) goes to the tax agent alone; `illustrate` skips answers the tax tools worked out.
 
+## Credits, new deductions, all filing statuses
+
+`src/core/income_tax.py` now covers single, married filing jointly, married filing separately and head of household
+(brackets, standard deduction, capital-gains bands, SALT cap, NIIT and additional-Medicare lines for each, in
+`tax_rules.yaml`), the extra standard deduction for 65+/blind, the One Big Beautiful Bill Act deductions (seniors ,000
+each, tips, the overtime premium, car-loan interest; each capped and phased out; `obbba_deductions`) and the common credits
+(`credits`): child tax credit and credit for other dependents (,200 / ,  per ,000 over k/k, refundable
+up to ,700 a child at 15% of earnings over ,500), earned income credit (2026 table), child and dependent care credit
+(50% falling to 35%, then to 20%, as amended in 2025), American Opportunity (40% refundable) and Lifetime Learning credits.
+Nonrefundable credits come off the income tax before NIIT; refundable ones can make the result negative (a refund beyond
+withholding). The sorter reads the household (children under 17, other dependents, people 65+, students), each count kept
+only when the message has a word for it (`household_of`); tips and overtime are pay plus a deduction, not counted twice
+when "including"; an only job is wages; an unmarried parent is asked about head of household. Left out: the saver's credit
+(2026 limits not confirmed), the earned income credit's investment-income test, the AMT, state tax.
+
 ## Next
 
 4. A tax eval set (about 20 cases with hand-checked answers), run after any prompt or rules change.

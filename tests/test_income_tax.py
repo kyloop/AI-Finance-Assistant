@@ -75,7 +75,7 @@ def test_unknown_year_or_status_is_refused():
     with pytest.raises(ValueError):
         T.estimate(T.TaxInputs(wages=1), year=1999)
     with pytest.raises(ValueError):
-        T.estimate(T.TaxInputs(filing_status="head_of_household", wages=1))
+        T.estimate(T.TaxInputs(filing_status="qualifying_widow", wages=1))
 
 
 # ---------------------------------------------------------------- reading the question
@@ -150,7 +150,7 @@ def test_income_tax_question_goes_to_the_tax_agent_alone():
     s = {"question": KEVIN.replace("i need", "do I need")}
     assert N._with_income_tax(["tax", "calc"], s) == ["tax"]
     assert N._with_income_tax(["qa"], s) == ["tax"]
-    assert N._with_income_tax(["goal", "calc"], s) == ["tax", "goal"]
+    assert N._with_income_tax(["goal", "calc"], s) == ["tax"]                    # not about the saved plan
     assert N._with_income_tax(["calc"], {"question": "How much will $10,000 grow to at 6% a year over 10 years?"}) == ["calc"]
 
 
@@ -346,3 +346,128 @@ def test_a_carried_figure_relisted_without_its_number_is_matched_by_amount():
     est, note = TC.follow_up("I held the shares a year or less", profile)
     assert note.startswith("follow-up (“Stock earning 30000” is now short-term capital gains)")
     assert [i["text"] for i in est.profile["items"]] == [i["text"] for i in profile["items"]]
+
+
+# ---------------------------------------------------------------- filing statuses, new deductions, credits (2026, by hand)
+def test_head_of_household_with_two_children_gets_child_and_earned_income_credits():
+    r = T.estimate(T.TaxInputs(filing_status="head_of_household", wages=50_000, children_under_17=2))
+    assert r["standard"] == 24_150 and r["taxable_income"] == 25_850
+    assert r["tax_before_credits"] == pytest.approx(1_770 + 0.12 * 8_150)              # 2,748
+    cr = r["credits"]
+    assert cr["nonrefundable_used"] == pytest.approx(2_748)                              # child credit up to the tax
+    refund = {x["name"]: x["amount"] for x in cr["refundable_rows"]}
+    assert refund["additional_child_tax_credit"] == pytest.approx(4_400 - 2_748)         # the rest, under $1,700 a child
+    assert refund["earned_income_credit"] == pytest.approx(7_316 - 0.2106 * (50_000 - 23_890))
+    assert r["income_tax"] == pytest.approx(-(1_652 + 7_316 - 0.2106 * 26_110))          # a refund beyond withholding
+
+
+def test_married_seniors_get_the_extra_standard_deduction_and_the_senior_deduction():
+    r = T.estimate(T.TaxInputs(filing_status="married_joint", wages=140_000, age_65_or_older=2))
+    assert r["standard"] == 32_200 + 2 * 1_650
+    assert [(d["name"], d["amount"]) for d in r["new_deductions"]] == [("senior", 12_000)]
+    assert r["taxable_income"] == 140_000 - 35_500 - 12_000
+    assert r["income_tax"] == pytest.approx(2_480 + 0.12 * (92_500 - 24_800))
+
+
+def test_the_senior_deduction_phases_out_at_6_percent():
+    r = T.estimate(T.TaxInputs(wages=100_000, age_65_or_older=1))
+    assert r["new_deductions"][0]["amount"] == pytest.approx(6_000 - 0.06 * 25_000)
+
+
+def test_tips_are_deducted_on_top_of_the_standard_deduction():
+    r = T.estimate(T.TaxInputs(wages=60_000, tips=10_000))
+    assert r["taxable_income"] == 60_000 - 16_100 - 10_000
+    assert r["income_tax"] == pytest.approx(1_240 + 0.12 * (33_900 - 12_400))
+
+
+def test_car_loan_interest_phases_out_200_per_1000():
+    r = T.estimate(T.TaxInputs(wages=105_500, car_loan_interest=4_000))
+    assert r["new_deductions"][0]["amount"] == pytest.approx(4_000 - 200 * 6)            # $5,500 over → 6 steps
+
+
+def test_child_care_credit_rate_and_the_child_tax_credit():
+    r = T.estimate(T.TaxInputs(filing_status="married_joint", wages=100_000, children_under_17=1, care_expenses=5_000))
+    care = next(c for c in r["credits"]["nonrefundable"] if c["name"] == "child_and_dependent_care")
+    assert care["base"] == 3_000 and care["rate"] == pytest.approx(0.35) and care["amount"] == pytest.approx(1_050)
+    assert r["income_tax"] == pytest.approx(2_480 + 0.12 * (67_800 - 24_800) - 1_050 - 2_200)
+
+
+def test_low_income_child_care_gets_the_50_percent_rate():
+    care = T.credits(T.TaxInputs(wages=15_000, care_expenses=2_000), 15_000, 5_000, T.rules()[1])["nonrefundable"][0]
+    assert care["rate"] == pytest.approx(0.50) and care["amount"] == pytest.approx(1_000)
+
+
+def test_american_opportunity_credit_is_40_percent_refundable_and_phases_out():
+    r = T.estimate(T.TaxInputs(wages=85_000, college_expenses=4_000, students=1))
+    ao = next(c for c in r["credits"]["nonrefundable"] if c["name"] == "american_opportunity")
+    assert ao["total"] == pytest.approx(2_500 * 0.5) and ao["amount"] == pytest.approx(1_250 * 0.6)     # halfway out
+    assert r["credits"]["refundable"] == pytest.approx(500)
+
+
+def test_married_filing_separately_uses_half_the_joint_lines_and_no_earned_income_credit():
+    r = T.estimate(T.TaxInputs(filing_status="married_separate", wages=30_000, children_under_17=1, tips=5_000))
+    assert r["standard"] == 16_100 and r["new_deductions"][0]["amount"] == 0           # tips need a joint return
+    assert not any(x["name"] == "earned_income_credit" for x in r["credits"]["refundable_rows"])
+    assert T.estimate(T.TaxInputs(filing_status="married_separate", wages=400_000))["niit"] == 0
+
+
+def test_household_counts_need_words_for_them_in_the_message():
+    raw = {"children_under_17": 2, "age_65_or_older": 1, "students": 1, "graduate_school": True}
+    assert TC.household_of(raw, "I earn $50,000 and have two kids") == {"children_under_17": 2, "graduate_school": True}
+    assert TC.household_of(raw, "I'm 67, retired, my daughter is in college") == {
+        "children_under_17": 2, "age_65_or_older": 1, "students": 1, "graduate_school": True}
+    assert TC.household_of({"children_under_17": 3}, "I earn $50,000") == {}                      # invented children
+
+
+def test_tips_count_as_pay_and_come_back_off_as_a_deduction():
+    items = [{"text": "I earn 50000", "amount": 50000, "kind": "wages", "loss": False},
+             {"text": "plus 8000 in tips", "amount": 8000, "kind": "tips", "loss": False}]
+    r, _ = TC.reading_from(items, "single")
+    assert r.inputs.wages == 58_000 and r.inputs.tips == 8_000
+    included = [{**items[1], "included": True}]
+    r2, _ = TC.reading_from([items[0], *included], "single")
+    assert r2.inputs.wages == 50_000 and r2.inputs.tips == 8_000
+    text = TC.estimate(r).text
+    assert "**Step 3. The new deductions (2025–2028)**" in text and "- Tips: $8,000 → **$8,000**" in text
+    assert "- $58,000 − $16,100 − $8,000 = **$33,900**" in text
+
+
+def test_children_without_a_filing_status_ask_about_head_of_household():
+    items = [{"text": "I earn 50000", "amount": 50000, "kind": "wages", "loss": False}]
+    r, _ = TC.reading_from(items, None, None, {"children_under_17": 2})
+    est = TC.estimate(r)
+    assert est.choices == TC.QUESTIONS["status_hoh"][1] and "(head of household)" in est.text
+    assert "Child tax credit: 2 × $2,200 (children under 17) = **$4,400**" in est.text
+
+
+def test_head_of_household_estimate_shows_the_credits_and_the_refund():
+    items = [{"text": "I earn 50000", "amount": 50000, "kind": "wages", "loss": False},
+             {"text": "daycare 4000", "amount": 4000, "kind": "care_expenses", "loss": False}]
+    r, _ = TC.reading_from(items, "head_of_household", None, {"children_under_17": 2})
+    text = TC.estimate(r).text
+    assert "**Estimated 2026 federal taxes** (head of household)" in text
+    assert "Child and dependent care credit: 35% of $4,000 of care costs = **$1,400**" in text
+    assert "Refundable part of the child tax credit: **$3,052** (refundable)" in text
+    assert "Earned income credit: **$1,817** (refundable)" in text
+    assert "= **-$4,869** (negative: the IRS pays you this much beyond what was withheld)" in text
+
+
+def test_a_follow_up_can_add_a_child():
+    profile = kevin_estimate().profile
+    kept = [{**i, "from": n} for n, i in enumerate(profile["items"])]
+    llm_module.set_llm(SortingLLM({"items": kept, "filing_status": "married_joint", "household": {"children_under_17": 1}}))
+    est, note = TC.follow_up("We're married and have a son", profile)
+    assert est.profile["household"] == {"children_under_17": 1}
+    assert "children under 17: 1" in note and "Child tax credit: 1 × $2,200" in est.text
+
+
+def test_an_only_job_is_wages_and_tips_included_in_pay_are_not_counted_twice():
+    q = "I'm a waiter. I make $38,000 including $12,000 in tips. How much tax do I pay?"
+    r, _ = TC.read(q, {"items": [{"amount": 38000, "kind": "job_unspecified", "text": "I make $38,000"},
+                                 {"amount": 12000, "kind": "tips", "text": "$12,000 in tips"}]})
+    assert r.inputs.wages == 38_000 and r.inputs.tips == 12_000 and not any(k == "job" for k, *_ in r.alternatives)
+
+
+def test_an_income_tax_question_drops_the_goal_agent_unless_it_is_about_the_plan():
+    s = {"question": "My wife and I are 67 and retired, we have $40,000 of pension income. How much tax do we owe?"}
+    assert N._with_income_tax(["tax", "goal"], s) == ["tax"]

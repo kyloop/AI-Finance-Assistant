@@ -41,9 +41,9 @@ def base_inputs(profile: dict | None, base_income: float | None) -> tuple[T.TaxI
     """The user's other income to measure against: the carried estimate, else the income the message gives (as wages)."""
     if profile:
         from .tax_calc import reading_from
-        r, _ = reading_from(profile.get("items") or [], profile.get("filing_status"), profile.get("year"))
+        r, _ = reading_from(profile.get("items") or [], profile.get("filing_status"), profile.get("year"), profile.get("household"))
         if r is not None:
-            return r.inputs, "your last estimate (" + STATUS_WORDS[profile.get("filing_status")].replace("not given", "single, assumed") + ")"
+            return r.inputs, "your last estimate (" + STATUS_WORDS.get(profile.get("filing_status"), "not given").replace("not given", "single, assumed") + ")"
     if base_income:
         return T.TaxInputs(wages=base_income), f"{money(base_income)} of wages, single (assumed)"
     return None, ""

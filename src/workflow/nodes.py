@@ -436,6 +436,8 @@ def _with_income_tax(intents: list[str], state: FinanceState) -> list[str]:
             return [i for i in intents if i not in ("calc", "qa")]  # Roth vs traditional for $10k, a sale's gain: the tax tools
         return intents
     rest = [i for i in intents if i not in ("tax", "calc", "qa")]
+    if not R.refers_to_plan(state.get("original_question") or state["question"]):
+        rest = [i for i in rest if i != "goal"]          # "retired", "my son's college": a tax question, not a savings plan
     return ["tax", *rest]
 
 
