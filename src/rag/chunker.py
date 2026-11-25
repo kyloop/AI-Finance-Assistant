@@ -7,6 +7,8 @@ before it.
 """
 from __future__ import annotations
 
+import re
+
 import math
 from dataclasses import dataclass
 
@@ -101,13 +103,46 @@ def split_section(body: str, budget: int, split_target: int, overlap: int) -> li
     return pieces
 
 
+# US-only categories (rag.us_only): a section about another country is left out. Its path names the country or region
+# ("By country > Portugal", "Around the world > Romania", "Canada > Land transfer tax"), or sits under a world-tour heading
+# that isn't about the US. The lead and US sections are kept, so "Capital gains tax" keeps its US part.
+FOREIGN = re.compile(
+    r"\b(Afghanistan|Albania|Algeria|Argentina|Armenia|Australia|Austria|Azerbaijan|Bangladesh|Barbados|Belarus|Belgium|"
+    r"Bolivia|Bosnia|Botswana|Brazil|Bulgaria|Cambodia|Cameroon|Canada|Canadian|Chile|China|Chinese|Colombia|Costa Rica|"
+    r"Croatia|Cyprus|Czech|Denmark|Dominican|Ecuador|Egypt|Estonia|Ethiopia|Fiji|Finland|France|French|Georgia \(country\)|"
+    r"Germany|German|Ghana|Greece|Guatemala|Hong Kong|Hungary|Iceland|India|Indian|Indonesia|Iran|Iraq|Ireland|Irish|Israel|"
+    r"Italy|Italian|Jamaica|Japan|Japanese|Jordan|Kazakhstan|Kenya|Korea|Kosovo|Kuwait|Latvia|Lebanon|Liechtenstein|"
+    r"Lithuania|Luxembourg|Macau|Malaysia|Malta|Mauritius|Mexico|Moldova|Monaco|Mongolia|Montenegro|Morocco|Nepal|"
+    r"Netherlands|Dutch|New Zealand|Nigeria|Norway|Pakistan|Panama|Paraguay|Peru|Philippines|Poland|Portugal|Puerto Rico|"
+    r"Qatar|Romania|Russia|Rwanda|Saudi|Serbia|Singapore|Slovakia|Slovenia|South Africa|Spain|Sri Lanka|Sweden|Swiss|"
+    r"Switzerland|Taiwan|Tanzania|Thailand|Tunisia|Turkey|Uganda|Ukraine|United Arab Emirates|UAE|United Kingdom|UK|"
+    r"Britain|British|Uruguay|Venezuela|Vietnam|Zambia|Zimbabwe|European|Europe|EU|Scotland|Wales|England|Ontario|Quebec|"
+    r"Alberta|Asia|Asian|Africa|African|Latin America|Caribbean|Nordic|Scandinavia|OECD)\b")
+WORLD_TOUR = re.compile(r"^(by country|by jurisdiction|by nation|by region|around the world|worldwide|international|"
+                        r"other countries|in other countries|outside the united states|other jurisdictions|"
+                        r"countries|global|comparison by country|national (systems|implementations))\b", re.I)
+US = re.compile(r"\b(United States|U\.S\.|US|USA|American|federal)\b")
+
+
+def foreign_section(path: str, title: str = "") -> bool:
+    """Whether a section (its heading path, "A > B > C") is about somewhere other than the US. On a page about the US
+    ("Sales taxes in the United States"), "By jurisdiction > Utah" is a state, so only a named country counts."""
+    if path == "(lead)" or US.search(path):
+        return False
+    if FOREIGN.search(path):
+        return True
+    return not US.search(title) and any(WORLD_TOUR.match(part.strip()) for part in path.split(" > "))
+
+
 def chunk_document(doc_id: str, title: str, category: str, source_url: str, raw_text: str, *,
-                   max_tokens: int = 512, split_target: int = 350, overlap: int = 50) -> list[Chunk]:
+                   max_tokens: int = 512, split_target: int = 350, overlap: int = 50, us_only: bool = False) -> list[Chunk]:
     chunks, seen = [], {}
     for section, _, body in sections(clean(raw_text)):
         body = body.strip()
         if not body:
             continue                                   # heading with only subsections: appears in their paths
+        if us_only and foreign_section(section, title):
+            continue
         seen[section] = seen.get(section, 0) + 1
         if seen[section] > 1:                          # a page with two "History" sections: keep both (same id otherwise)
             section = f"{section} ({seen[section]})"

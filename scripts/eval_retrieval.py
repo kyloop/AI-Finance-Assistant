@@ -28,6 +28,12 @@ ROOT = Path(__file__).resolve().parent.parent
 OUT_DIR = ROOT / "mds" / "data"
 QDRANT_PATH = ROOT / "src" / "data" / "qdrant_eval"
 K = 5
+US_ONLY = False
+
+
+def _us_only(category: str) -> bool:
+    from src.core.config import get_config
+    return category in (get_config()["rag"].get("us_only") or [])
 
 
 def load_pages(folder: Path) -> list[tuple[str, str, str]]:
@@ -82,12 +88,15 @@ def main() -> None:
     args = ap.parse_args()
 
     pages = load_pages(ROOT / "tests" / "data" / "kb_snapshot" / args.category)
+    global US_ONLY
+    US_ONLY = _us_only(args.category)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     if args.chunks_only:
         for mx in args.max_tokens:
             chunks = [c for title, url, body in pages
                       for c in chunk_document(slugify(title), title, args.category, url, body,
-                                              max_tokens=mx, split_target=args.split_target, overlap=args.overlap)]
+                                              max_tokens=mx, split_target=args.split_target, overlap=args.overlap,
+                                              us_only=US_ONLY)]
             write_chunks(chunks, args.category, f"max{mx}")
             print(f"max{mx}: {len(chunks)} chunks, {len({(c.doc_id, c.section) for c in chunks if c.pieces > 1})} sections split")
         return
@@ -99,7 +108,8 @@ def main() -> None:
         label = f"max{mx}"
         chunks = [c for title, url, body in pages
                   for c in chunk_document(slugify(title), title, args.category, url, body,
-                                          max_tokens=mx, split_target=args.split_target, overlap=args.overlap)]
+                                          max_tokens=mx, split_target=args.split_target, overlap=args.overlap,
+                                              us_only=US_ONLY)]
         name = f"eval_{args.category}_{label}"
         build_collection(client, name, chunks)
         write_chunks(chunks, args.category, label)

@@ -125,8 +125,8 @@ Actual chunker output for the two limits compared below (one chunk per section, 
 
 | Limit | Chunks | Median | Min | Max | < 50 | 50–149 | 150–249 | 250–399 | 400–512 | Sections split |
 |---|---|---|---|---|---|---|---|---|---|---|
-| max 512 | 297 | 275 | 14 | 512 | 11 | 59 | 68 | 119 | 40 | 46 |
-| max 250 | 523 | 170 | 12 | 248 | 12 | 165 | 346 | 0 | 0 | 110 |
+| max 512 | 284 | 276 | 14 | 512 | 10 | 56 | 64 | 115 | 39 | 44 |
+| max 250 | 504 | 170 | 12 | 248 | 11 | 159 | 334 | 0 | 0 | 106 |
 
 Chunk lists: [max 512](data/eval_retirement_chunks_max512.csv), [max 250](data/eval_retirement_chunks_max250.csv).
 
@@ -144,8 +144,8 @@ local Qdrant, top 5, search restricted to the `retirement` category.
 
 | | max 512 | max 250 |
 |---|---|---|
-| Chunks | 297 | 523 |
-| Sections split | 46 | 110 |
+| Chunks | 284 | 504 |
+| Sections split | 44 | 106 |
 | hit@1 | 12 (75%) | **13 (81%)** |
 | hit@3 | 13 | **15** |
 | hit@5 | 14 (88%) | **15 (94%)** |

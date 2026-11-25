@@ -6,6 +6,17 @@ limits. The design these numbers feed into is [rag-data-design.md](rag-data-desi
 CSVs in [data/](data/); only the notes and findings are written by hand.
 
 <!-- notes:start -->
+**US only (2026-11-25):** the agent is for US tax, so `rag.us_only` (config.yaml) makes the chunker leave out any
+section about another country in this category and in retirement (`chunker.foreign_section`: a path that names a
+country or region, or a world-tour heading such as "By country" on a page that isn't about the US; "By country > United
+States" and US states on US pages are kept). That removed 909 sections from 63 pages (Property tax kept 15 of 97, Capital
+gains tax 26 of 127). Three pages that were mostly about other countries were dropped (Value-added tax, Wealth tax,
+Income splitting) and 41 US pages added to fill back (Medicaid, Supplemental Security Income, Social Security
+Disability Insurance, Social Security Act, Social Security Fairness Act, ERISA, Pension Benefit Guaranty Corporation,
+Health insurance marketplace, TreasuryDirect, Low-Income Housing Tax Credit, the major tax acts since 1981, ...):
+**338 pages, 6,997 indexed sections, none about another country.** The token statistics below measure whole pages (before
+the filter); the retrieval and answer tests use the filtered chunks.
+
 **Expanded to 300 pages (2026-11-25):** a test of 34 common personal-tax questions found 12 with no proper page and 8
 with only a passing mention, so the category was grown to 300. Candidates were the article members of Wikipedia's US tax
 categories (United States federal income tax, Taxation in the United States and its subcategories, Tax credits, Tax
@@ -29,7 +40,7 @@ the United States › Additional taxes, and self-employment tax by FICA › Self
 Questions: q01–q20 were written from the pages, q21–q22 are out of scope. Indexed the same day (`rag.categories`).
 <!-- notes:end -->
 
-- **Sample:** the 300 `taxes-and-accounts` pages in [kb_topics.yaml](../src/data/kb_topics.yaml), full Wikipedia text (not
+- **Sample:** the 338 `taxes-and-accounts` pages in [kb_topics.yaml](../src/data/kb_topics.yaml), full Wikipedia text (not
   truncated), saved in [tests/data/kb_snapshot/taxes-and-accounts/](../tests/data/kb_snapshot/taxes-and-accounts/).
 - **Tokenizer:** `BAAI/bge-small-en-v1.5`, the embedding model, without `[CLS]`/`[SEP]`.
 - **Raw vs clean:** "raw" is the text as `WikiClient.get_page()` returns it. "Clean" has each MathML formula dump collapsed
@@ -53,6 +64,7 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Document | Sections | Paragraphs | Words | Tokens raw | Tokens clean | Tokens / word | Sections with maths |
 |---|---|---|---|---|---|---|---|
 | 1231 property | 4 | 12 | 854 | 1,079 | 1,079 | 1.26 | 0 |
+| 1978 California Proposition 13 | 47 | 100 | 7,357 | 9,147 | 9,147 | 1.24 | 0 |
 | 501(c) organization | 28 | 76 | 4,706 | 6,403 | 6,403 | 1.36 | 0 |
 | 501(c)(3) organization | 19 | 58 | 3,168 | 4,299 | 4,299 | 1.36 | 0 |
 | 529 plan | 9 | 74 | 3,323 | 4,304 | 4,304 | 1.30 | 0 |
@@ -63,9 +75,11 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Adoption tax credit | 8 | 23 | 1,111 | 1,380 | 1,337 | 1.20 | 0 |
 | Affordable Care Act | 74 | 247 | 16,823 | 22,216 | 22,216 | 1.32 | 0 |
 | Affordable Care Act tax provisions | 9 | 18 | 831 | 1,026 | 1,026 | 1.23 | 0 |
+| Alimony | 17 | 72 | 3,342 | 4,321 | 4,321 | 1.29 | 0 |
 | Alimony in the United States | 6 | 27 | 1,291 | 1,693 | 1,693 | 1.31 | 0 |
 | Alternative minimum tax | 25 | 130 | 6,643 | 8,649 | 8,649 | 1.30 | 0 |
 | American Opportunity Tax Credit | 5 | 24 | 624 | 855 | 855 | 1.37 | 0 |
+| American Recovery and Reinvestment Act of 2009 | 30 | 319 | 8,385 | 10,768 | 10,768 | 1.28 | 0 |
 | American Taxpayer Relief Act of 2012 | 8 | 48 | 2,582 | 3,379 | 3,379 | 1.31 | 0 |
 | Amortization (tax law) | 5 | 7 | 422 | 575 | 575 | 1.36 | 0 |
 | Amount realized | 4 | 11 | 821 | 1,056 | 1,056 | 1.29 | 0 |
@@ -77,6 +91,7 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Bracket creep | 4 | 6 | 398 | 517 | 517 | 1.30 | 0 |
 | Buffett Rule | 5 | 11 | 1,033 | 1,311 | 1,311 | 1.27 | 0 |
 | Bush tax cuts | 8 | 50 | 3,668 | 4,573 | 4,573 | 1.25 | 0 |
+| Business Energy Investment Tax Credit | 9 | 15 | 1,162 | 1,468 | 1,468 | 1.26 | 0 |
 | Bypass trust | 2 | 11 | 491 | 606 | 606 | 1.23 | 0 |
 | C corporation | 6 | 7 | 495 | 599 | 599 | 1.21 | 0 |
 | Cafeteria plan | 6 | 13 | 896 | 1,128 | 1,128 | 1.26 | 0 |
@@ -86,9 +101,11 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Capital gains tax in the United States | 27 | 81 | 5,019 | 6,299 | 6,299 | 1.26 | 0 |
 | Car donation | 4 | 7 | 444 | 559 | 559 | 1.26 | 0 |
 | Carryover basis | 4 | 9 | 442 | 563 | 563 | 1.27 | 0 |
+| Cash balance plan | 8 | 19 | 2,182 | 2,746 | 2,746 | 1.26 | 0 |
 | Certified Public Accountant | 11 | 63 | 3,286 | 4,163 | 4,163 | 1.27 | 0 |
 | Charitable contribution deductions in the United States | 15 | 36 | 1,628 | 2,171 | 2,171 | 1.33 | 0 |
 | Charitable remainder unitrust | 16 | 30 | 1,919 | 2,743 | 2,743 | 1.43 | 0 |
+| Child Tax Credit Improvement Act of 2014 | 6 | 16 | 751 | 1,004 | 1,004 | 1.34 | 0 |
 | Child and Dependent Care Credit | 6 | 13 | 881 | 1,117 | 1,117 | 1.27 | 0 |
 | Child support | 14 | 67 | 5,464 | 6,874 | 6,874 | 1.26 | 0 |
 | Child tax credit (United States) | 18 | 48 | 4,541 | 6,045 | 6,045 | 1.33 | 0 |
@@ -104,6 +121,7 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Consumption tax | 18 | 40 | 2,603 | 3,197 | 3,197 | 1.23 | 0 |
 | Corporate tax in the United States | 50 | 228 | 12,471 | 18,722 | 18,722 | 1.50 | 0 |
 | Cost basis | 6 | 40 | 1,308 | 1,666 | 1,666 | 1.27 | 0 |
+| Cost segregation study | 6 | 17 | 953 | 1,241 | 1,241 | 1.30 | 0 |
 | Coverdell education savings account | 7 | 9 | 889 | 1,176 | 1,176 | 1.32 | 0 |
 | Crummey trust | 2 | 6 | 526 | 676 | 676 | 1.29 | 0 |
 | De minimis fringe benefit | 6 | 33 | 770 | 1,038 | 1,038 | 1.35 | 0 |
@@ -114,7 +132,10 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Double taxation | 15 | 49 | 3,463 | 4,117 | 4,117 | 1.19 | 0 |
 | Dynasty trust | 16 | 46 | 2,722 | 3,604 | 3,604 | 1.32 | 0 |
 | Earned income tax credit | 17 | 74 | 5,294 | 6,880 | 6,880 | 1.30 | 0 |
+| Economic Growth and Tax Relief Reconciliation Act of 2001 | 10 | 32 | 2,001 | 2,613 | 2,613 | 1.31 | 0 |
+| Economic Recovery Tax Act of 1981 | 5 | 23 | 1,710 | 2,154 | 2,154 | 1.26 | 0 |
 | Electronic Federal Tax Payment System | 5 | 9 | 563 | 698 | 698 | 1.24 | 0 |
+| Employee Retirement Income Security Act of 1974 | 19 | 84 | 3,616 | 4,654 | 4,654 | 1.29 | 0 |
 | Employee benefits | 9 | 32 | 2,166 | 2,805 | 2,805 | 1.30 | 0 |
 | Employee education benefits in the United States | 17 | 23 | 1,177 | 1,592 | 1,592 | 1.35 | 0 |
 | Employer Identification Number | 5 | 13 | 858 | 1,062 | 1,062 | 1.24 | 0 |
@@ -162,8 +183,10 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Half-year convention | 3 | 17 | 527 | 755 | 755 | 1.43 | 0 |
 | Head of household | 10 | 37 | 1,352 | 1,630 | 1,630 | 1.21 | 0 |
 | Health insurance in the United States | 55 | 147 | 10,471 | 13,420 | 13,420 | 1.28 | 0 |
+| Health insurance marketplace | 17 | 81 | 3,889 | 4,924 | 4,924 | 1.27 | 0 |
 | Health reimbursement account | 8 | 43 | 1,320 | 1,851 | 1,851 | 1.40 | 0 |
 | Health savings account | 11 | 57 | 4,025 | 5,195 | 5,195 | 1.29 | 0 |
+| History of Social Security in the United States | 19 | 77 | 5,234 | 6,571 | 6,571 | 1.26 | 0 |
 | History of taxation in the United States | 28 | 85 | 5,837 | 7,242 | 7,242 | 1.24 | 0 |
 | Home equity loan | 2 | 16 | 505 | 622 | 622 | 1.23 | 0 |
 | Home mortgage interest deduction | 13 | 34 | 2,051 | 2,683 | 2,683 | 1.31 | 0 |
@@ -179,7 +202,6 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Identity theft in the United States | 5 | 16 | 1,048 | 1,283 | 1,283 | 1.22 | 0 |
 | Imputed income | 5 | 13 | 773 | 972 | 972 | 1.26 | 0 |
 | Incentive stock option | 7 | 26 | 1,914 | 2,373 | 2,373 | 1.24 | 0 |
-| Income splitting | 5 | 17 | 1,172 | 1,431 | 1,431 | 1.22 | 0 |
 | Income tax | 24 | 81 | 3,809 | 4,686 | 4,686 | 1.23 | 0 |
 | Income tax audit | 17 | 26 | 1,196 | 1,496 | 1,496 | 1.25 | 0 |
 | Income tax in the United States | 46 | 215 | 11,139 | 14,221 | 14,221 | 1.28 | 0 |
@@ -188,6 +210,7 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Independent contractor-employee distinction in the United States | 6 | 13 | 758 | 929 | 929 | 1.23 | 0 |
 | Individual Taxpayer Identification Number | 1 | 7 | 673 | 872 | 872 | 1.30 | 0 |
 | Individual development account | 19 | 44 | 3,027 | 3,682 | 3,682 | 1.22 | 0 |
+| Individual mandate | 6 | 13 | 907 | 1,102 | 1,102 | 1.21 | 0 |
 | Inflation Reduction Act | 46 | 178 | 14,610 | 19,180 | 19,180 | 1.31 | 0 |
 | Inheritance | 13 | 37 | 2,580 | 3,311 | 3,311 | 1.28 | 0 |
 | Inheritance tax | 9 | 117 | 5,149 | 6,832 | 6,815 | 1.32 | 0 |
@@ -195,9 +218,11 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Internal Revenue Code | 11 | 161 | 2,084 | 3,332 | 3,332 | 1.60 | 0 |
 | Internal Revenue Code section 1031 | 10 | 72 | 3,871 | 4,717 | 4,717 | 1.22 | 0 |
 | Internal Revenue Service | 29 | 152 | 6,499 | 8,112 | 8,112 | 1.25 | 0 |
+| Internal Revenue Service Restructuring and Reform Act of 1998 | 7 | 33 | 946 | 1,171 | 1,171 | 1.24 | 0 |
 | International taxation | 22 | 79 | 6,215 | 7,659 | 7,659 | 1.23 | 0 |
 | Itemized deduction | 4 | 57 | 1,551 | 2,147 | 2,147 | 1.38 | 0 |
 | Job-seeking expense tax deductions | 1 | 6 | 549 | 672 | 672 | 1.22 | 0 |
+| Jobs and Growth Tax Relief Reconciliation Act of 2003 | 6 | 10 | 484 | 638 | 638 | 1.32 | 0 |
 | Jock tax | 8 | 22 | 1,731 | 2,193 | 2,193 | 1.27 | 0 |
 | Keogh plan | 5 | 18 | 722 | 1,019 | 1,019 | 1.41 | 0 |
 | Kiddie tax | 5 | 25 | 840 | 1,128 | 1,128 | 1.34 | 0 |
@@ -208,11 +233,14 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Limited liability company | 6 | 24 | 2,034 | 2,479 | 2,479 | 1.22 | 0 |
 | Limits on Depreciation Deduction | 4 | 7 | 370 | 585 | 585 | 1.58 | 0 |
 | Local option sales tax | 1 | 5 | 343 | 419 | 419 | 1.22 | 0 |
+| Low-Income Housing Tax Credit | 4 | 24 | 1,379 | 1,827 | 1,827 | 1.32 | 0 |
 | Marital deduction | 8 | 13 | 1,433 | 1,806 | 1,806 | 1.26 | 0 |
 | Marriage penalty | 7 | 18 | 1,568 | 2,036 | 2,036 | 1.30 | 0 |
 | Master limited partnership | 7 | 15 | 857 | 1,126 | 1,126 | 1.31 | 0 |
+| Medicaid | 35 | 110 | 7,851 | 10,363 | 10,363 | 1.32 | 0 |
 | Medical savings account (United States) | 4 | 17 | 1,045 | 1,344 | 1,344 | 1.29 | 0 |
 | Medicare (United States) | 52 | 176 | 13,008 | 16,657 | 16,657 | 1.28 | 0 |
+| Middle Class Tax Relief and Job Creation Act of 2012 | 3 | 35 | 1,035 | 1,252 | 1,252 | 1.21 | 0 |
 | Modified Accelerated Cost Recovery System | 12 | 33 | 1,583 | 2,073 | 2,073 | 1.31 | 0 |
 | Modified endowment contract | 4 | 9 | 558 | 692 | 692 | 1.24 | 0 |
 | Mortgage Forgiveness Debt Relief Act of 2007 | 2 | 13 | 757 | 942 | 942 | 1.24 | 0 |
@@ -220,8 +248,10 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Nanny tax | 5 | 20 | 1,095 | 1,353 | 1,353 | 1.24 | 0 |
 | Negative income tax | 9 | 35 | 2,414 | 3,026 | 3,026 | 1.25 | 0 |
 | Net operating loss | 6 | 34 | 715 | 955 | 955 | 1.34 | 0 |
+| New Markets Tax Credit Program | 5 | 9 | 825 | 1,083 | 1,083 | 1.31 | 0 |
 | Nonbusiness Energy Property Tax Credit | 5 | 9 | 412 | 548 | 548 | 1.33 | 0 |
 | Nonrecognition provisions | 3 | 11 | 429 | 557 | 557 | 1.30 | 0 |
+| Nonrecourse debt | 6 | 25 | 1,454 | 1,962 | 1,962 | 1.35 | 0 |
 | Offer in compromise | 9 | 23 | 1,232 | 1,554 | 1,554 | 1.26 | 0 |
 | Office of the Taxpayer Advocate | 6 | 9 | 724 | 864 | 864 | 1.19 | 0 |
 | One Big Beautiful Bill Act | 87 | 262 | 12,447 | 16,245 | 16,245 | 1.31 | 0 |
@@ -230,9 +260,12 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Overtime | 12 | 57 | 2,370 | 2,942 | 2,942 | 1.24 | 0 |
 | Parcel tax | 11 | 16 | 1,457 | 1,736 | 1,736 | 1.19 | 0 |
 | Partnership taxation in the United States | 22 | 59 | 3,477 | 4,514 | 4,514 | 1.30 | 0 |
+| Passive foreign investment company | 7 | 22 | 1,225 | 1,572 | 1,572 | 1.28 | 0 |
 | Payment in lieu of taxes | 3 | 13 | 926 | 1,080 | 1,080 | 1.17 | 0 |
 | Payroll | 9 | 22 | 1,158 | 1,487 | 1,487 | 1.28 | 0 |
 | Payroll tax | 21 | 54 | 2,504 | 3,338 | 3,338 | 1.33 | 0 |
+| Pension Benefit Guaranty Corporation | 13 | 73 | 2,891 | 3,877 | 3,877 | 1.34 | 0 |
+| Pension Protection Act of 2006 | 9 | 25 | 885 | 1,135 | 1,135 | 1.28 | 0 |
 | Personal exemption | 7 | 20 | 1,105 | 1,549 | 1,549 | 1.40 | 0 |
 | Physical presence test | 7 | 15 | 858 | 1,002 | 1,002 | 1.17 | 0 |
 | Pigouvian tax | 21 | 71 | 5,344 | 6,772 | 6,772 | 1.27 | 0 |
@@ -246,16 +279,19 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Property tax | 60 | 250 | 9,748 | 12,527 | 12,527 | 1.29 | 0 |
 | Property tax appeal | 5 | 13 | 404 | 525 | 525 | 1.30 | 0 |
 | Property tax in the United States | 39 | 89 | 5,215 | 6,414 | 6,414 | 1.23 | 0 |
+| Qualified Production Activities Income | 6 | 15 | 827 | 1,003 | 1,003 | 1.21 | 0 |
 | Qualified Small Business Stock | 12 | 84 | 1,354 | 1,781 | 1,781 | 1.32 | 0 |
 | Qualified dividend | 5 | 15 | 823 | 1,088 | 1,088 | 1.32 | 0 |
 | Qualified personal residence trust | 6 | 24 | 1,430 | 1,833 | 1,833 | 1.28 | 0 |
 | Qualified residence interest | 4 | 5 | 361 | 524 | 524 | 1.45 | 0 |
 | Rate schedule (federal income tax) | 5 | 24 | 634 | 876 | 876 | 1.38 | 0 |
+| Reagan tax cuts | 3 | 6 | 583 | 708 | 708 | 1.21 | 0 |
 | Realization (tax) | 4 | 11 | 1,156 | 1,459 | 1,459 | 1.26 | 0 |
 | Refund anticipation loan | 8 | 25 | 1,595 | 2,033 | 2,033 | 1.27 | 0 |
 | Regressive tax | 15 | 40 | 2,481 | 3,163 | 3,163 | 1.27 | 0 |
 | Renting | 8 | 51 | 1,642 | 2,046 | 2,046 | 1.25 | 0 |
 | Return of capital | 4 | 17 | 607 | 761 | 761 | 1.25 | 0 |
+| Revenue Act of 1913 | 7 | 22 | 1,393 | 1,783 | 1,783 | 1.28 | 0 |
 | Revenue ruling | 4 | 11 | 541 | 633 | 633 | 1.17 | 0 |
 | Reverse mortgage | 21 | 82 | 4,411 | 5,624 | 5,624 | 1.27 | 0 |
 | Rollovers as business start-ups | 4 | 12 | 652 | 834 | 834 | 1.28 | 0 |
@@ -276,9 +312,13 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Sin tax | 5 | 22 | 766 | 971 | 971 | 1.27 | 0 |
 | Sixteenth Amendment to the United States Constitution | 14 | 95 | 3,783 | 4,758 | 4,758 | 1.26 | 0 |
 | Small Business Health Options Program | 2 | 12 | 702 | 853 | 853 | 1.22 | 0 |
+| Social Security Act | 34 | 71 | 3,110 | 3,994 | 3,994 | 1.28 | 0 |
 | Social Security Administration | 15 | 58 | 3,525 | 4,593 | 4,593 | 1.30 | 0 |
+| Social Security Disability Insurance | 15 | 61 | 3,908 | 4,984 | 4,984 | 1.28 | 0 |
+| Social Security Fairness Act | 4 | 21 | 453 | 822 | 822 | 1.81 | 0 |
 | Social Security Wage Base | 7 | 15 | 1,204 | 1,652 | 1,652 | 1.37 | 0 |
 | Social Security number | 15 | 76 | 3,329 | 4,246 | 4,246 | 1.28 | 0 |
+| Sole proprietorship | 16 | 41 | 2,272 | 2,816 | 2,816 | 1.24 | 0 |
 | Solo 401(k) | 7 | 41 | 3,083 | 4,153 | 4,153 | 1.35 | 0 |
 | Special assessment tax | 9 | 26 | 2,292 | 2,715 | 2,715 | 1.18 | 0 |
 | Standard deduction | 3 | 11 | 352 | 475 | 475 | 1.35 | 0 |
@@ -288,10 +328,14 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Streamlined filing compliance procedures | 15 | 51 | 2,597 | 3,252 | 3,252 | 1.25 | 0 |
 | Substantial Presence Test | 16 | 48 | 1,909 | 2,339 | 2,339 | 1.23 | 0 |
 | Substantial gainful activity | 1 | 6 | 333 | 406 | 406 | 1.22 | 0 |
+| Supplemental Security Income | 22 | 116 | 6,196 | 7,823 | 7,823 | 1.26 | 0 |
 | Surtax | 4 | 9 | 442 | 573 | 573 | 1.30 | 0 |
 | Tax Cuts and Jobs Act | 47 | 182 | 10,526 | 13,455 | 13,455 | 1.28 | 0 |
 | Tax Day | 4 | 12 | 901 | 1,087 | 1,087 | 1.21 | 0 |
+| Tax Equity and Fiscal Responsibility Act of 1982 | 3 | 23 | 921 | 1,147 | 1,147 | 1.25 | 0 |
+| Tax Increase Prevention and Reconciliation Act of 2005 | 22 | 26 | 1,393 | 1,855 | 1,855 | 1.33 | 0 |
 | Tax Reform Act of 1986 | 9 | 23 | 1,803 | 2,292 | 2,292 | 1.27 | 0 |
+| Tax Relief for American Families and Workers Act | 12 | 27 | 1,219 | 1,526 | 1,526 | 1.25 | 0 |
 | Tax accounting in the United States | 5 | 11 | 551 | 692 | 692 | 1.26 | 0 |
 | Tax advantage | 11 | 17 | 1,244 | 1,627 | 1,627 | 1.31 | 0 |
 | Tax advisor | 11 | 29 | 1,098 | 1,424 | 1,424 | 1.30 | 0 |
@@ -312,6 +356,7 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Tax haven | 55 | 197 | 13,036 | 17,814 | 17,814 | 1.37 | 0 |
 | Tax incentive | 6 | 32 | 840 | 1,061 | 1,061 | 1.26 | 0 |
 | Tax incidence | 21 | 53 | 4,214 | 5,125 | 5,125 | 1.22 | 0 |
+| Tax increment financing | 16 | 47 | 3,495 | 4,500 | 4,500 | 1.29 | 0 |
 | Tax information reporting | 6 | 10 | 619 | 786 | 786 | 1.27 | 0 |
 | Tax lien | 12 | 33 | 2,089 | 2,666 | 2,666 | 1.28 | 0 |
 | Tax loss harvesting | 5 | 13 | 805 | 1,256 | 1,174 | 1.46 | 1 |
@@ -321,6 +366,7 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Tax rate | 14 | 54 | 2,174 | 2,809 | 2,809 | 1.29 | 0 |
 | Tax reform | 4 | 13 | 889 | 1,066 | 1,066 | 1.20 | 0 |
 | Tax refund | 7 | 19 | 1,480 | 1,838 | 1,838 | 1.24 | 0 |
+| Tax refund interception | 1 | 12 | 574 | 692 | 692 | 1.21 | 0 |
 | Tax return | 5 | 17 | 926 | 1,134 | 1,134 | 1.22 | 0 |
 | Tax returns in the United States | 9 | 37 | 1,206 | 1,574 | 1,574 | 1.31 | 0 |
 | Tax sale | 8 | 56 | 3,021 | 3,788 | 3,788 | 1.25 | 0 |
@@ -330,35 +376,39 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Tax withholding in the United States | 8 | 32 | 1,379 | 1,753 | 1,753 | 1.27 | 0 |
 | Taxable income | 1 | 4 | 352 | 455 | 455 | 1.29 | 0 |
 | Taxation in the United States | 72 | 167 | 12,056 | 14,877 | 14,877 | 1.23 | 0 |
+| Taxation of digital goods | 34 | 83 | 4,602 | 5,774 | 5,774 | 1.25 | 0 |
 | Taxpayer | 5 | 17 | 944 | 1,126 | 1,126 | 1.19 | 0 |
 | Taxpayer Bill of Rights | 8 | 16 | 1,435 | 1,785 | 1,785 | 1.24 | 0 |
+| Taxpayer First Act | 4 | 20 | 508 | 633 | 633 | 1.25 | 0 |
 | Taxpayer Identification Number | 6 | 12 | 395 | 541 | 541 | 1.37 | 0 |
+| Taxpayer Relief Act of 1997 | 4 | 13 | 383 | 488 | 488 | 1.27 | 0 |
 | Tenants-in-common 1031 exchange | 3 | 12 | 420 | 507 | 507 | 1.21 | 0 |
 | Thrift Savings Plan | 17 | 95 | 3,711 | 4,891 | 4,891 | 1.32 | 0 |
 | Totalization agreements | 5 | 9 | 1,119 | 1,382 | 1,382 | 1.24 | 0 |
 | Treasury regulations | 5 | 76 | 1,177 | 1,521 | 1,521 | 1.29 | 0 |
+| TreasuryDirect | 11 | 33 | 1,936 | 2,501 | 2,501 | 1.29 | 0 |
 | Trump account | 7 | 17 | 1,746 | 2,242 | 2,242 | 1.28 | 0 |
 | Trust (law) | 23 | 124 | 7,619 | 9,692 | 9,692 | 1.27 | 0 |
 | Two-percent haircut | 4 | 7 | 444 | 709 | 709 | 1.60 | 0 |
 | Unearned income | 4 | 22 | 842 | 1,081 | 1,081 | 1.28 | 0 |
 | Unemployment benefits | 40 | 166 | 9,916 | 12,476 | 12,476 | 1.26 | 0 |
+| Unemployment insurance in the United States | 20 | 46 | 3,761 | 4,767 | 4,767 | 1.27 | 0 |
 | Uniform Gifts to Minors Act | 1 | 5 | 513 | 681 | 681 | 1.33 | 0 |
 | United States Tax Court | 13 | 69 | 3,001 | 3,873 | 3,873 | 1.29 | 0 |
 | United States person | 4 | 27 | 519 | 637 | 637 | 1.23 | 0 |
 | Unrelated Business Income Tax | 15 | 25 | 1,222 | 1,541 | 1,541 | 1.26 | 0 |
 | Use tax | 7 | 30 | 2,310 | 2,811 | 2,811 | 1.22 | 0 |
-| Value-added tax | 45 | 89 | 4,225 | 5,813 | 5,813 | 1.38 | 0 |
 | Voluntary disclosure agreement | 3 | 10 | 406 | 488 | 488 | 1.20 | 0 |
 | Wash sale | 6 | 20 | 972 | 1,237 | 1,237 | 1.27 | 0 |
-| Wealth tax | 29 | 63 | 6,607 | 8,682 | 8,682 | 1.31 | 0 |
 | Windfall Elimination Provision | 13 | 49 | 1,114 | 1,468 | 1,468 | 1.32 | 0 |
-| **Total** | **3771** | **13019** | **729,030** | **940,413** | **940,053** | | **3** |
+| **Total** | **4220** | **14767** | **815,024** | **1,049,896** | **1,049,536** | | **3** |
 
 ## Sections (tokens)
 
 | Document | Min | p25 | Median | p75 | p90 | Max | Mean |
 |---|---|---|---|---|---|---|---|
 | 1231 property | 104 | 107 | 176 | 337 | 502 | 613 | 267 |
+| 1978 California Proposition 13 | 17 | 72 | 157 | 228 | 382 | 837 | 185 |
 | 501(c) organization | 17 | 108 | 157 | 345 | 436 | 567 | 222 |
 | 501(c)(3) organization | 33 | 119 | 186 | 324 | 386 | 531 | 220 |
 | 529 plan | 51 | 220 | 440 | 763 | 911 | 1,184 | 474 |
@@ -369,9 +419,11 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Adoption tax credit | 67 | 95 | 148 | 216 | 249 | 307 | 162 |
 | Affordable Care Act | 15 | 85 | 181 | 397 | 621 | 1,881 | 292 |
 | Affordable Care Act tax provisions | 39 | 45 | 69 | 157 | 221 | 225 | 106 |
+| Alimony | 72 | 100 | 175 | 292 | 603 | 726 | 249 |
 | Alimony in the United States | 74 | 104 | 246 | 342 | 509 | 672 | 278 |
 | Alternative minimum tax | 59 | 151 | 273 | 471 | 595 | 1,224 | 339 |
 | American Opportunity Tax Credit | 72 | 76 | 106 | 256 | 279 | 295 | 161 |
+| American Recovery and Reinvestment Act of 2009 | 7 | 158 | 224 | 371 | 647 | 1,917 | 351 |
 | American Taxpayer Relief Act of 2012 | 244 | 274 | 366 | 516 | 668 | 688 | 416 |
 | Amortization (tax law) | 22 | 72 | 97 | 98 | 195 | 261 | 110 |
 | Amount realized | 49 | 82 | 185 | 363 | 520 | 625 | 261 |
@@ -383,6 +435,7 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Bracket creep | 45 | 75 | 118 | 170 | 203 | 225 | 126 |
 | Buffett Rule | 88 | 170 | 187 | 344 | 438 | 501 | 258 |
 | Bush tax cuts | 92 | 218 | 449 | 937 | 1,121 | 1,142 | 565 |
+| Business Energy Investment Tax Credit | 77 | 89 | 116 | 157 | 231 | 520 | 158 |
 | Bypass trust | 180 | 240 | 300 | 360 | 396 | 420 | 300 |
 | C corporation | 65 | 73 | 85 | 110 | 137 | 157 | 96 |
 | Cafeteria plan | 30 | 49 | 159 | 279 | 336 | 387 | 178 |
@@ -392,9 +445,11 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Capital gains tax in the United States | 59 | 151 | 194 | 295 | 395 | 576 | 226 |
 | Car donation | 34 | 85 | 133 | 182 | 215 | 238 | 134 |
 | Carryover basis | 42 | 103 | 135 | 167 | 205 | 231 | 135 |
+| Cash balance plan | 51 | 125 | 416 | 491 | 526 | 598 | 339 |
 | Certified Public Accountant | 209 | 262 | 303 | 436 | 597 | 682 | 371 |
 | Charitable contribution deductions in the United States | 37 | 64 | 109 | 203 | 243 | 281 | 138 |
 | Charitable remainder unitrust | 13 | 59 | 85 | 180 | 401 | 605 | 164 |
+| Child Tax Credit Improvement Act of 2014 | 33 | 95 | 107 | 197 | 319 | 413 | 163 |
 | Child and Dependent Care Credit | 68 | 95 | 123 | 270 | 343 | 369 | 181 |
 | Child support | 144 | 284 | 504 | 641 | 725 | 931 | 484 |
 | Child tax credit (United States) | 22 | 164 | 276 | 442 | 632 | 768 | 328 |
@@ -410,6 +465,7 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Consumption tax | 15 | 77 | 142 | 229 | 324 | 478 | 172 |
 | Corporate tax in the United States | 60 | 250 | 315 | 453 | 595 | 1,188 | 365 |
 | Cost basis | 150 | 211 | 254 | 343 | 387 | 415 | 273 |
+| Cost segregation study | 31 | 96 | 179 | 248 | 366 | 483 | 202 |
 | Coverdell education savings account | 61 | 128 | 148 | 187 | 249 | 291 | 161 |
 | Crummey trust | 61 | 198 | 336 | 474 | 556 | 612 | 336 |
 | De minimis fringe benefit | 36 | 47 | 83 | 187 | 369 | 525 | 164 |
@@ -420,7 +476,10 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Double taxation | 49 | 132 | 181 | 335 | 532 | 890 | 268 |
 | Dynasty trust | 51 | 98 | 188 | 304 | 413 | 476 | 213 |
 | Earned income tax credit | 38 | 161 | 210 | 561 | 889 | 1,288 | 397 |
+| Economic Growth and Tax Relief Reconciliation Act of 2001 | 33 | 160 | 220 | 309 | 473 | 651 | 255 |
+| Economic Recovery Tax Act of 1981 | 135 | 285 | 379 | 459 | 711 | 880 | 427 |
 | Electronic Federal Tax Payment System | 49 | 73 | 74 | 238 | 240 | 242 | 135 |
+| Employee Retirement Income Security Act of 1974 | 54 | 112 | 163 | 288 | 440 | 989 | 236 |
 | Employee benefits | 15 | 77 | 159 | 362 | 701 | 1,091 | 308 |
 | Employee education benefits in the United States | 15 | 37 | 76 | 103 | 188 | 219 | 86 |
 | Employer Identification Number | 139 | 198 | 202 | 211 | 251 | 278 | 205 |
@@ -468,8 +527,10 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Half-year convention | 218 | 227 | 236 | 265 | 282 | 294 | 249 |
 | Head of household | 72 | 94 | 137 | 194 | 282 | 316 | 158 |
 | Health insurance in the United States | 36 | 101 | 163 | 248 | 561 | 978 | 236 |
+| Health insurance marketplace | 29 | 123 | 176 | 474 | 569 | 755 | 284 |
 | Health reimbursement account | 64 | 125 | 169 | 374 | 402 | 462 | 228 |
 | Health savings account | 35 | 208 | 440 | 672 | 780 | 1,202 | 468 |
+| History of Social Security in the United States | 27 | 180 | 286 | 407 | 670 | 828 | 338 |
 | History of taxation in the United States | 17 | 104 | 187 | 348 | 496 | 935 | 252 |
 | Home equity loan | 115 | 212 | 309 | 406 | 465 | 504 | 309 |
 | Home mortgage interest deduction | 27 | 93 | 145 | 322 | 362 | 533 | 201 |
@@ -485,7 +546,6 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Identity theft in the United States | 102 | 111 | 113 | 352 | 493 | 587 | 253 |
 | Imputed income | 58 | 98 | 133 | 152 | 363 | 505 | 189 |
 | Incentive stock option | 75 | 181 | 259 | 463 | 581 | 682 | 329 |
-| Income splitting | 93 | 95 | 111 | 264 | 612 | 844 | 281 |
 | Income tax | 41 | 93 | 140 | 268 | 357 | 594 | 189 |
 | Income tax audit | 14 | 29 | 92 | 130 | 142 | 152 | 82 |
 | Income tax in the United States | 31 | 100 | 185 | 431 | 600 | 1,196 | 301 |
@@ -494,6 +554,7 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Independent contractor-employee distinction in the United States | 73 | 92 | 130 | 162 | 243 | 317 | 150 |
 | Individual Taxpayer Identification Number | 872 | 872 | 872 | 872 | 872 | 872 | 872 |
 | Individual development account | 23 | 91 | 166 | 267 | 303 | 527 | 187 |
+| Individual mandate | 21 | 61 | 94 | 162 | 401 | 618 | 177 |
 | Inflation Reduction Act | 26 | 147 | 295 | 425 | 790 | 2,863 | 410 |
 | Inheritance | 22 | 80 | 218 | 343 | 477 | 622 | 248 |
 | Inheritance tax | 80 | 113 | 280 | 995 | 1,471 | 2,921 | 752 |
@@ -501,9 +562,11 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Internal Revenue Code | 46 | 126 | 160 | 294 | 320 | 1,417 | 296 |
 | Internal Revenue Code section 1031 | 49 | 280 | 379 | 587 | 974 | 1,012 | 466 |
 | Internal Revenue Service | 42 | 87 | 247 | 358 | 589 | 890 | 272 |
+| Internal Revenue Service Restructuring and Reform Act of 1998 | 32 | 78 | 108 | 127 | 311 | 578 | 161 |
 | International taxation | 51 | 137 | 216 | 381 | 610 | 1,994 | 343 |
 | Itemized deduction | 40 | 292 | 491 | 729 | 948 | 1,095 | 529 |
 | Job-seeking expense tax deductions | 672 | 672 | 672 | 672 | 672 | 672 | 672 |
+| Jobs and Growth Tax Relief Reconciliation Act of 2003 | 8 | 43 | 90 | 140 | 182 | 210 | 97 |
 | Jock tax | 20 | 156 | 257 | 425 | 456 | 465 | 267 |
 | Keogh plan | 23 | 48 | 132 | 143 | 453 | 660 | 201 |
 | Kiddie tax | 116 | 128 | 242 | 269 | 324 | 361 | 223 |
@@ -514,11 +577,14 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Limited liability company | 220 | 356 | 408 | 463 | 540 | 602 | 410 |
 | Limits on Depreciation Deduction | 70 | 92 | 120 | 171 | 226 | 264 | 143 |
 | Local option sales tax | 419 | 419 | 419 | 419 | 419 | 419 | 419 |
+| Low-Income Housing Tax Credit | 331 | 346 | 399 | 502 | 604 | 672 | 450 |
 | Marital deduction | 143 | 154 | 167 | 207 | 334 | 533 | 220 |
 | Marriage penalty | 87 | 139 | 232 | 302 | 495 | 769 | 281 |
 | Master limited partnership | 56 | 124 | 175 | 187 | 210 | 246 | 157 |
+| Medicaid | 23 | 157 | 245 | 341 | 570 | 1,042 | 289 |
 | Medical savings account (United States) | 200 | 229 | 260 | 362 | 507 | 605 | 331 |
 | Medicare (United States) | 29 | 138 | 247 | 386 | 624 | 1,240 | 312 |
+| Middle Class Tax Relief and Job Creation Act of 2012 | 122 | 196 | 270 | 561 | 735 | 852 | 414 |
 | Modified Accelerated Cost Recovery System | 45 | 74 | 135 | 238 | 314 | 340 | 165 |
 | Modified endowment contract | 54 | 90 | 110 | 190 | 321 | 408 | 170 |
 | Mortgage Forgiveness Debt Relief Act of 2007 | 420 | 443 | 467 | 490 | 504 | 514 | 467 |
@@ -526,8 +592,10 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Nanny tax | 123 | 175 | 255 | 318 | 400 | 456 | 265 |
 | Negative income tax | 53 | 232 | 275 | 321 | 463 | 1,020 | 329 |
 | Net operating loss | 34 | 65 | 92 | 124 | 324 | 516 | 154 |
+| New Markets Tax Credit Program | 81 | 110 | 226 | 268 | 333 | 377 | 212 |
 | Nonbusiness Energy Property Tax Credit | 20 | 68 | 87 | 150 | 185 | 209 | 106 |
 | Nonrecognition provisions | 81 | 128 | 176 | 234 | 269 | 293 | 183 |
+| Nonrecourse debt | 96 | 162 | 228 | 266 | 621 | 965 | 322 |
 | Offer in compromise | 72 | 103 | 142 | 168 | 284 | 386 | 167 |
 | Office of the Taxpayer Advocate | 67 | 69 | 103 | 217 | 249 | 254 | 140 |
 | One Big Beautiful Bill Act | 13 | 63 | 123 | 237 | 406 | 970 | 177 |
@@ -536,9 +604,12 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Overtime | 98 | 157 | 238 | 336 | 355 | 378 | 238 |
 | Parcel tax | 100 | 104 | 132 | 176 | 218 | 279 | 150 |
 | Partnership taxation in the United States | 40 | 82 | 125 | 267 | 339 | 877 | 197 |
+| Passive foreign investment company | 65 | 122 | 257 | 297 | 343 | 370 | 218 |
 | Payment in lieu of taxes | 43 | 103 | 164 | 515 | 725 | 866 | 357 |
 | Payroll | 22 | 94 | 121 | 219 | 271 | 423 | 160 |
 | Payroll tax | 23 | 98 | 138 | 208 | 241 | 351 | 153 |
+| Pension Benefit Guaranty Corporation | 65 | 173 | 238 | 335 | 504 | 900 | 293 |
+| Pension Protection Act of 2006 | 27 | 53 | 103 | 192 | 222 | 274 | 120 |
 | Personal exemption | 106 | 161 | 209 | 243 | 317 | 393 | 216 |
 | Physical presence test | 63 | 108 | 144 | 166 | 196 | 216 | 138 |
 | Pigouvian tax | 44 | 103 | 220 | 403 | 812 | 1,149 | 315 |
@@ -552,16 +623,19 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Property tax | 1 | 68 | 131 | 204 | 484 | 1,188 | 203 |
 | Property tax appeal | 57 | 77 | 104 | 122 | 138 | 150 | 102 |
 | Property tax in the United States | 24 | 60 | 91 | 167 | 419 | 928 | 159 |
+| Qualified Production Activities Income | 27 | 140 | 168 | 200 | 239 | 273 | 163 |
 | Qualified Small Business Stock | 42 | 77 | 122 | 152 | 279 | 354 | 137 |
 | Qualified dividend | 19 | 47 | 195 | 296 | 424 | 510 | 213 |
 | Qualified personal residence trust | 126 | 142 | 234 | 400 | 533 | 638 | 300 |
 | Qualified residence interest | 24 | 93 | 151 | 186 | 186 | 186 | 128 |
 | Rate schedule (federal income tax) | 24 | 128 | 161 | 162 | 296 | 386 | 172 |
+| Reagan tax cuts | 61 | 142 | 224 | 319 | 376 | 414 | 233 |
 | Realization (tax) | 70 | 277 | 350 | 433 | 577 | 673 | 360 |
 | Refund anticipation loan | 55 | 156 | 214 | 269 | 391 | 664 | 245 |
 | Regressive tax | 33 | 116 | 199 | 255 | 388 | 406 | 204 |
 | Renting | 41 | 89 | 148 | 255 | 552 | 884 | 251 |
 | Return of capital | 52 | 80 | 137 | 244 | 350 | 421 | 187 |
+| Revenue Act of 1913 | 151 | 188 | 209 | 284 | 361 | 445 | 249 |
 | Revenue ruling | 41 | 49 | 104 | 209 | 304 | 367 | 154 |
 | Reverse mortgage | 56 | 113 | 251 | 378 | 496 | 589 | 260 |
 | Rollovers as business start-ups | 78 | 103 | 113 | 213 | 390 | 509 | 203 |
@@ -582,9 +656,13 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Sin tax | 142 | 151 | 205 | 224 | 231 | 237 | 191 |
 | Sixteenth Amendment to the United States Constitution | 29 | 148 | 282 | 499 | 669 | 858 | 333 |
 | Small Business Health Options Program | 333 | 378 | 424 | 470 | 497 | 516 | 424 |
+| Social Security Act | 6 | 10 | 20 | 61 | 255 | 1,481 | 105 |
 | Social Security Administration | 2 | 104 | 307 | 402 | 599 | 820 | 301 |
+| Social Security Disability Insurance | 68 | 237 | 314 | 364 | 557 | 619 | 326 |
+| Social Security Fairness Act | 18 | 48 | 91 | 246 | 465 | 612 | 203 |
 | Social Security Wage Base | 91 | 110 | 164 | 356 | 386 | 430 | 231 |
 | Social Security number | 101 | 188 | 250 | 371 | 412 | 493 | 277 |
+| Sole proprietorship | 33 | 68 | 132 | 248 | 297 | 562 | 169 |
 | Solo 401(k) | 158 | 236 | 411 | 905 | 1,245 | 1,277 | 589 |
 | Special assessment tax | 56 | 75 | 182 | 456 | 564 | 696 | 296 |
 | Standard deduction | 28 | 117 | 207 | 215 | 219 | 223 | 152 |
@@ -594,10 +672,14 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Streamlined filing compliance procedures | 30 | 119 | 147 | 249 | 438 | 500 | 202 |
 | Substantial Presence Test | 24 | 52 | 141 | 195 | 226 | 337 | 136 |
 | Substantial gainful activity | 406 | 406 | 406 | 406 | 406 | 406 | 406 |
+| Supplemental Security Income | 18 | 73 | 276 | 569 | 625 | 1,182 | 348 |
 | Surtax | 23 | 73 | 117 | 184 | 256 | 305 | 140 |
 | Tax Cuts and Jobs Act | 18 | 128 | 250 | 393 | 544 | 1,093 | 278 |
 | Tax Day | 147 | 187 | 248 | 327 | 386 | 426 | 267 |
+| Tax Equity and Fiscal Responsibility Act of 1982 | 239 | 240 | 242 | 449 | 573 | 656 | 379 |
+| Tax Increase Prevention and Reconciliation Act of 2005 | 13 | 35 | 63 | 81 | 143 | 206 | 71 |
 | Tax Reform Act of 1986 | 79 | 120 | 182 | 233 | 471 | 774 | 249 |
+| Tax Relief for American Families and Workers Act | 68 | 103 | 113 | 120 | 150 | 270 | 122 |
 | Tax accounting in the United States | 51 | 73 | 123 | 209 | 211 | 213 | 133 |
 | Tax advantage | 16 | 31 | 80 | 186 | 415 | 452 | 141 |
 | Tax advisor | 15 | 59 | 81 | 137 | 220 | 427 | 124 |
@@ -618,6 +700,7 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Tax haven | 21 | 155 | 224 | 320 | 698 | 1,392 | 316 |
 | Tax incentive | 103 | 139 | 148 | 186 | 247 | 297 | 172 |
 | Tax incidence | 49 | 144 | 187 | 331 | 457 | 652 | 237 |
+| Tax increment financing | 17 | 93 | 171 | 435 | 498 | 928 | 276 |
 | Tax information reporting | 47 | 60 | 85 | 147 | 245 | 330 | 127 |
 | Tax lien | 36 | 81 | 132 | 274 | 511 | 554 | 211 |
 | Tax loss harvesting | 110 | 141 | 208 | 319 | 357 | 383 | 232 |
@@ -627,6 +710,7 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Tax rate | 24 | 87 | 139 | 292 | 334 | 648 | 196 |
 | Tax reform | 91 | 154 | 189 | 298 | 470 | 586 | 263 |
 | Tax refund | 21 | 117 | 185 | 202 | 513 | 972 | 259 |
+| Tax refund interception | 692 | 692 | 692 | 692 | 692 | 692 | 692 |
 | Tax return | 78 | 121 | 157 | 335 | 384 | 418 | 221 |
 | Tax returns in the United States | 57 | 136 | 151 | 175 | 313 | 315 | 170 |
 | Tax sale | 139 | 166 | 424 | 535 | 803 | 1,320 | 467 |
@@ -636,33 +720,36 @@ python -m scripts.kb_report --category taxes-and-accounts
 | Tax withholding in the United States | 86 | 109 | 145 | 247 | 384 | 599 | 214 |
 | Taxable income | 455 | 455 | 455 | 455 | 455 | 455 | 455 |
 | Taxation in the United States | 39 | 95 | 139 | 214 | 315 | 1,232 | 199 |
+| Taxation of digital goods | 29 | 73 | 107 | 195 | 288 | 865 | 163 |
 | Taxpayer | 142 | 186 | 199 | 250 | 295 | 326 | 220 |
 | Taxpayer Bill of Rights | 70 | 98 | 152 | 207 | 395 | 757 | 218 |
+| Taxpayer First Act | 42 | 45 | 140 | 250 | 278 | 298 | 155 |
 | Taxpayer Identification Number | 19 | 36 | 60 | 117 | 170 | 211 | 86 |
+| Taxpayer Relief Act of 1997 | 65 | 71 | 83 | 128 | 191 | 234 | 116 |
 | Tenants-in-common 1031 exchange | 118 | 140 | 162 | 185 | 199 | 209 | 163 |
 | Thrift Savings Plan | 26 | 124 | 286 | 348 | 539 | 652 | 281 |
 | Totalization agreements | 86 | 183 | 189 | 238 | 496 | 668 | 272 |
 | Treasury regulations | 58 | 124 | 132 | 311 | 651 | 878 | 300 |
+| TreasuryDirect | 40 | 121 | 163 | 330 | 391 | 492 | 221 |
 | Trump account | 36 | 72 | 226 | 495 | 695 | 818 | 316 |
 | Trust (law) | 46 | 192 | 253 | 373 | 578 | 3,178 | 415 |
 | Two-percent haircut | 98 | 112 | 155 | 216 | 258 | 286 | 173 |
 | Unearned income | 166 | 172 | 246 | 341 | 383 | 412 | 267 |
 | Unemployment benefits | 22 | 110 | 236 | 397 | 664 | 1,045 | 306 |
+| Unemployment insurance in the United States | 30 | 95 | 185 | 364 | 471 | 572 | 230 |
 | Uniform Gifts to Minors Act | 681 | 681 | 681 | 681 | 681 | 681 | 681 |
 | United States Tax Court | 8 | 60 | 209 | 446 | 599 | 1,035 | 291 |
 | United States person | 35 | 101 | 150 | 204 | 254 | 288 | 155 |
 | Unrelated Business Income Tax | 21 | 41 | 87 | 128 | 180 | 245 | 96 |
 | Use tax | 110 | 198 | 290 | 607 | 731 | 772 | 397 |
-| Value-added tax | 8 | 56 | 97 | 165 | 248 | 626 | 122 |
 | Voluntary disclosure agreement | 85 | 98 | 111 | 198 | 250 | 285 | 160 |
 | Wash sale | 76 | 121 | 198 | 284 | 315 | 330 | 202 |
-| Wealth tax | 48 | 148 | 245 | 337 | 630 | 794 | 293 |
 | Windfall Elimination Provision | 44 | 82 | 101 | 129 | 171 | 192 | 106 |
-| **All 3771 sections** | **1** | **90** | **171** | **315** | **514** | **3,546** | **243** |
+| **All 4220 sections** | **1** | **89** | **171** | **315** | **514** | **3,546** | **242** |
 
 | Size | < 150 | 150–249 | 250–399 | 400–511 | ≥ 512 |
 |---|---|---|---|---|---|
-| Sections | 1656 | 822 | 664 | 248 | 381 |
+| Sections | 1852 | 921 | 744 | 277 | 426 |
 
 Largest sections:
 
@@ -680,6 +767,7 @@ Largest sections:
 | Document | Min | p25 | Median | p75 | p90 | Max | Mean |
 |---|---|---|---|---|---|---|---|
 | 1231 property | 43 | 65 | 97 | 107 | 120 | 131 | 89 |
+| 1978 California Proposition 13 | 17 | 52 | 77 | 110 | 148 | 278 | 87 |
 | 501(c) organization | 17 | 47 | 77 | 112 | 143 | 316 | 82 |
 | 501(c)(3) organization | 8 | 37 | 68 | 100 | 125 | 258 | 72 |
 | 529 plan | 1 | 18 | 44 | 73 | 138 | 267 | 57 |
@@ -690,9 +778,11 @@ Largest sections:
 | Adoption tax credit | 5 | 25 | 41 | 79 | 105 | 179 | 56 |
 | Affordable Care Act | 11 | 45 | 75 | 111 | 167 | 509 | 87 |
 | Affordable Care Act tax provisions | 13 | 33 | 44 | 55 | 105 | 157 | 53 |
+| Alimony | 3 | 19 | 36 | 95 | 117 | 227 | 58 |
 | Alimony in the United States | 5 | 19 | 37 | 91 | 112 | 226 | 61 |
 | Alternative minimum tax | 2 | 20 | 45 | 98 | 147 | 262 | 65 |
 | American Opportunity Tax Credit | 4 | 12 | 27 | 38 | 72 | 125 | 33 |
+| American Recovery and Reinvestment Act of 2009 | 1 | 9 | 16 | 39 | 86 | 295 | 33 |
 | American Taxpayer Relief Act of 2012 | 19 | 37 | 64 | 100 | 112 | 184 | 69 |
 | Amortization (tax law) | 22 | 48 | 72 | 90 | 130 | 179 | 78 |
 | Amount realized | 18 | 48 | 70 | 143 | 187 | 224 | 94 |
@@ -704,6 +794,7 @@ Largest sections:
 | Bracket creep | 35 | 51 | 76 | 84 | 137 | 190 | 84 |
 | Buffett Rule | 71 | 89 | 100 | 131 | 170 | 223 | 117 |
 | Bush tax cuts | 10 | 39 | 77 | 140 | 170 | 238 | 90 |
+| Business Energy Investment Tax Credit | 5 | 66 | 93 | 119 | 146 | 187 | 94 |
 | Bypass trust | 5 | 26 | 43 | 75 | 107 | 137 | 54 |
 | C corporation | 33 | 50 | 85 | 102 | 133 | 157 | 82 |
 | Cafeteria plan | 4 | 43 | 73 | 130 | 149 | 159 | 82 |
@@ -713,9 +804,11 @@ Largest sections:
 | Capital gains tax in the United States | 4 | 46 | 69 | 100 | 128 | 187 | 75 |
 | Car donation | 29 | 44 | 73 | 92 | 127 | 164 | 77 |
 | Carryover basis | 19 | 45 | 49 | 57 | 97 | 146 | 60 |
+| Cash balance plan | 51 | 96 | 141 | 158 | 209 | 386 | 142 |
 | Certified Public Accountant | 1 | 4 | 43 | 94 | 155 | 270 | 64 |
 | Charitable contribution deductions in the United States | 5 | 17 | 48 | 86 | 113 | 192 | 57 |
 | Charitable remainder unitrust | 12 | 42 | 82 | 127 | 152 | 257 | 87 |
+| Child Tax Credit Improvement Act of 2014 | 9 | 29 | 46 | 87 | 93 | 204 | 61 |
 | Child and Dependent Care Credit | 5 | 63 | 90 | 117 | 129 | 165 | 83 |
 | Child support | 11 | 60 | 90 | 132 | 173 | 330 | 101 |
 | Child tax credit (United States) | 12 | 61 | 120 | 167 | 216 | 361 | 123 |
@@ -731,6 +824,7 @@ Largest sections:
 | Consumption tax | 15 | 56 | 71 | 90 | 140 | 191 | 77 |
 | Corporate tax in the United States | 1 | 28 | 65 | 112 | 168 | 259 | 80 |
 | Cost basis | 2 | 10 | 23 | 69 | 106 | 153 | 41 |
+| Cost segregation study | 18 | 37 | 65 | 105 | 117 | 136 | 71 |
 | Coverdell education savings account | 26 | 117 | 138 | 148 | 166 | 221 | 125 |
 | Crummey trust | 61 | 84 | 97 | 135 | 167 | 190 | 112 |
 | De minimis fringe benefit | 2 | 8 | 16 | 34 | 82 | 128 | 29 |
@@ -741,7 +835,10 @@ Largest sections:
 | Double taxation | 8 | 41 | 78 | 114 | 159 | 262 | 82 |
 | Dynasty trust | 5 | 45 | 67 | 91 | 130 | 199 | 74 |
 | Earned income tax credit | 7 | 35 | 86 | 128 | 176 | 309 | 91 |
+| Economic Growth and Tax Relief Reconciliation Act of 2001 | 12 | 30 | 68 | 133 | 151 | 268 | 79 |
+| Economic Recovery Tax Act of 1981 | 5 | 20 | 88 | 171 | 197 | 216 | 92 |
 | Electronic Federal Tax Payment System | 16 | 49 | 74 | 102 | 124 | 140 | 75 |
+| Employee Retirement Income Security Act of 1974 | 7 | 17 | 37 | 70 | 119 | 213 | 53 |
 | Employee benefits | 15 | 42 | 71 | 113 | 166 | 231 | 86 |
 | Employee education benefits in the United States | 15 | 33 | 49 | 84 | 119 | 180 | 63 |
 | Employer Identification Number | 26 | 52 | 70 | 114 | 127 | 142 | 79 |
@@ -789,8 +886,10 @@ Largest sections:
 | Half-year convention | 4 | 8 | 21 | 27 | 125 | 236 | 44 |
 | Head of household | 3 | 14 | 27 | 64 | 93 | 201 | 42 |
 | Health insurance in the United States | 2 | 49 | 85 | 118 | 163 | 248 | 88 |
+| Health insurance marketplace | 2 | 7 | 29 | 85 | 155 | 316 | 59 |
 | Health reimbursement account | 5 | 14 | 31 | 66 | 90 | 142 | 42 |
 | Health savings account | 6 | 49 | 69 | 119 | 178 | 369 | 90 |
+| History of Social Security in the United States | 5 | 33 | 70 | 112 | 162 | 340 | 83 |
 | History of taxation in the United States | 16 | 52 | 71 | 111 | 136 | 328 | 83 |
 | Home equity loan | 2 | 2 | 4 | 58 | 113 | 181 | 38 |
 | Home mortgage interest deduction | 27 | 49 | 68 | 93 | 127 | 230 | 76 |
@@ -806,7 +905,6 @@ Largest sections:
 | Identity theft in the United States | 20 | 63 | 79 | 91 | 106 | 171 | 79 |
 | Imputed income | 24 | 53 | 64 | 93 | 126 | 152 | 72 |
 | Incentive stock option | 22 | 50 | 70 | 110 | 146 | 279 | 88 |
-| Income splitting | 8 | 38 | 93 | 115 | 138 | 196 | 82 |
 | Income tax | 3 | 5 | 47 | 95 | 123 | 182 | 56 |
 | Income tax audit | 11 | 17 | 33 | 86 | 119 | 136 | 54 |
 | Income tax in the United States | 2 | 23 | 53 | 93 | 135 | 304 | 64 |
@@ -815,6 +913,7 @@ Largest sections:
 | Independent contractor-employee distinction in the United States | 23 | 54 | 72 | 84 | 102 | 110 | 69 |
 | Individual Taxpayer Identification Number | 64 | 79 | 89 | 125 | 207 | 309 | 124 |
 | Individual development account | 4 | 18 | 77 | 109 | 190 | 300 | 81 |
+| Individual mandate | 18 | 52 | 72 | 98 | 140 | 183 | 81 |
 | Inflation Reduction Act | 7 | 48 | 86 | 141 | 225 | 385 | 106 |
 | Inheritance | 9 | 58 | 79 | 107 | 162 | 221 | 87 |
 | Inheritance tax | 1 | 16 | 38 | 87 | 128 | 375 | 57 |
@@ -822,9 +921,11 @@ Largest sections:
 | Internal Revenue Code | 3 | 6 | 15 | 22 | 38 | 180 | 20 |
 | Internal Revenue Code section 1031 | 7 | 24 | 56 | 97 | 136 | 173 | 64 |
 | Internal Revenue Service | 2 | 12 | 36 | 75 | 126 | 249 | 52 |
+| Internal Revenue Service Restructuring and Reform Act of 1998 | 15 | 22 | 32 | 45 | 49 | 96 | 34 |
 | International taxation | 7 | 42 | 87 | 130 | 174 | 312 | 95 |
 | Itemized deduction | 1 | 8 | 26 | 50 | 82 | 181 | 37 |
 | Job-seeking expense tax deductions | 5 | 70 | 86 | 162 | 212 | 241 | 112 |
+| Jobs and Growth Tax Relief Reconciliation Act of 2003 | 4 | 36 | 67 | 83 | 93 | 97 | 58 |
 | Jock tax | 2 | 33 | 91 | 169 | 184 | 246 | 97 |
 | Keogh plan | 5 | 22 | 44 | 86 | 109 | 113 | 55 |
 | Kiddie tax | 11 | 17 | 39 | 69 | 83 | 116 | 44 |
@@ -835,11 +936,14 @@ Largest sections:
 | Limited liability company | 29 | 62 | 94 | 143 | 166 | 224 | 102 |
 | Limits on Depreciation Deduction | 19 | 59 | 72 | 109 | 129 | 145 | 82 |
 | Local option sales tax | 5 | 75 | 86 | 120 | 127 | 133 | 83 |
+| Low-Income Housing Tax Credit | 7 | 39 | 72 | 101 | 131 | 204 | 75 |
 | Marital deduction | 5 | 67 | 134 | 151 | 235 | 439 | 135 |
 | Marriage penalty | 16 | 65 | 94 | 146 | 184 | 230 | 109 |
 | Master limited partnership | 30 | 54 | 71 | 82 | 121 | 133 | 73 |
+| Medicaid | 4 | 40 | 82 | 129 | 182 | 315 | 92 |
 | Medical savings account (United States) | 12 | 47 | 64 | 102 | 149 | 169 | 77 |
 | Medicare (United States) | 1 | 25 | 77 | 147 | 199 | 334 | 92 |
+| Middle Class Tax Relief and Job Creation Act of 2012 | 3 | 6 | 14 | 53 | 109 | 142 | 35 |
 | Modified Accelerated Cost Recovery System | 7 | 19 | 43 | 81 | 127 | 220 | 60 |
 | Modified endowment contract | 32 | 47 | 54 | 103 | 121 | 134 | 75 |
 | Mortgage Forgiveness Debt Relief Act of 2007 | 18 | 42 | 62 | 101 | 106 | 130 | 71 |
@@ -847,8 +951,10 @@ Largest sections:
 | Nanny tax | 14 | 35 | 54 | 90 | 112 | 158 | 66 |
 | Negative income tax | 4 | 44 | 76 | 118 | 163 | 275 | 84 |
 | Net operating loss | 2 | 6 | 14 | 25 | 87 | 116 | 27 |
+| New Markets Tax Credit Program | 36 | 67 | 110 | 123 | 231 | 254 | 118 |
 | Nonbusiness Energy Property Tax Credit | 11 | 19 | 45 | 102 | 115 | 150 | 59 |
 | Nonrecognition provisions | 3 | 7 | 12 | 61 | 86 | 258 | 50 |
+| Nonrecourse debt | 6 | 22 | 52 | 124 | 174 | 210 | 77 |
 | Offer in compromise | 19 | 33 | 60 | 92 | 122 | 147 | 65 |
 | Office of the Taxpayer Advocate | 45 | 68 | 80 | 113 | 141 | 165 | 93 |
 | One Big Beautiful Bill Act | 3 | 21 | 43 | 88 | 124 | 225 | 59 |
@@ -857,9 +963,12 @@ Largest sections:
 | Overtime | 3 | 10 | 27 | 88 | 123 | 232 | 50 |
 | Parcel tax | 24 | 82 | 103 | 113 | 173 | 188 | 103 |
 | Partnership taxation in the United States | 1 | 43 | 65 | 94 | 123 | 248 | 73 |
+| Passive foreign investment company | 15 | 32 | 66 | 99 | 124 | 143 | 69 |
 | Payment in lieu of taxes | 16 | 62 | 74 | 102 | 136 | 146 | 82 |
 | Payroll | 22 | 28 | 59 | 93 | 119 | 171 | 65 |
 | Payroll tax | 12 | 28 | 55 | 77 | 109 | 227 | 59 |
+| Pension Benefit Guaranty Corporation | 2 | 17 | 35 | 60 | 115 | 316 | 52 |
+| Pension Protection Act of 2006 | 3 | 15 | 24 | 57 | 101 | 152 | 43 |
 | Personal exemption | 14 | 39 | 69 | 104 | 133 | 149 | 75 |
 | Physical presence test | 5 | 13 | 63 | 93 | 147 | 152 | 64 |
 | Pigouvian tax | 2 | 59 | 94 | 127 | 154 | 331 | 93 |
@@ -873,16 +982,19 @@ Largest sections:
 | Property tax | 1 | 12 | 30 | 65 | 119 | 349 | 48 |
 | Property tax appeal | 10 | 20 | 26 | 39 | 73 | 150 | 39 |
 | Property tax in the United States | 1 | 43 | 66 | 94 | 132 | 172 | 69 |
+| Qualified Production Activities Income | 20 | 33 | 58 | 79 | 103 | 185 | 65 |
 | Qualified Small Business Stock | 1 | 1 | 2 | 27 | 56 | 144 | 19 |
 | Qualified dividend | 2 | 27 | 45 | 95 | 138 | 265 | 71 |
 | Qualified personal residence trust | 5 | 49 | 70 | 108 | 137 | 171 | 75 |
 | Qualified residence interest | 5 | 24 | 116 | 181 | 184 | 186 | 102 |
 | Rate schedule (federal income tax) | 3 | 16 | 24 | 48 | 78 | 122 | 35 |
+| Reagan tax cuts | 45 | 49 | 57 | 73 | 246 | 414 | 116 |
 | Realization (tax) | 65 | 102 | 139 | 146 | 203 | 204 | 131 |
 | Refund anticipation loan | 18 | 37 | 76 | 100 | 120 | 247 | 78 |
 | Regressive tax | 14 | 43 | 63 | 91 | 148 | 213 | 76 |
 | Renting | 1 | 21 | 32 | 50 | 82 | 115 | 39 |
 | Return of capital | 13 | 25 | 45 | 57 | 74 | 88 | 44 |
+| Revenue Act of 1913 | 5 | 38 | 65 | 106 | 176 | 246 | 79 |
 | Revenue ruling | 17 | 39 | 52 | 66 | 79 | 122 | 56 |
 | Reverse mortgage | 2 | 16 | 50 | 94 | 150 | 236 | 66 |
 | Rollovers as business start-ups | 2 | 17 | 40 | 116 | 149 | 206 | 67 |
@@ -903,9 +1015,13 @@ Largest sections:
 | Sin tax | 14 | 16 | 33 | 73 | 81 | 95 | 43 |
 | Sixteenth Amendment to the United States Constitution | 1 | 6 | 13 | 80 | 135 | 304 | 49 |
 | Small Business Health Options Program | 27 | 42 | 63 | 86 | 98 | 188 | 70 |
+| Social Security Act | 2 | 6 | 13 | 52 | 105 | 463 | 50 |
 | Social Security Administration | 2 | 31 | 74 | 114 | 143 | 229 | 77 |
+| Social Security Disability Insurance | 6 | 40 | 70 | 115 | 142 | 275 | 80 |
+| Social Security Fairness Act | 6 | 17 | 27 | 62 | 68 | 109 | 38 |
 | Social Security Wage Base | 10 | 52 | 104 | 118 | 230 | 266 | 107 |
 | Social Security number | 5 | 22 | 41 | 75 | 115 | 232 | 54 |
+| Sole proprietorship | 5 | 33 | 61 | 97 | 108 | 151 | 66 |
 | Solo 401(k) | 15 | 40 | 64 | 130 | 233 | 448 | 100 |
 | Special assessment tax | 21 | 57 | 77 | 127 | 188 | 263 | 102 |
 | Standard deduction | 5 | 13 | 28 | 41 | 80 | 173 | 41 |
@@ -915,10 +1031,14 @@ Largest sections:
 | Streamlined filing compliance procedures | 5 | 29 | 50 | 82 | 122 | 169 | 59 |
 | Substantial Presence Test | 7 | 20 | 30 | 57 | 88 | 166 | 45 |
 | Substantial gainful activity | 5 | 51 | 83 | 89 | 96 | 102 | 67 |
+| Supplemental Security Income | 2 | 23 | 49 | 97 | 154 | 236 | 66 |
 | Surtax | 21 | 36 | 60 | 74 | 100 | 144 | 62 |
 | Tax Cuts and Jobs Act | 8 | 32 | 59 | 96 | 148 | 320 | 71 |
 | Tax Day | 51 | 55 | 82 | 98 | 128 | 188 | 89 |
+| Tax Equity and Fiscal Responsibility Act of 1982 | 5 | 11 | 21 | 57 | 141 | 242 | 49 |
+| Tax Increase Prevention and Reconciliation Act of 2005 | 13 | 41 | 58 | 77 | 89 | 160 | 60 |
 | Tax Reform Act of 1986 | 33 | 73 | 99 | 124 | 133 | 175 | 97 |
+| Tax Relief for American Families and Workers Act | 5 | 19 | 46 | 84 | 113 | 128 | 54 |
 | Tax accounting in the United States | 29 | 40 | 52 | 79 | 89 | 101 | 60 |
 | Tax advantage | 16 | 26 | 63 | 129 | 181 | 357 | 91 |
 | Tax advisor | 5 | 18 | 41 | 62 | 85 | 184 | 47 |
@@ -939,6 +1059,7 @@ Largest sections:
 | Tax haven | 2 | 34 | 72 | 129 | 187 | 383 | 88 |
 | Tax incentive | 3 | 9 | 16 | 41 | 65 | 198 | 32 |
 | Tax incidence | 5 | 45 | 72 | 144 | 178 | 263 | 94 |
+| Tax increment financing | 17 | 52 | 81 | 124 | 166 | 281 | 94 |
 | Tax information reporting | 47 | 49 | 61 | 103 | 114 | 142 | 76 |
 | Tax lien | 8 | 36 | 66 | 94 | 155 | 256 | 77 |
 | Tax loss harvesting | 5 | 36 | 95 | 113 | 131 | 314 | 89 |
@@ -948,6 +1069,7 @@ Largest sections:
 | Tax rate | 3 | 13 | 31 | 84 | 110 | 213 | 50 |
 | Tax reform | 18 | 47 | 94 | 102 | 113 | 125 | 81 |
 | Tax refund | 5 | 39 | 77 | 131 | 199 | 242 | 95 |
+| Tax refund interception | 13 | 20 | 56 | 85 | 110 | 114 | 57 |
 | Tax return | 9 | 37 | 53 | 90 | 125 | 152 | 65 |
 | Tax returns in the United States | 2 | 12 | 19 | 63 | 92 | 179 | 41 |
 | Tax sale | 12 | 29 | 61 | 96 | 118 | 147 | 66 |
@@ -957,39 +1079,42 @@ Largest sections:
 | Tax withholding in the United States | 5 | 20 | 39 | 66 | 119 | 192 | 53 |
 | Taxable income | 61 | 102 | 121 | 132 | 144 | 152 | 113 |
 | Taxation in the United States | 3 | 48 | 83 | 114 | 159 | 258 | 86 |
+| Taxation of digital goods | 1 | 32 | 51 | 78 | 133 | 250 | 66 |
 | Taxpayer | 3 | 25 | 43 | 116 | 127 | 186 | 64 |
 | Taxpayer Bill of Rights | 24 | 65 | 94 | 140 | 186 | 251 | 109 |
+| Taxpayer First Act | 5 | 14 | 23 | 35 | 51 | 110 | 31 |
 | Taxpayer Identification Number | 8 | 19 | 31 | 54 | 94 | 115 | 43 |
+| Taxpayer Relief Act of 1997 | 1 | 22 | 34 | 51 | 67 | 74 | 35 |
 | Tenants-in-common 1031 exchange | 4 | 15 | 24 | 63 | 95 | 118 | 40 |
 | Thrift Savings Plan | 4 | 12 | 27 | 78 | 119 | 204 | 50 |
 | Totalization agreements | 72 | 115 | 162 | 183 | 198 | 238 | 151 |
 | Treasury regulations | 4 | 8 | 14 | 17 | 23 | 245 | 19 |
+| TreasuryDirect | 23 | 48 | 70 | 92 | 117 | 170 | 73 |
 | Trump account | 36 | 89 | 110 | 182 | 220 | 235 | 130 |
 | Trust (law) | 3 | 33 | 61 | 107 | 155 | 270 | 77 |
 | Two-percent haircut | 41 | 49 | 117 | 139 | 155 | 160 | 99 |
 | Unearned income | 3 | 7 | 22 | 89 | 129 | 152 | 48 |
 | Unemployment benefits | 2 | 19 | 55 | 107 | 184 | 320 | 73 |
+| Unemployment insurance in the United States | 15 | 62 | 87 | 156 | 169 | 205 | 100 |
 | Uniform Gifts to Minors Act | 5 | 85 | 159 | 204 | 218 | 228 | 136 |
 | United States Tax Court | 2 | 9 | 12 | 96 | 154 | 216 | 54 |
 | United States person | 4 | 9 | 18 | 32 | 43 | 101 | 23 |
 | Unrelated Business Income Tax | 7 | 31 | 45 | 86 | 112 | 166 | 57 |
 | Use tax | 10 | 57 | 68 | 109 | 195 | 257 | 92 |
-| Value-added tax | 6 | 34 | 55 | 85 | 124 | 165 | 62 |
 | Voluntary disclosure agreement | 10 | 29 | 36 | 71 | 86 | 111 | 48 |
 | Wash sale | 7 | 39 | 52 | 73 | 111 | 172 | 60 |
-| Wealth tax | 10 | 75 | 127 | 174 | 225 | 324 | 135 |
 | Windfall Elimination Provision | 3 | 4 | 15 | 35 | 81 | 134 | 28 |
-| **All 13019 paragraphs** | **1** | **24** | **56** | **101** | **151** | **675** | **70** |
+| **All 14767 paragraphs** | **1** | **23** | **55** | **100** | **149** | **675** | **69** |
 
 | Size | < 150 | 150–249 | 250–399 | 400–511 | ≥ 512 |
 |---|---|---|---|---|---|
-| Paragraphs | 11682 | 1170 | 156 | 8 | 3 |
+| Paragraphs | 13290 | 1289 | 175 | 10 | 3 |
 
 ## Tokens per word
 
 | Text | Sections | Words | bge tokens | Tokens / word |
 |---|---|---|---|---|
-| Sections without formulas | 3768 | 718,238 | 915,992 | 1.28 |
+| Sections without formulas | 4217 | 802,610 | 1,022,293 | 1.27 |
 | Sections with formulas | 3 | 695 | 1,440 | 2.07 |
 
 ## Chunks produced
@@ -998,8 +1123,8 @@ Actual chunker output for the two limits compared below (one chunk per section, 
 
 | Limit | Chunks | Median | Min | Max | < 50 | 50–149 | 150–249 | 250–399 | 400–512 | Sections split |
 |---|---|---|---|---|---|---|---|---|---|---|
-| max 512 | 4432 | 209 | 11 | 512 | 263 | 1314 | 1029 | 1384 | 442 | 396 |
-| max 250 | 7044 | 163 | 10 | 250 | 295 | 2583 | 4157 | 9 | 0 | 1346 |
+| max 512 | 4360 | 215 | 11 | 512 | 246 | 1268 | 1006 | 1393 | 447 | 399 |
+| max 250 | 6997 | 163 | 10 | 250 | 275 | 2542 | 4169 | 11 | 0 | 1364 |
 
 Chunk lists: [max 512](data/eval_taxes-and-accounts_chunks_max512.csv), [max 250](data/eval_taxes-and-accounts_chunks_max250.csv).
 
@@ -1017,22 +1142,22 @@ local Qdrant, top 5, search restricted to the `taxes-and-accounts` category.
 
 | | max 512 | max 250 |
 |---|---|---|
-| Chunks | 4432 | 7044 |
-| Sections split | 396 | 1346 |
-| hit@1 | **47 (76%)** | 45 (73%) |
+| Chunks | 4360 | 6997 |
+| Sections split | 399 | 1364 |
+| hit@1 | **47 (76%)** | 46 (74%) |
 | hit@3 | 55 | 55 |
-| hit@5 | **60 (97%)** | 57 (92%) |
-| MRR | **0.835** | 0.808 |
-| hint@5 (answer text retrieved) | **59** | 54 |
-| Mean tokens sent to the LLM (top 5) | 1,132 | 759 |
+| hit@5 | **60 (97%)** | 58 (94%) |
+| MRR | **0.837** | 0.820 |
+| hint@5 (answer text retrieved) | **59** | 55 |
+| Mean tokens sent to the LLM (top 5) | 1,124 | 754 |
 
 ### By size of the expected section (hit@1 / hit@5 / hint@5 / MRR)
 
 | Band | n | max 512 | max 250 |
 |---|---|---|---|
 | S (< 150) | 25 | 19 / 25 / 25 / 0.85 | 19 / 24 / 24 / 0.84 |
-| M (150–249) | 12 | 11 / 12 / 11 / 0.96 | 9 / 12 / 11 / 0.88 |
-| L (250–512) | 21 | 14 / 19 / 19 / 0.75 | 14 / 17 / 15 / 0.73 |
+| M (150–249) | 12 | 11 / 12 / 11 / 0.96 | 10 / 12 / 11 / 0.92 |
+| L (250–512) | 21 | 14 / 19 / 19 / 0.75 | 14 / 18 / 16 / 0.74 |
 | XL (> 512) | 4 | 3 / 4 / 4 / 0.81 | 3 / 4 / 4 / 0.83 |
 
 ### Per question
@@ -1042,12 +1167,12 @@ Each cell: **section rank / phrase rank** in the top 5 (1 is best; – = not in 
 | id | Band | Question | Answer phrase | max 512 | max 250 |
 |---|---|---|---|---|---|
 | q01 | S | How are short-term and long-term capital gains taxed differently in the US? | “Short-term capital gains are taxed at the investor's ordinary income tax rate” or “taxes short-term capital gains at the same rate as it taxes ordinary income” | 1 / 1 | 1 / 1 |
-| q02 | L | What is the net investment income tax? | “net investment income tax (NIIT)” | **5 / 5** | – / – |
+| q02 | L | What is the net investment income tax? | “net investment income tax (NIIT)” | **4 / 4** | 5 / 5 |
 | q03 | M | What is the standard deduction? | “non-itemizers may subtract from their income before income tax” | 1 / 1 | 1 / 1 |
 | q04 | XL | Should I take the standard deduction or itemize my deductions? | “whichever is greater” or “usually choose whichever results in the lesser amount of tax payable” | 1 / 1 | 1 / 1 |
 | q05 | M | Can I deduct my property taxes on my federal return? | “Eligible taxes include state and local income taxes and property taxes” | **1 / –** | 2 / – |
 | q06 | S | How did the One Big Beautiful Bill Act change the SALT cap? | “increased the total SALT deduction to $40,000” | 1 / 1 | 1 / 1 |
-| q07 | M | What is a property tax? | “ad valorem tax on the value of a property” | **1 / 1** | 2 / 2 |
+| q07 | M | What is a property tax? | “ad valorem tax on the value of a property” | 1 / 1 | 1 / 1 |
 | q08 | S | What does FICA tax pay for? | “to fund Social Security and Medicare” | 1 / 1 | 1 / 1 |
 | q09 | L | How much Social Security and Medicare tax comes out of an employee's paycheck? | “6.2% of gross compensation” | 5 / 5 | **2 / –** |
 | q10 | L | What self-employment tax do independent contractors pay? | “15.3%” | – / – | – / – |
@@ -1081,7 +1206,7 @@ Each cell: **section rank / phrase rank** in the top 5 (1 is best; – = not in 
 | q38 | L | How are incentive stock options taxed? | “confer a U.S. tax benefit” | **1 / 1** | 2 / 2 |
 | q39 | S | How is an S corporation taxed? | “S corporations do not pay any income taxes” | 2 / 2 | 2 / 2 |
 | q40 | L | How is an LLC taxed? | “pass-through taxation of a partnership or sole proprietorship” | **3 / 3** | – / – |
-| q41 | S | What is a payroll tax? | “calculated as a percentage of the salaries that employers pay” | 5 / 5 | 5 / 5 |
+| q41 | S | What is a payroll tax? | “calculated as a percentage of the salaries that employers pay” | 4 / 4 | 4 / 4 |
 | q42 | S | What is FUTA? | “federal employer tax used to help fund state workforce agencies” | 1 / 1 | 1 / 1 |
 | q43 | L | Do I owe nanny tax if I hire a babysitter? | “household employee” | **1 / 1** | 1 / – |
 | q44 | L | What is the Social Security wage base? | “maximum earned gross income or upper threshold” | 1 / 1 | 1 / 1 |
@@ -1134,9 +1259,9 @@ claim and judge reason: [eval_taxes-and-accounts_generation.csv](data/eval_taxes
 |---|---|---|
 | **Relevance (1–5)** | **5.00** | 4.97 |
 | **Faithfulness (claims supported)** | 0.98 | 0.98 |
-| **Correctness (1–5)** | **4.95** | 4.87 |
-| **Completeness (key points covered)** | **0.97** | 0.96 |
-| Fully faithful answers | 55 | 58 |
+| **Correctness (1–5)** | **4.95** | 4.86 |
+| **Completeness (key points covered)** | **0.98** | 0.96 |
+| Fully faithful answers | 56 | 56 |
 | Answerable questions wrongly refused | 0 | 0 |
 | Out-of-scope questions refused (should be 2) | 2 | 2 |
 
@@ -1144,10 +1269,10 @@ claim and judge reason: [eval_taxes-and-accounts_generation.csv](data/eval_taxes
 
 | Band | n | max 512 | max 250 |
 |---|---|---|---|
-| S (< 150) | 25 | 5.00 / 0.98 / 4.96 / 1.00 | 5.00 / 0.99 / 5.00 / 1.00 |
-| M (150–249) | 12 | 5.00 / 0.96 / 4.92 / 0.96 | 5.00 / 1.00 / 5.00 / 1.00 |
-| L (250–512) | 21 | 5.00 / 0.98 / 4.95 / 0.93 | 4.90 / 0.97 / 4.62 / 0.91 |
-| XL (> 512) | 4 | 5.00 / 1.00 / 5.00 / 1.00 | 5.00 / 0.95 / 5.00 / 0.92 |
+| S (< 150) | 25 | 5.00 / 0.99 / 5.00 / 1.00 | 5.00 / 0.99 / 5.00 / 1.00 |
+| M (150–249) | 12 | 5.00 / 0.97 / 4.92 / 1.00 | 5.00 / 0.99 / 4.92 / 0.96 |
+| L (250–512) | 21 | 5.00 / 0.98 / 4.90 / 0.94 | 4.90 / 0.96 / 4.62 / 0.91 |
+| XL (> 512) | 4 | 5.00 / 0.94 / 5.00 / 1.00 | 5.00 / 0.95 / 5.00 / 0.92 |
 
 ### Per question
 
@@ -1158,32 +1283,32 @@ Each cell: **relevance / faithfulness / correctness / completeness**. Bold marks
 | q01 | S | How are short-term and long-term capital gains taxed differently in the US? | 5 / 0.75 / 5 / 1.00 | 5 / 0.75 / 5 / 1.00 |
 | q02 | L | What is the net investment income tax? | 5 / 1.00 / 5 / 0.67 | **5 / 1.00 / 5 / 1.00** |
 | q03 | M | What is the standard deduction? | 5 / 1.00 / 5 / 1.00 | 5 / 1.00 / 5 / 1.00 |
-| q04 | XL | Should I take the standard deduction or itemize my deductions? | **5 / 1.00 / 5 / 1.00** | 5 / 0.80 / 5 / 1.00 |
+| q04 | XL | Should I take the standard deduction or itemize my deductions? | 5 / 0.75 / 5 / 1.00 | **5 / 0.80 / 5 / 1.00** |
 | q05 | M | Can I deduct my property taxes on my federal return? | 5 / 1.00 / 5 / 1.00 | 5 / 1.00 / 5 / 1.00 |
 | q06 | S | How did the One Big Beautiful Bill Act change the SALT cap? | 5 / 1.00 / 5 / 1.00 | 5 / 1.00 / 5 / 1.00 |
 | q07 | M | What is a property tax? | 5 / 1.00 / 5 / 1.00 | 5 / 1.00 / 5 / 1.00 |
 | q08 | S | What does FICA tax pay for? | 5 / 1.00 / 5 / 1.00 | 5 / 1.00 / 5 / 1.00 |
-| q09 | L | How much Social Security and Medicare tax comes out of an employee's paycheck? | **5 / 1.00 / 5 / 1.00** | 5 / 0.75 / 3 / 1.00 |
+| q09 | L | How much Social Security and Medicare tax comes out of an employee's paycheck? | 5 / 0.75 / 3 / 1.00 | 5 / 0.75 / 3 / 1.00 |
 | q10 | L | What self-employment tax do independent contractors pay? | **5 / 1.00 / 5 / 1.00** | 5 / 1.00 / 3 / 1.00 |
-| q11 | S | What are tax brackets? | 5 / 0.80 / 4 / 1.00 | **5 / 1.00 / 5 / 1.00** |
+| q11 | S | What are tax brackets? | 5 / 1.00 / 5 / 1.00 | 5 / 1.00 / 5 / 1.00 |
 | q12 | L | What is a marginal tax rate? | 5 / 0.83 / 5 / 1.00 | **5 / 1.00 / 5 / 1.00** |
 | q13 | L | What is the difference between an effective tax rate and a marginal tax rate? | 5 / 1.00 / 5 / 1.00 | 5 / 1.00 / 5 / 1.00 |
 | q14 | M | What makes a dividend a qualified dividend? | 5 / 1.00 / 5 / 1.00 | 5 / 1.00 / 5 / 1.00 |
-| q15 | L | What is a wash sale? | 5 / 0.75 / 4 / 1.00 | **5 / 1.00 / 5 / 1.00** |
+| q15 | L | What is a wash sale? | 5 / 1.00 / 5 / 1.00 | 5 / 1.00 / 5 / 1.00 |
 | q16 | S | How does tax-loss harvesting lower my taxes? | 5 / 1.00 / 5 / 1.00 | 5 / 1.00 / 5 / 1.00 |
-| q17 | L | What is cost basis and why does it matter for taxes? | 5 / 1.00 / 5 / 1.00 | 5 / 1.00 / 5 / 1.00 |
+| q17 | L | What is cost basis and why does it matter for taxes? | **5 / 1.00 / 5 / 1.00** | 5 / 0.80 / 5 / 1.00 |
 | q18 | L | How is a health savings account taxed? | 5 / 1.00 / 5 / 0.67 | 5 / 1.00 / 5 / 0.67 |
 | q19 | S | What is a 529 plan? | 5 / 1.00 / 5 / 1.00 | 5 / 1.00 / 5 / 1.00 |
 | q20 | XL | What is the alternative minimum tax? | **5 / 1.00 / 5 / 1.00** | 5 / 1.00 / 5 / 0.67 |
 | q21 | S | What filing statuses can I choose on my federal tax return? | 5 / 1.00 / 5 / 1.00 | 5 / 1.00 / 5 / 1.00 |
-| q22 | M | Who can file as head of household? | 5 / 0.83 / 5 / 1.00 | **5 / 1.00 / 5 / 1.00** |
+| q22 | M | Who can file as head of household? | 5 / 1.00 / 5 / 1.00 | 5 / 1.00 / 5 / 1.00 |
 | q23 | L | What is a W-2 form? | 5 / 1.00 / 5 / 1.00 | 5 / 1.00 / 5 / 1.00 |
-| q24 | M | What is a 1099 form used for? | 5 / 1.00 / 5 / 0.50 | **5 / 1.00 / 5 / 1.00** |
+| q24 | M | What is a 1099 form used for? | **5 / 1.00 / 5 / 1.00** | 5 / 1.00 / 5 / 0.50 |
 | q25 | S | What does the W-4 form do? | 5 / 1.00 / 5 / 1.00 | 5 / 1.00 / 5 / 1.00 |
 | q26 | S | How does the mortgage interest deduction work? | 5 / 1.00 / 5 / 1.00 | 5 / 1.00 / 5 / 1.00 |
-| q27 | M | What is the earned income tax credit? | 5 / 0.83 / 4 / 1.00 | **5 / 1.00 / 5 / 1.00** |
+| q27 | M | What is the earned income tax credit? | 5 / 0.83 / 4 / 1.00 | 5 / 0.83 / 4 / 1.00 |
 | q28 | S | What is the child and dependent care credit? | 5 / 1.00 / 5 / 1.00 | 5 / 1.00 / 5 / 1.00 |
-| q29 | L | What is the American Opportunity Tax Credit? | 5 / 1.00 / 5 / 0.67 | **5 / 1.00 / 5 / 1.00** |
+| q29 | L | What is the American Opportunity Tax Credit? | 5 / 1.00 / 5 / 1.00 | 5 / 1.00 / 5 / 1.00 |
 | q30 | M | What is the premium tax credit? | 5 / 1.00 / 5 / 1.00 | 5 / 1.00 / 5 / 1.00 |
 | q31 | S | What is the kiddie tax? | 5 / 1.00 / 5 / 1.00 | 5 / 1.00 / 5 / 1.00 |
 | q32 | L | When does the federal estate tax apply? | 5 / 1.00 / 5 / 1.00 | 5 / 1.00 / 5 / 1.00 |

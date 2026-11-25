@@ -37,3 +37,22 @@ def test_two_sections_with_the_same_heading_get_their_own_chunks():
     chunks = chunk_document("doc", "Doc", "cat", "https://x", text, max_tokens=250, split_target=200)
     assert [c.section for c in chunks] == ["(lead)", "History", "Rates", "History (2)"]
     assert len({store.point_id(c) for c in chunks}) == len(chunks)
+
+
+def test_us_only_categories_drop_other_countries_but_keep_us_and_states():
+    from src.rag.chunker import foreign_section
+    assert foreign_section("By country > Portugal") and foreign_section("Around the world > Romania")
+    assert foreign_section("Canada > Land transfer tax") and foreign_section("By jurisdiction > Sweden > Payment")
+    assert foreign_section("By country", "Capital gains tax")                     # a world tour on a general page
+    assert not foreign_section("By country > United States") and not foreign_section("(lead)")
+    assert not foreign_section("Current law > Additional taxes", "Capital gains tax in the United States")
+    assert not foreign_section("By jurisdiction > Utah", "Sales taxes in the United States")  # a state, on a US page
+
+
+def test_chunking_a_us_only_category_leaves_out_foreign_sections():
+    from src.rag.chunker import chunk_document
+    text = "Lead.\n\n## By country\n\n### Portugal\nPortuguese rules.\n\n### United States\nUS rules.\n\n## History\nOld."
+    kept = [c.section for c in chunk_document("d", "Capital gains tax", "taxes-and-accounts", "u", text, max_tokens=250,
+                                              split_target=200, us_only=True)]
+    assert kept == ["(lead)", "By country > United States", "History"]
+    assert len(chunk_document("d", "Capital gains tax", "c", "u", text, max_tokens=250, split_target=200)) == 4

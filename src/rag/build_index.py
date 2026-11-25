@@ -76,7 +76,8 @@ def main() -> None:
     for category, path in pages:
         title, url, body = read_page(path)
         chunks += chunk_document(slugify(title), title, category, url, body, max_tokens=cfg["max_tokens"],
-                                 split_target=cfg["split_target_tokens"], overlap=cfg["overlap_tokens"])
+                                 split_target=cfg["split_target_tokens"], overlap=cfg["overlap_tokens"],
+                                 us_only=category in (cfg.get("us_only") or []))
 
     client = get_client(cfg)
     build_collection(client, cfg["collection"], chunks)
