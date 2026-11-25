@@ -561,3 +561,52 @@ def test_an_answer_to_the_amount_question_skips_the_tool_picker_and_updates_the_
     res = N.tax_node({"question": q, "original_question": q, "history": [], "profile": {}, "entities": {"wiki_query": q},
                       "context_in": {"tax": profile}}, {})
     assert [i["kind"] for i in res["turn_context"]["tax"]["items"]] == ["wages", "property_tax", "mortgage_interest"]
+
+
+# ---------------------------------------------------------------- tax year 2025 (Kevin's "Sarah" scenario, by hand)
+SARAH = T.TaxInputs(wages=95_000, interest_dividends=1_200, long_term_gains=6_000, pre_tax_retirement=8_000,
+                    mortgage_interest=12_000, state_local_taxes=7_500, charity=2_000, student_loan_interest=4_000)
+
+
+def test_sarah_2025_itemizes_and_gets_part_of_the_student_loan_deduction():
+    r = T.estimate(SARAH, 2025)
+    assert r["year"] == 2025 and r["standard"] == 15_750
+    # MAGI 94,200 is 9,200 into the $85,000-$100,000 phase-out: $2,500 × 5,800/15,000
+    assert r["student_loan_deduction"] == pytest.approx(2_500 * 5_800 / 15_000)
+    assert r["agi"] == pytest.approx(95_000 + 1_200 + 6_000 - 8_000 - 966.67, abs=0.01)
+    assert r["itemized"] == 21_500 and r["itemizes"]                                    # 7,500 + 12,000 + 2,000
+    # ordinary 65,733.33: 10% × 11,925 + 12% × 36,550 + 22% × 17,258.33; gains 6,000 at 15%
+    assert r["ordinary_tax"] == pytest.approx(1_192.5 + 4_386 + 0.22 * (65_733.33 - 48_475), abs=0.01)
+    assert r["preferential_tax"] == pytest.approx(900) and r["niit"] == 0
+    assert r["income_tax"] == pytest.approx(10_275.33, abs=0.01)
+    assert r["payroll"]["total"] == pytest.approx(0.0765 * 95_000)                      # the 401(k) doesn't lower FICA
+    assert r["total_federal"] == pytest.approx(17_542.83, abs=0.01)
+
+
+def test_the_2025_and_2026_rules_differ_where_the_law_says():
+    a, b = T.rules(2025)[1], T.rules(2026)[1]
+    assert a["standard_deduction"]["single"] == 15_750 and b["standard_deduction"]["single"] == 16_100
+    assert a["salt"]["cap"] == 40_000 and b["salt"]["cap"] == 40_400
+    care25 = T.credits(T.TaxInputs(wages=15_000, care_expenses=2_000), 15_000, 5_000, a)["nonrefundable"][0]
+    assert care25["rate"] == pytest.approx(0.35)                                        # 50% only from 2026
+
+
+def test_no_student_loan_deduction_above_the_range_or_on_a_separate_return():
+    assert T.estimate(T.TaxInputs(wages=120_000, student_loan_interest=2_000))["student_loan_deduction"] == 0
+    assert T.estimate(T.TaxInputs(filing_status="married_separate", wages=40_000, student_loan_interest=2_000))["student_loan_deduction"] == 0
+    assert T.estimate(T.TaxInputs(wages=50_000, student_loan_interest=3_000))["student_loan_deduction"] == 2_500
+
+
+def test_account_and_form_names_are_not_amounts():
+    q = "Contributed $8,000 to a traditional 401(k), $2,000 to a 529 plan, and got a 1099-INT and Form W-2 for $95,000"
+    assert TC.amounts(q) == [8_000, 2_000, 95_000]
+    assert TC.amounts("I put 6k in my 401k") == [6_000]
+
+
+def test_a_third_person_tax_scenario_is_never_off_topic():
+    llm_module.set_llm(type("L", (), {"model": "x", "invoke": lambda self, m: type("R", (), {"content":
+        '{"intents": ["off_topic"], "confidence": 0.9}' if "router" in m[0][1] else m[1][1].removeprefix("Message: ")})()})())
+    q = ("Sarah is a single taxpayer. In 2025: salary $95,000, interest $1,200, paid $12,000 mortgage interest and "
+         "$7,500 in state income taxes.")
+    assert N._tax_scenario(q) and not N._tax_scenario("What is the capital of France?")
+    assert N._route({"question": q, "original_question": q, "history": []})["intent"] == ["tax"]

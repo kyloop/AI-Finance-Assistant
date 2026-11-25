@@ -67,6 +67,8 @@ years:
       american_opportunity: {full: 2000, partial: 2000, partial_rate: 0.25, refundable_share: 0.40}
       lifetime_learning: {expense_cap: 10000, rate: 0.20}
       education_phase_out: {single: [80000, 90000], married_joint: [160000, 180000], head_of_household: [80000, 90000]}
+    student_loan_interest: {cap: 2500, phase_out: {single: [85000, 100000], head_of_household: [85000, 100000],
+                                               married_joint: [175000, 205000]}}   # joint range: secondary sources
     # Figures the tax agent quotes in explanations (tax_tools.current_figures). Sources, checked 2026-11-25:
     #   IRS, "401(k) limit increases to $24,500 for 2026, IRA limit increases to $7,500" (Notice 2025-67): 401(k)/403(b)/
     #     457/TSP limits and catch-ups, IRA limit and catch-up, Roth IRA income ranges.
@@ -86,3 +88,64 @@ years:
       social_security_benefits_taxed: {up_to_50_percent: {single: 25000, married_joint: 32000},
                                        up_to_85_percent: {single: 34000, married_joint: 44000}}
       rmd_age: {born_1951_to_1959: 73, born_1960_or_later: 75}
+  2025:
+    # Sources, checked 2026-11-25: Tax Foundation "2025 Tax Brackets" (from IRS Rev. Proc. 2024-40 and Pub. 17 (2025)):
+    #   brackets, standard deduction (as raised by the One Big Beautiful Bill Act), 65+ addition, capital-gains bands,
+    #   earned income credit table, child tax credit $2,200 / $1,700 refundable, $6,000 senior deduction.
+    #   https://taxfoundation.org/data/all/federal/2025-tax-brackets/
+    #   IRS Publication 970 (2025): student loan interest phase-out. SSA: 2025 wage base $176,100. P.L. 119-21: SALT cap
+    #   $40,000 for 2025 (phase-down above $500,000), the 2025-2028 deductions. The child-care credit's 50% rate starts in
+    #   2026; 2025 keeps 35% falling to 20%. Married filing separately: single tables except the 35% bracket and the 15%
+    #   capital-gains band (half the joint figures).
+    brackets:
+      single: [[11925, 0.10], [48475, 0.12], [103350, 0.22], [197300, 0.24], [250525, 0.32], [626350, 0.35], [null, 0.37]]
+      married_joint: [[23850, 0.10], [96950, 0.12], [206700, 0.22], [394600, 0.24], [501050, 0.32], [751600, 0.35], [null, 0.37]]
+      married_separate: [[11925, 0.10], [48475, 0.12], [103350, 0.22], [197300, 0.24], [250525, 0.32], [375800, 0.35], [null, 0.37]]
+      head_of_household: [[17000, 0.10], [64850, 0.12], [103350, 0.22], [197300, 0.24], [250500, 0.32], [626350, 0.35], [null, 0.37]]
+    standard_deduction: {single: 15750, married_joint: 31500, married_separate: 15750, head_of_household: 23625}
+    additional_standard_deduction: {unmarried: 2000, married: 1600}
+    capital_gains:
+      single: [[48350, 0.0], [533400, 0.15], [null, 0.20]]
+      married_joint: [[96700, 0.0], [600050, 0.15], [null, 0.20]]
+      married_separate: [[48350, 0.0], [300025, 0.15], [null, 0.20]]
+      head_of_household: [[64750, 0.0], [566700, 0.15], [null, 0.20]]
+    capital_loss_limit: 3000
+    salt:
+      cap: 40000
+      phase_down_start: 500000
+      separate: {cap: 20000, phase_down_start: 250000, floor: 5000}
+      phase_down_rate: 0.30
+      floor: 10000
+    niit: {rate: 0.038, threshold: {single: 200000, married_joint: 250000, married_separate: 125000, head_of_household: 200000}}
+    payroll:
+      social_security_rate: 0.062
+      social_security_wage_base: 176100
+      medicare_rate: 0.0145
+      additional_medicare_rate: 0.009
+      additional_medicare_threshold: {single: 200000, married_joint: 250000, married_separate: 125000, head_of_household: 200000}
+      self_employment_base: 0.9235
+    new_deductions:
+      senior: {amount: 6000, phase_out_start: {single: 75000, married_joint: 150000, head_of_household: 75000}, rate: 0.06}
+      tips: {cap: 25000, phase_out_start: {single: 150000, married_joint: 300000, head_of_household: 150000}, per_1000: 100}
+      overtime: {cap: {single: 12500, married_joint: 25000, head_of_household: 12500},
+                 phase_out_start: {single: 150000, married_joint: 300000, head_of_household: 150000}, per_1000: 100}
+      car_loan_interest: {cap: 10000, phase_out_start: {single: 100000, married_joint: 200000, head_of_household: 100000}, per_1000: 200}
+    student_loan_interest: {cap: 2500, phase_out: {single: [85000, 100000], head_of_household: [85000, 100000],
+                                                   married_joint: [170000, 200000]}}
+    credits:
+      child: {amount: 2200, refundable: 1700, refundable_rate: 0.15, refundable_floor: 2500, other_dependent: 500,
+              phase_out_start: {single: 200000, married_joint: 400000, married_separate: 200000, head_of_household: 200000},
+              per_1000: 50}
+      earned_income:
+        rates: {0: 0.0765, 1: 0.34, 2: 0.40, 3: 0.45}
+        earned_amount: {0: 8490, 1: 12730, 2: 17880, 3: 17880}
+        max_credit: {0: 649, 1: 4328, 2: 7152, 3: 8046}
+        phase_out_rate: {0: 0.0765, 1: 0.1598, 2: 0.2106, 3: 0.2106}
+        phase_out_start: {0: 10620, 1: 23350, 2: 23350, 3: 23350}
+        phase_out_start_joint: {0: 17730, 1: 30470, 2: 30470, 3: 30470}
+      dependent_care: {expense_cap: {1: 3000, 2: 6000}, top_rate: 0.35, middle_rate: 0.20, floor_rate: 0.20,
+                       first_start: 15000, first_step: 2000, second_start: {single: 100000000, married_joint: 100000000,
+                       head_of_household: 100000000}, second_step: {single: 2000, married_joint: 4000, head_of_household: 2000}}
+      american_opportunity: {full: 2000, partial: 2000, partial_rate: 0.25, refundable_share: 0.40}
+      lifetime_learning: {expense_cap: 10000, rate: 0.20}
+      education_phase_out: {single: [80000, 90000], married_joint: [160000, 180000], head_of_household: [80000, 90000]}

@@ -431,6 +431,11 @@ _TAX_TOPIC = re.compile(r"\b(tax|taxes|taxed|taxable|irs|deduct\w*|itemi[sz]\w*|
                         r"rmd|required minimum|capital gains?|gift tax|estate tax|w-?2|1099|withholding|refund)\b", re.I)
 
 
+def _tax_scenario(text: str) -> bool:
+    """Amounts of income or tax-deductible costs with tax words: someone's tax situation, whoever it's about."""
+    return bool(TAXC.amounts(text) and _TAX_TOPIC.search(text) and TAXC._FIGURE.search(text))
+
+
 def _tax_to_tax_agent(intents: list[str], state: FinanceState) -> list[str]:
     """A question about a tax rule goes to the tax agent rather than Q&A: it states this year's figures (the router LLM
     sent "What is the SALT deduction cap?" to Q&A, which repeated Wikipedia's out-of-date $10,000)."""
@@ -512,6 +517,8 @@ def _route(state: FinanceState) -> dict:
             if "read_only" in intents:
                 return {"intent": ["read_only"], "entities": {**entities, "write_request": "data"}, "router_mode": "llm",
                         "trace": ["router (LLM): asks to change something → read_only guard"]}
+            if intents == ["off_topic"] and _tax_scenario(text):
+                intents = ["tax"]                    # "Sarah is a single taxpayer ... salary $95,000": a tax scenario, not off topic
             if intents == ["off_topic"]:
                 return {"intent": ["off_topic"], "entities": entities, "router_mode": "llm",
                         "trace": ["router (LLM): not about finance → off_topic guard"]}
@@ -699,7 +706,9 @@ def tax_node(state: FinanceState, config: RunnableConfig):
         res = _out("tax", ask, status="need_info", confidence="medium", trace=f"tax: asks for the amount ({kept['pending']})")
         res["turn_context"] = {"tax": kept}
         return res
-    figure = TAXC.states_tax_figure(typed) or TAXC.states_tax_figure(question)
+    # the model picked the estimate ("Sarah is a single taxpayer ... salary $95,000 ..."): a scenario with no question
+    figure = TAXC.states_tax_figure(typed) or TAXC.states_tax_figure(question) or bool(
+        picked and picked[0] == "estimate_income_tax" and TAXC.amounts(question))
     if current_llm() is not None and (profile or TAXC.asks_income_tax(question) or figure):
         est, note = None, ""
         if profile:

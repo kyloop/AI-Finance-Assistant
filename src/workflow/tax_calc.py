@@ -33,6 +33,7 @@ KINDS = {
     "tips": "tips received (cash or card tips at a job that gets tips)",
     "overtime": "overtime pay",
     "car_loan_interest": "interest paid on a car loan",
+    "student_loan_interest": "interest paid on student loans",
     "care_expenses": "child care or dependent care paid (daycare, after-school care, a nanny) so the user can work",
     "college_expenses": "college tuition, fees and course materials paid",
     "not_tax_input": "an amount that doesn't change the federal tax (rent paid, savings, a price, a target)",
@@ -130,8 +131,14 @@ def missing_amount(text: str, profile: dict | None) -> str:
     return ""
 
 
+# names with numbers in them, not amounts: 401(k), 403(b), 457 plan, 529 plan, Form 1099 / 1040 / 1098 / W-2, Section 121
+NOT_AMOUNTS = re.compile(r"\b(?:401|403)\s*\(?\s*[kb]\s*\)?|\b457\s*(?:\(b\)|plans?)|\b529\b|\b(?:form|schedule|section|"
+                         r"publication|pub\.?)\s*[\w-]+|\b(?:1099|1040|1098|8949)(?:-[a-z]+)?\b|\bw-?[24]\b", re.I)
+
+
 def amounts(text: str) -> list[float]:
     out = []
+    text = NOT_AMOUNTS.sub(" ", text)
     for m in AMOUNT.finditer(text):
         n = float(m.group(1).replace(",", ""))
         scale = (m.group(2) or "").lower()
@@ -165,7 +172,7 @@ TREATED = {"wages": "wages (job pay)", "self_employment": "self-employment incom
            "property_tax": "property tax (itemized deduction)", "mortgage_interest": "mortgage interest (itemized deduction)",
            "charity": "charitable gift (itemized deduction)", "not_tax_input": "not used: doesn't change federal tax",
            "tips": "tips (pay, and a deduction)", "overtime": "overtime pay (pay, and a deduction for the premium)",
-           "car_loan_interest": "car-loan interest (deduction)", "care_expenses": "child/dependent care (credit)",
+           "car_loan_interest": "car-loan interest (deduction)", "student_loan_interest": "student loan interest (deduction)", "care_expenses": "child/dependent care (credit)",
            "college_expenses": "college costs (credit)"}
 
 
@@ -399,8 +406,18 @@ def render(r: Reading, est: dict, alts: list[tuple[str, dict]]) -> str:
         L.append(f"- Your investments lost money overall: at most $3,000 of the loss can be subtracted from other income, "
                  f"so total income is **{money(est['gross_income'])}**.")
     if est["adjustments"]:
-        L.append(f"- Subtract pre-tax retirement contributions and half of the self-employment tax: "
-                 f"{money(est['gross_income'])} − {money(est['adjustments'])} = **{money(est['agi'])}** (adjusted gross income)")
+        parts = [(i["pre_tax_retirement"], "pre-tax retirement contributions"),
+                 (est["adjustments"] - i["pre_tax_retirement"] - est["student_loan_deduction"], "half of the self-employment tax"),
+                 (est["student_loan_deduction"], "student loan interest")]
+        parts = [(v, label) for v, label in parts if v > 0.5]
+        L.append(f"- Subtract {', '.join(label for _, label in parts)}: {money(est['gross_income'])} − "
+                 + " − ".join(money(v) for v, _ in parts) + f" = **{money(est['agi'])}** (adjusted gross income)")
+        if i["student_loan_interest"] and est["student_loan_deduction"] < min(i["student_loan_interest"], 2500) - 0.5:
+            sl = rules.get("student_loan_interest") or {}
+            lo, hi = (sl.get("phase_out") or {}).get(est["filing_status"], (0, 0))
+            L.append(f"- Student loan interest: you paid {money(i['student_loan_interest'])}; at most $2,500 counts"
+                     + (f", reduced because income is between {money(lo)} and {money(hi)}" if hi else "")
+                     + f" → {money(est['student_loan_deduction'])}")
 
     # 2. deduction
     head("Choose your deduction",

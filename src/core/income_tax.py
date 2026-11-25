@@ -33,6 +33,7 @@ class TaxInputs:
     long_term_gains: float = 0.0             # assets held more than a year
     qualified_dividends: float = 0.0
     pre_tax_retirement: float = 0.0          # traditional 401(k)/IRA contributions: lower taxable income, not payroll tax
+    student_loan_interest: float = 0.0       # deducted above the line (up to $2,500, phased out by income)
     state_local_taxes: float = 0.0           # state/local income or sales tax paid (SALT)
     property_tax: float = 0.0                # real estate tax paid (SALT)
     mortgage_interest: float = 0.0
@@ -133,7 +134,9 @@ def estimate(inp: TaxInputs, year: int | None = None) -> dict:
     qdiv = max(inp.qualified_dividends, 0.0)
     payroll = payroll_taxes(inp, r)
     gross = (inp.wages + inp.self_employment + inp.interest_dividends + inp.other_income + st + lt + qdiv + loss)
-    agi = max(0.0, gross - payroll["half_se_deduction"] - inp.pre_tax_retirement)
+    agi_before = max(0.0, gross - payroll["half_se_deduction"] - inp.pre_tax_retirement)
+    student_loan = student_loan_deduction(inp, agi_before, r)
+    agi = max(0.0, agi_before - student_loan)
 
     s = {**r["salt"], **(r["salt"].get("separate") or {})} if status == "married_separate" else r["salt"]
     salt_cap = max(s["floor"], s["cap"] - s["phase_down_rate"] * max(0.0, agi - s["phase_down_start"]))
@@ -162,7 +165,8 @@ def estimate(inp: TaxInputs, year: int | None = None) -> dict:
     return {
         "year": year, "filing_status": status, "inputs": asdict(inp),
         "gross_income": gross, "short_term_taxed": st, "long_term_taxed": lt, "capital_loss_deducted": loss,
-        "adjustments": payroll["half_se_deduction"] + inp.pre_tax_retirement, "agi": agi,
+        "adjustments": payroll["half_se_deduction"] + inp.pre_tax_retirement + student_loan, "agi": agi,
+        "student_loan_deduction": student_loan,
         "salt_paid": salt_paid, "salt_cap": salt_cap, "salt_deduction": salt, "itemized": itemized, "standard": standard,
         "itemizes": itemized > standard, "deduction": deduction,
         "taxable_income": taxable, "ordinary_taxable": ordinary_taxable, "preferential_income": preferential,
@@ -174,6 +178,18 @@ def estimate(inp: TaxInputs, year: int | None = None) -> dict:
         "marginal_rate": marginal,
         "effective_rate": income_tax / gross if gross > 0 else 0.0,
     }
+
+
+def student_loan_deduction(inp: TaxInputs, magi: float, r: dict) -> float:
+    """Student loan interest: up to the cap ($2,500), reduced in proportion across the phase-out range of modified AGI;
+    none on a separate return."""
+    sl = r.get("student_loan_interest")
+    if not sl or inp.student_loan_interest <= 0 or inp.filing_status == "married_separate":
+        return 0.0
+    lo, hi = sl["phase_out"][inp.filing_status]
+    allowed = min(inp.student_loan_interest, sl["cap"])
+    share = 1.0 if magi <= lo else 0.0 if magi >= hi else (hi - magi) / (hi - lo)
+    return allowed * share
 
 
 def _steps(amount_over: float, step: float) -> int:

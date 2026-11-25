@@ -131,6 +131,16 @@ bonuses, rental income, RSUs and options. The tax agent searches them with the t
 (`TAX_CATEGORIES`); answers cite them as "Finnie note, from the IRS" with the IRS page as the link. Measurements in
 kb-token-stats-tax-notes.md.
 
+## Tax year 2025 and the student loan deduction
+
+`tax_rules.yaml` has a 2025 block as well as 2026 (2025 brackets and standard deduction as raised by the 2025 law, 65+
+addition, capital-gains bands, earned income credit table, SALT cap $40,000, wage base $176,100; the 50% child-care rate
+starts only in 2026). A question naming 2025 is worked out with 2025 rules. The student loan interest deduction (up to
+$2,500, phased out by modified AGI; none on a separate return) is an above-the-line adjustment. A third-person scenario
+with no question ("Sarah is a single taxpayer... salary $95,000...") runs the estimate when the model picks it, and is
+never sent to the off-topic guard (`_tax_scenario`). "401(k)", "529", "Form 1099" and the like are names, not amounts
+(`NOT_AMOUNTS`).
+
 ## Next
 
 4. A tax eval set (about 20 cases with hand-checked answers), run after any prompt or rules change.
