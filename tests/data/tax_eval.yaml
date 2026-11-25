@@ -1,0 +1,205 @@
+# Tax agent eval cases (python -m scripts.eval_tax). Each case is one message (single) or a chain; `expect` has one entry
+# per message (an empty {} checks nothing). Checks: tax_only (only the Tax agent answers), filing_status (as carried in
+# the answer's context; null = not given), figures (amount -> kind, or a list of allowed kinds), household (non-zero
+# counts), income_tax / total_federal (within $1; null = no estimate yet), asks (a tax_calc.QUESTIONS key, "amount",
+# "none", or a list of allowed ones), contains (phrases the reply must have).
+# Expected inputs are set by hand. Totals for 2026 unless the case names 2025; worked by hand for s01, s02, s03, s04,
+# s06, s07, s08, s09, s10, s11, s12, c01 (see tests/test_income_tax.py and the comments), the rest with the same estimator.
+# 2026-11-25: first version, 12 single questions and 8 chains.
+
+# ---------------------------------------------------------------- single questions
+- id: s01
+  about: Kevin's first case; single assumed, side job and stocks unspecified
+  messages: ["I earn 200000 a year, property tax 10000, part time job 5000, stock earning 30000. How much tax i need to pay?"]
+  expect:
+    - tax_only: true
+      filing_status: null
+      figures: {200000: wages, 10000: property_tax, 5000: job_unspecified, 30000: stock_unspecified}
+      income_tax: 43574            # 24% top bracket, 15% on the gains, NIIT $1,140
+      total_federal: 58030.5       # + payroll $14,456.50
+      asks: status
+      contains: ["doesn't lower your income tax here"]
+
+- id: s02
+  about: single mom, head of household, two kids, daycare
+  messages: ["I'm a single mom with two kids under 10. I earn $50,000 a year and pay $4,000 for daycare. How much federal tax will I owe?"]
+  expect:
+    - tax_only: true
+      filing_status: head_of_household
+      figures: {50000: wages, 4000: care_expenses}
+      household: {children_under_17: 2}
+      income_tax: -4869.23         # $2,748 before credits; care $1,400, child $4,400, EITC $1,816.77
+      total_federal: -1044.23
+      asks: none
+
+- id: s03
+  about: retired couple, both 67, pension and a part-time job
+  messages: ["My wife and I are both 67 and retired. We have $40,000 of pension income and $30,000 from a part-time job. How much tax do we owe filing jointly?"]
+  expect:
+    - tax_only: true
+      filing_status: married_joint
+      figures: {40000: other_income, 30000: [wages, job_unspecified]}
+      household: {age_65_or_older: 2}
+      income_tax: 2250             # standard $35,500 + senior $12,000 → taxable $22,500 at 10%
+      total_federal: 4545
+
+- id: s04
+  about: waiter, tips included in pay
+  messages: ["I'm a waiter. I make $38,000 including $12,000 in tips. How much tax do I pay?"]
+  expect:
+    - tax_only: true
+      figures: {38000: [wages, job_unspecified], 12000: tips}
+      income_tax: 990              # $38,000 − $16,100 − $12,000 tips = $9,900 at 10%
+      total_federal: 3897
+
+- id: s05
+  about: college tuition for a son and car-loan interest
+  messages: ["I'm single, I earn $85,000, paid $6,000 of tuition for my son's first year of college, and $2,500 of interest on my new car loan. How much tax will I owe?"]
+  expect:
+    - tax_only: true
+      filing_status: single
+      figures: {85000: wages, 6000: college_expenses, 2500: car_loan_interest}
+      income_tax: [8070, 7570]     # AOTC halved by income; $7,570 if the son is counted as a dependent ($500)
+      total_federal: [14572.5, 14072.5]
+      asks: [dependent, none]
+
+- id: s06
+  about: Kevin's "Sarah" scenario, tax year 2025, itemizes, student loan phase-out
+  messages: ["Sarah is a single taxpayer living in California. In 2025, she had the following income and expenses: Salary from her employer: $95,000. Interest earned from a savings account: $1,200. Sold company stock for a $6,000 long-term capital gain. Contributed $8,000 to a traditional 401(k) through payroll deductions. Paid $12,000 in mortgage interest on her primary residence. Paid $7,500 in California state income taxes. Donated $2,000 to qualified charities. Paid $4,000 in student loan interest."]
+  expect:
+    - tax_only: true
+      filing_status: single
+      figures: {95000: wages, 1200: interest_dividends, 6000: long_term_gains, 8000: pre_tax_retirement, 12000: mortgage_interest, 7500: state_local_taxes, 2000: charity, 4000: student_loan_interest}
+      income_tax: 10275.33
+      total_federal: 17542.83
+      asks: none
+      contains: ["Estimated 2025 federal taxes"]
+
+- id: s07
+  about: married, one child, qualified dividends, mortgage below the standard deduction
+  messages: ["My wife and I file jointly. We earn $95,000 together, got $3,000 of qualified dividends, have a 6-year-old son, and paid $12,000 of mortgage interest and $6,000 of property tax. How much federal tax will we owe?"]
+  expect:
+    - tax_only: true
+      filing_status: married_joint
+      figures: {95000: wages, 3000: qualified_dividends, 12000: mortgage_interest, 6000: property_tax}
+      household: {children_under_17: 1}
+      income_tax: 4840
+      total_federal: 12107.5
+      asks: none
+
+- id: s08
+  about: freelancer with self-employment tax
+  messages: ["I'm single. I made $60,000 freelancing as a 1099 contractor and $2,000 of bank interest. How much federal tax do I owe?"]
+  expect:
+    - tax_only: true
+      filing_status: single
+      figures: {60000: self_employment, 2000: interest_dividends}
+      income_tax: 4751.34          # SE tax $8,477.73, half deducted → AGI $57,761.13
+      total_federal: 13229.07
+
+- id: s09
+  about: a capital loss limited to $3,000
+  messages: ["I'm single, I earn $90,000 and lost $8,000 selling stocks I had held for two years. How much tax do I owe?"]
+  expect:
+    - tax_only: true
+      filing_status: single
+      figures: {90000: wages, 8000: long_term_gains}
+      income_tax: 10310            # only $3,000 of the loss counts: taxable $70,900
+      total_federal: 17195
+
+- id: s10
+  about: high earners, SALT cap, NIIT and additional Medicare
+  messages: ["We're married filing jointly. We earn $450,000 in wages, have $40,000 of long-term capital gains, and paid $25,000 of state income tax, $15,000 of property tax and $20,000 of mortgage interest. How much federal tax will we owe?"]
+  expect:
+    - tax_only: true
+      filing_status: married_joint
+      figures: {450000: wages, 40000: long_term_gains, 25000: state_local_taxes, 15000: property_tax, 20000: mortgage_interest}
+      income_tax: 86316            # itemized $60,000; NIIT $1,520
+      total_federal: 106080
+
+- id: s11
+  about: single senior with IRA withdrawals and a part-time job
+  messages: ["I'm single and 70 years old. I took $50,000 out of my traditional IRA and earned $20,000 from a part-time job. How much tax do I owe?"]
+  expect:
+    - tax_only: true
+      filing_status: single
+      figures: {50000: other_income, 20000: [wages, job_unspecified]}
+      household: {age_65_or_older: 1}
+      income_tax: 5254             # standard $18,150 + senior $6,000
+      total_federal: 6784
+
+- id: s12
+  about: overtime included in pay (time-and-a-half premium deducted)
+  messages: ["I'm single and earn $70,000 a year, including $9,000 of overtime pay at time-and-a-half. How much federal tax do I owe?"]
+  expect:
+    - tax_only: true
+      filing_status: single
+      figures: {70000: wages, 9000: overtime}
+      income_tax: 5910             # $3,000 premium deducted: taxable $50,900
+      total_federal: 11265
+
+# ---------------------------------------------------------------- chains
+- id: c01
+  about: Kevin's chain, figures one message at a time, then the mortgage interest asked for
+  messages: ["i earned $10600 from stock trading", "i have fix income from my job $109000", "i have $10000 property tax",
+             "i have monthly mortgage payment .", "about $12,000 a year"]
+  expect:
+    - {tax_only: true, total_federal: 0}
+    - {tax_only: true, total_federal: 25078.5, figures: {10600: stock_unspecified, 109000: wages}}
+    - {tax_only: true, total_federal: 25078.5, contains: ["doesn't lower your income tax here"]}
+    - {tax_only: true, asks: amount, contains: ["mortgage interest", "$6,100"]}
+    - {tax_only: true, total_federal: 23780.5, contains: ["Federal taxes go from $25,079 to **$23,781**"]}
+
+- id: c02
+  about: the filing-status button
+  messages: ["I earn 200000 a year, property tax 10000, part time job 5000, stock earning 30000. How much tax i need to pay?",
+             "We're married filing jointly"]
+  expect:
+    - {asks: status, total_federal: 58030.5}
+    - {tax_only: true, filing_status: married_joint, total_federal: 46351.5, contains: ["filing status is now married filing jointly"]}
+
+- id: c03
+  about: a correction to how the stocks were held
+  messages: ["I'm single. I earn 200000 a year, property tax 10000, part time job 5000, stock earning 30000. How much tax do I need to pay?",
+             "The stocks were held less than a year"]
+  expect:
+    - {total_federal: 58030.5}
+    - {tax_only: true, total_federal: 62100.5, contains: ["is now short-term capital gains"]}
+
+- id: c04
+  about: a what-if raise after an estimate
+  messages: ["I'm single and earn $120,000. How much federal tax do I owe?", "What if I get a $10,000 raise?"]
+  expect:
+    - {tax_only: true, filing_status: single, total_federal: 26750}
+    - {tax_only: true, contains: ["$26,750", "$29,879"]}
+
+- id: c05
+  about: a side question in the middle keeps the estimate
+  messages: ["I'm single and my salary is $80,000.", "What is a wash sale?", "I also made $5,000 freelancing as a 1099 contractor."]
+  expect:
+    - {tax_only: true, total_federal: 14890}
+    - {}
+    - {tax_only: true, total_federal: 16618.76, figures: {80000: wages, 5000: self_employment}}
+
+- id: c06
+  about: an explanation after an estimate uses that person's numbers and year
+  messages: ["Sarah is a single taxpayer living in California. In 2025, she had the following income and expenses: Salary from her employer: $95,000. Interest earned from a savings account: $1,200. Sold company stock for a $6,000 long-term capital gain. Contributed $8,000 to a traditional 401(k) through payroll deductions. Paid $12,000 in mortgage interest on her primary residence. Paid $7,500 in California state income taxes. Donated $2,000 to qualified charities. Paid $4,000 in student loan interest.",
+             "How are the long-term capital gains taxed differently from ordinary salary income?"]
+  expect:
+    - {total_federal: 17542.83}
+    - {tax_only: true, contains: ["$900", "$48,350"]}
+
+- id: c07
+  about: an unmarried parent is asked about head of household and answers with the button
+  messages: ["I earn $50,000, have two kids under 10 and pay $4,000 for daycare. How much tax will I owe?",
+             "I file as head of household"]
+  expect:
+    - {asks: status_hoh, household: {children_under_17: 2}}
+    - {tax_only: true, filing_status: head_of_household, total_federal: -1044.23}
+
+- id: c08
+  about: a deduction given before any income is kept, then the income
+  messages: ["I have $10,000 of property tax", "I earn $120,000 at my job"]
+  expect:
+    - {tax_only: true, total_federal: null, contains: ["Noted for your tax estimate"]}
+    - {tax_only: true, total_federal: 26750, figures: {10000: property_tax, 120000: wages}}

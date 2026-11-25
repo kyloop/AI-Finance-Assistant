@@ -678,7 +678,9 @@ def tax_node(state: FinanceState, config: RunnableConfig):
     profile = _last_estimate(state)                  # the last estimate's figures, for "what if I'm married?"
     trace_first = []
     last = (state.get("context_in") or {}).get("tax") or {}
-    answering = bool(last.get("pending") and TAXC.amounts(state.get("original_question") or question))
+    typed_now = state.get("original_question") or question
+    answering = bool(last.get("pending") and TAXC.amounts(typed_now)) or bool(
+        last.get("choices") and TAXC.changes_estimate(typed_now, last) and not TAXC.is_question(typed_now))
     # the model picks a tool and its arguments; Python runs it. An answer to "how much mortgage interest?" goes straight
     # into the running estimate instead.
     picked = None if answering else _pick_tax_tool(state)
@@ -729,10 +731,13 @@ def tax_node(state: FinanceState, config: RunnableConfig):
     last_tax = (state.get("context_in") or {}).get("tax")
     # this year's limits (or the year of the user's last estimate), not Wikipedia's; and the user's own figures if the
     # question follows an estimate ("how are long-term gains taxed differently?" after Sarah's)
-    figures = (TAXC.estimate_facts(last_tax, f"{state.get('original_question') or ''} {question}")
-               + TT.current_figures(f"{state.get('original_question') or ''} {question}", (last_tax or {}).get("year")))
+    yours = TAXC.estimate_facts(last_tax, f"{state.get('original_question') or ''} {question}")
+    figures = yours + TT.current_figures(f"{state.get('original_question') or ''} {question}", (last_tax or {}).get("year"))
     if not (g and saved_plan_figures(state)):
         res = _kb_answer("tax", state, q, TAX_PREFIX + figures, categories=TT.TAX_CATEGORIES)
+        out = res["agent_outputs"]["tax"]
+        if yours and out.get("status") == "answered":
+            out["verbatim_tail"] = yours.strip()        # the user's own figures, shown as worked out, never dropped
         res["trace"] = trace_first + ["tax tool search_tax_pages"] + res["trace"]
         return res
     # "how does my plan cost me on the tax?": the question alone finds pages about financial planning; search for how the
@@ -758,7 +763,9 @@ def _pick_tax_tool(state: FinanceState) -> tuple[str, dict, str] | None:
     if llm is None or not hasattr(llm, "bind_tools"):
         return None
     last = (state.get("context_in") or {}).get("tax")
-    about = [f"LAST ESTIMATE:\n{TAXC.describe_profile(last)}\nFederal total {last.get('total_federal', 0):.0f}" if last else
+    about = [f"LAST ESTIMATE:\n{TAXC.describe_profile(last)}\nFederal total "
+             + (f"{last['total_federal']:.0f}" if last.get("total_federal") is not None else "not worked out yet (no income)")
+             if last else
              "LAST ESTIMATE: none"]
     if state.get("saved_goal") and saved_plan_figures(state):
         about.append("The message is about the user's saved Goals plan.")

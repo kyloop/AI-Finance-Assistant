@@ -619,9 +619,9 @@ def test_an_explanation_after_an_estimate_uses_the_users_own_figures():
         ("charity", 2000, "charity"), ("student loan", 4000, "student_loan_interest")]]
     profile = {"year": 2025, "filing_status": "single", "items": items, "household": {}, "total_federal": 17542.83}
     facts = TC.estimate_facts(profile, "How are long-term capital gains taxed differently from salary?")
-    assert facts.startswith("**From the user's last estimate (2025 rules, computed by Finnie):**")
+    assert facts.startswith("**In your estimate (2025 rules, computed by Finnie):**")
     assert "($6,000) sit on top of $65,733 of ordinary taxable income: $6,000 at 15% = $900" in facts
-    assert "at their 22% bracket they would have cost about $1,320, so the lower rate saves about $420" in facts
+    assert "at your 22% bracket they would have cost about $1,320, so the lower rate saves about $420" in facts
     assert TC.estimate_facts(profile, "What is an HSA?") == "" and TC.estimate_facts(None, "capital gains") == ""
 
 
@@ -634,3 +634,32 @@ def test_no_worked_example_is_added_to_a_tax_answer():
         "tax": {"agent": "tax", "status": "answered", "content": "Gains are taxed at 0/15/20%.", "sources": []}}}
     llm_module.set_llm(SortingLLM({}))
     assert N.illustrate_node(s, {}) == {"trace": []}
+
+
+
+def test_a_filing_status_needs_words_for_it_in_the_message():
+    assert TC.status_from(None, "I'm single and earn $80,000") == "single"
+    assert TC.status_from("head_of_household", "I earn $50,000 and have two kids") is None          # guessed
+    assert TC.status_from("head_of_household", "I'm a single mom with two kids") == "head_of_household"
+    assert TC.status_from(None, "I'm a single mom with two kids") is None
+    assert TC.status_from("married_joint", "My wife and I earn $95,000") == "married_joint"
+    assert TC.status_from("married_joint", "I earn $95,000") is None
+
+
+def test_a_statement_answering_the_open_question_is_not_a_question():
+    assert not TC.is_question("The stocks were held less than a year")
+    assert TC.is_question("How are short-term gains taxed?")
+
+
+def test_the_users_numbers_follow_an_explanation_word_for_word():
+    from src.workflow import tools
+    tools.set_kb_searcher(lambda q, k=None: [{"score": 0.8, "doc_id": "cg", "doc_title": "Capital gains tax", "section": "(lead)",
+                                               "text": "Gains are taxed at 0/15/20%.", "source_url": "https://x", "category": "tax-notes",
+                                               "piece": 0, "pieces": 1, "tokens": 5, "section_tokens": 5}])
+    items = [{"text": "salary", "amount": 95000, "kind": "wages", "loss": False, "included": False},
+             {"text": "stock", "amount": 6000, "kind": "long_term_gains", "loss": False, "included": False}]
+    prof = {"year": 2025, "filing_status": "single", "items": items, "household": {}, "total_federal": 1.0}
+    q = "How are long-term capital gains taxed differently from salary?"
+    out = N.tax_node({"question": q, "original_question": q, "history": [], "profile": {}, "entities": {"wiki_query": q},
+                      "context_in": {"tax": prof}}, {})["agent_outputs"]["tax"]
+    assert out["verbatim_tail"].startswith("**In your estimate (2025 rules, computed by Finnie):**")

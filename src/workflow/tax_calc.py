@@ -50,7 +50,8 @@ SYSTEM = (
     "(married filing separately), \"head_of_household\" (head of household, or an unmarried parent supporting their "
     "children: \"single mom\", \"single dad\", \"single parent\"), \"single\" if the message says single, "
     "otherwise null. year: a tax year the message names, otherwise null.\n"
-    "household (counts the message states, else 0): children_under_17, other_dependents (dependents 17 or older, e.g. a "
+    "household (counts the message states, else 0): children_under_17 (only children the message says are under 17, or "
+    "gives an age under 17 for; a child in college is NOT under 17), other_dependents (dependents 17 or older, e.g. a "
     "college student or a parent), age_65_or_older (the user, and a spouse if filing jointly), students (for college "
     "expenses), graduate_school (true if the college costs are for graduate school or past the first four years).\n"
     "Reply with ONLY JSON: {\"items\": [...], \"filing_status\": null, \"year\": null, \"household\": {}}")
@@ -228,7 +229,8 @@ def read(question: str, reply: dict | None) -> tuple[Reading | None, str]:
         for it in items:
             if it["kind"] in ("tips", "overtime"):
                 it["included"] = True
-    return reading_from(items, reply.get("filing_status"), reply.get("year"), household_of(reply.get("household"), question))
+    return reading_from(items, status_from(reply.get("filing_status"), question), reply.get("year"),
+                        household_of(reply.get("household"), question))
 
 
 HOUSEHOLD = {"children_under_17": r"\b(kids?|child|children|sons?|daughters?|toddler|baby|babies|dependents?)\b",
@@ -236,6 +238,30 @@ HOUSEHOLD = {"children_under_17": r"\b(kids?|child|children|sons?|daughters?|tod
              "age_65_or_older": r"\b(6[5-9]|[7-9]\d|retired|retiree|senior|over 65|older)\b",
              "students": r"\b(college|tuition|universit\w*|school|students?)\b"}
 _NUMBER_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "both": 2, "twins": 2}
+
+
+_STATUS_WORDS = {
+    "married_joint": re.compile(r"\b(jointly|joint return|married|my (wife|husband|spouse)|we file|we're|we are|our)\b", re.I),
+    "married_separate": re.compile(r"\bseparate(ly)?\b", re.I),
+    "head_of_household": re.compile(r"\b(head of (the )?household|hoh|single (mom|mother|dad|father|parent)|unmarried|divorced|"
+                                    r"widow(ed|er)?)\b", re.I),
+    "single": re.compile(r"\bsingle\b|\bunmarried\b", re.I),
+}
+_SAYS_SINGLE = re.compile(r"\b(i'?m|i am|she'?s|he'?s|is a|as a|file as|filing as)\s+(a\s+)?single\b(?!\s+(mom|mother|dad|father|parent))", re.I)
+
+
+def status_from(status, text: str):
+    """The filing status, only as the message supports it: the model once guessed head of household for "I earn $50,000
+    and have two kids", and missed "I'm single". A status with no word for it in the message is not given (None)."""
+    if status in _STATUS_WORDS and _STATUS_WORDS[status].search(text):
+        return status
+    return "single" if _SAYS_SINGLE.search(text) else None
+
+
+def is_question(text: str) -> bool:
+    """A question rather than a statement ("How are short-term gains taxed?" vs "The stocks were held less than a year")."""
+    t = text.strip().lower()
+    return t.endswith("?") or bool(re.match(r"(how|what|why|when|which|who|is|are|do|does|can|could|should|will|would)\b", t))
 
 
 def household_of(raw, text: str) -> dict:
@@ -746,7 +772,8 @@ def follow_up(question: str, profile: dict, typed: str = "") -> tuple[Estimate |
     reply = first_json(ask_llm(UPDATE_SYSTEM, f"{describe_profile(profile)}\n\n{said}"))
     if not reply or not isinstance(reply.get("items"), list):
         return None, "tax follow-up: no usable reply"
-    status = reply.get("filing_status") if reply.get("filing_status") in T.STATUSES else profile.get("filing_status")
+    said = f"{question} {typed}"
+    status = status_from(reply.get("filing_status"), said) or profile.get("filing_status")
     base = profile.get("items") or []
     # every amount the user typed must be used; the proofreader's rewrite may add some (a total it summed), which are
     # allowed but not required
@@ -853,17 +880,17 @@ def estimate_facts(profile: dict | None, question: str) -> str:
     if re.search(r"capital gains?|long[- ]term|short[- ]term|stock|shares|dividend", question, re.I) and est["preferential_rows"]:
         gain = est["preferential_income"]
         rows = "; ".join(f"{money(b['amount'])} at {pct(b['rate'])} = {money(b['tax'])}" for b in est["preferential_rows"])
-        lines.append(f"Their long-term gains and qualified dividends ({money(gain)}) sit on top of {money(est['ordinary_taxable'])} "
-                     f"of ordinary taxable income: {rows}. Taxed like salary at their {pct(est['marginal_rate'])} bracket they "
+        lines.append(f"Your long-term gains and qualified dividends ({money(gain)}) sit on top of {money(est['ordinary_taxable'])} "
+                     f"of ordinary taxable income: {rows}. Taxed like salary at your {pct(est['marginal_rate'])} bracket they "
                      f"would have cost about {money(gain * est['marginal_rate'])}, so the lower rate saves about "
-                     f"{money(gain * est['marginal_rate'] - est['preferential_tax'])}. The gains owe no payroll tax; their wages "
+                     f"{money(gain * est['marginal_rate'] - est['preferential_tax'])}. The gains owe no payroll tax; your wages "
                      f"owe {money(est['payroll']['total'])} of Social Security and Medicare.")
     if re.search(r"itemi[sz]|standard deduction|deduct", question, re.I):
-        lines.append(f"They {'itemize' if est['itemizes'] else 'take the standard deduction'}: itemized {money(est['itemized'])} "
+        lines.append(f"You {'itemize' if est['itemizes'] else 'take the standard deduction'}: itemized {money(est['itemized'])} "
                      f"vs standard {money(est['standard'])}.")
     if re.search(r"bracket|marginal|effective|rate", question, re.I) and not lines:
-        lines.append(f"Their top bracket is {pct(est['marginal_rate'])}; income tax is {est['effective_rate'] * 100:.1f}% of "
+        lines.append(f"Your top bracket is {pct(est['marginal_rate'])}; income tax is {est['effective_rate'] * 100:.1f}% of "
                      f"total income.")
     if not lines:
         return ""
-    return f"**From the user's last estimate ({est['year']} rules, computed by Finnie):**\n" + "\n".join(f"- {x}" for x in lines) + "\n\n"
+    return f"**In your estimate ({est['year']} rules, computed by Finnie):**\n" + "\n".join(f"- {x}" for x in lines) + "\n\n"
