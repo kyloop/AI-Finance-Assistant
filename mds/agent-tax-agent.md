@@ -101,6 +101,17 @@ only when the message has a word for it (`household_of`); tips and overtime are 
 when "including"; an only job is wages; an unmarried parent is asked about head of household. Left out: the saver's credit
 (2026 limits not confirmed), the earned income credit's investment-income test, the AMT, state tax.
 
+## This year's figures in explanations
+
+\`tax_tools.current_figures\` picks the current-year figures a question touches from \`tax_rules.yaml\` (\`limits\` and the
+tax tables: standard deduction, brackets, capital-gains bands, SALT cap, child and earned income credits, the 2025-law
+deductions, 401(k)/403(b)/457/TSP and IRA limits and catch-ups, Roth income ranges, HSA, gift and estate exemptions, the
+home-sale exclusion, Social Security benefit thresholds, RMD age) by keyword, and the tax agent puts them ahead of the
+pages; the synthesizer is told to prefer "Current <year> figures" over older amounts in the sources. Questions about a tax
+rule go to the tax agent rather than Q&A (\`_tax_to_tax_agent\`). An estimate's "Read more" links are the pages for what it
+used (\`tax_calc.topics_of\` → \`_named_pages\`), and tuition paid for a son or daughter adds the "is your student your
+dependent?" alternative ($500 credit).
+
 ## Next
 
 4. A tax eval set (about 20 cases with hand-checked answers), run after any prompt or rules change.

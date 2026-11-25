@@ -229,6 +229,11 @@ def reading_from(items: list[dict], status: str | None, year=None, household: di
     inp.filing_status = status if status in T.STATUSES else "single"
     if inp.college_expenses and not inp.students:
         inp.students = 1
+    said = " ".join(it["text"] for it in items)
+    if (inp.college_expenses and not (inp.children_under_17 or inp.other_dependents)
+            and re.search(r"\b(son|daughter|child|kid|stepson|stepdaughter)\b", said, re.I)):
+        r.alternatives.append(("dependent", "your student is your dependent ($500 credit for other dependents)",
+                               {"other_dependents": 1}))
     if not r.status_given:
         r.assumed.append("you file as **single** (married couples filing jointly get wider brackets and a $32,200 standard deduction)")
         r.alternatives.append(("status", "you file jointly with a spouse", {"filing_status": "married_joint"}))
@@ -510,6 +515,8 @@ QUESTIONS = {
     "status": ("Do you file as single, or married filing jointly?", ["I file as single", "We're married filing jointly"]),
     "status_hoh": ("Are you married filing jointly, or unmarried and supporting your children (head of household)?",
                    ["I file as head of household", "We're married filing jointly"]),
+    "dependent": ("Is the student you pay tuition for your dependent?",
+                  ["Yes, my student is my dependent", "No, they aren't my dependent"]),
 }
 
 
@@ -519,6 +526,37 @@ class Estimate:
     note: str                               # for the trace
     profile: dict                           # carried to the next turn (context["tax"])
     choices: list[str] = field(default_factory=list)
+    topics: list[str] = field(default_factory=list)   # tax pages that explain what this estimate used (Read more)
+
+
+def topics_of(est: dict) -> list[str]:
+    """The knowledge-base pages behind an estimate, most specific first: one per credit or deduction it used."""
+    i, cr, out = est["inputs"], est["credits"], []
+    names = {c["name"] for c in cr["nonrefundable"]} | {c["name"] for c in cr["refundable_rows"]}
+    if "american_opportunity" in names:
+        out.append("American Opportunity Tax Credit")
+    if "lifetime_learning" in names:
+        out.append("Lifetime Learning Credit")
+    if "child_tax_credit" in names:
+        out.append("Child tax credit (United States)")
+    if "earned_income_credit" in names:
+        out.append("Earned income tax credit")
+    if "child_and_dependent_care" in names:
+        out.append("Child and Dependent Care Credit")
+    if est["new_deductions"]:
+        out.append("One Big Beautiful Bill Act")
+    if i["long_term_gains"] or i["short_term_gains"] or i["qualified_dividends"]:
+        out.append("Capital gains tax in the United States")
+    if est["salt_paid"]:
+        out.append("State and local tax deduction")
+    if i["mortgage_interest"]:
+        out.append("Home mortgage interest deduction")
+    if i["self_employment"]:
+        out.append("Self-employment")
+    if est["filing_status"] == "head_of_household":
+        out.append("Head of household")
+    out += ["Standard deduction", "Tax bracket"]
+    return out
 
 
 def profile_of(r: Reading, est: dict) -> dict:
@@ -553,7 +591,7 @@ def estimate(r: Reading, change: str = "", before: dict | None = None) -> Estima
     shown = ", ".join(f"{k}={i[k]:,.0f}" for k in i if k != "filing_status" and i[k])
     note = (f"estimate({est['year']}, {est['filing_status']}, {shown}) → income tax {money(est['income_tax'])}, federal total "
             f"{money(est['total_federal'])}" + (f"; asks about {ask[1]} ({money(ask[0])})" if ask else ""))
-    return Estimate(text, note, {**profile_of(r, est), "choices": choices}, choices)
+    return Estimate(text, note, {**profile_of(r, est), "choices": choices}, choices, topics_of(est))
 
 
 def answer(question: str, context: str = "") -> tuple[Estimate | None, str]:

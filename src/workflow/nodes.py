@@ -427,6 +427,19 @@ _FIGURE_ASKED = re.compile(r"\b(how much|how many dollars|estimate|work out|calc
                            r"(do|will|would|must|should) i (need to |have to )?pay)\b", re.I)
 
 
+_TAX_TOPIC = re.compile(r"\b(tax|taxes|taxed|taxable|irs|deduct\w*|itemi[sz]\w*|salt|401\(?k\)?|403\(?b\)?|\bira\b|roth|hsa|"
+                        r"rmd|required minimum|capital gains?|gift tax|estate tax|w-?2|1099|withholding|refund)\b", re.I)
+
+
+def _tax_to_tax_agent(intents: list[str], state: FinanceState) -> list[str]:
+    """A question about a tax rule goes to the tax agent rather than Q&A: it states this year's figures (the router LLM
+    sent "What is the SALT deduction cap?" to Q&A, which repeated Wikipedia's out-of-date $10,000)."""
+    q = f"{state.get('original_question') or ''} {state['question']}"
+    if "qa" in intents and "tax" not in intents and _TAX_TOPIC.search(q):
+        return list(dict.fromkeys(["tax" if i == "qa" else i for i in intents]))
+    return intents
+
+
 def _with_income_tax(intents: list[str], state: FinanceState) -> list[str]:
     """"I earn $200,000 ... how much tax do I pay?" is the tax agent's: it works out the figure with its tools and explains
     each step, so the calculator and Q&A would only repeat it."""
@@ -500,10 +513,10 @@ def _route(state: FinanceState) -> dict:
                 return {"intent": ["off_topic"], "entities": entities, "router_mode": "llm",
                         "trace": ["router (LLM): not about finance → off_topic guard"]}
             intents = [i for i in intents if i != "off_topic"] or ["qa"]       # a finance part is answered; the rest is left out
-            intents = _with_income_tax(_with_saved_plan(_with_screen(_without_stray_goal(_without_stray_portfolio(_with_listed_tickers(intents, text), state), state), state), state), state)
+            intents = _with_income_tax(_tax_to_tax_agent(_with_saved_plan(_with_screen(_without_stray_goal(_without_stray_portfolio(_with_listed_tickers(intents, text), state), state), state), state), state), state)
             return _routed({"intent": intents, "entities": entities, "router_mode": "llm", "trace": [f"router (LLM): {', '.join(intents)}"]}, state)
         log.warning("router LLM reply unusable; falling back to keywords")
-    intents = _with_income_tax(_with_saved_plan(_with_screen(_with_listed_tickers(_with_market_words(R.classify(text), text), text), state), state), state)
+    intents = _with_income_tax(_tax_to_tax_agent(_with_saved_plan(_with_screen(_with_listed_tickers(_with_market_words(R.classify(text), text), text), state), state), state), state)
     if intents == ["qa"] and CTX.carried(state).get("companies"):                 # "which did better?" after a market answer
         intents = ["market"]
     return _routed({"intent": intents, "entities": entities, "router_mode": "keywords", "trace": [f"router (keywords): {', '.join(intents)}"]}, state)
@@ -673,19 +686,22 @@ def tax_node(state: FinanceState, config: RunnableConfig):
             trace_first.append(f"tax tool estimate_income_tax: {note}")
         if est is not None:
             res = _out("tax", est.text, verbatim=True, explains_itself=True, origin="tax_tools",
-                       sources=TAXC.SOURCES + _tax_pages(question), choices=est.choices, asks_user=bool(est.choices))
+                       sources=TAXC.SOURCES + (_named_pages(est.topics) or _tax_pages(question)), choices=est.choices,
+                       asks_user=bool(est.choices))
             res["turn_context"] = {"tax": est.profile}
             res["trace"] = trace_first
             return res
     g = state.get("saved_goal")
+    figures = TT.current_figures(f"{state.get('original_question') or ''} {question}")    # this year's limits, not Wikipedia's
     if not (g and saved_plan_figures(state)):
-        res = _kb_answer("tax", state, q, TAX_PREFIX, categories=TT.TAX_CATEGORIES)
+        res = _kb_answer("tax", state, q, TAX_PREFIX + figures, categories=TT.TAX_CATEGORIES)
         res["trace"] = trace_first + ["tax tool search_tax_pages"] + res["trace"]
         return res
     # "how does my plan cost me on the tax?": the question alone finds pages about financial planning; search for how the
     # plan's kind of savings is taxed, give the synthesizer the plan's figures, and work out the tax per account
     searches = PLAN_TAX_SEARCHES.get(g.get("goal_type"), PLAN_TAX_SEARCHES["other"])
-    res = _kb_answer("tax", state, q, TAX_PREFIX + _plan_tax_facts(state, g), searches=searches, categories=TT.TAX_CATEGORIES)
+    res = _kb_answer("tax", state, q, TAX_PREFIX + figures + _plan_tax_facts(state, g), searches=searches,
+                     categories=TT.TAX_CATEGORIES)
     table, note = TT.tax_on_plan(g, _saved_projection(state, g)[1])
     out = res["agent_outputs"]["tax"]
     if out.get("status") == "answered":
@@ -732,6 +748,23 @@ def _last_estimate(state: FinanceState) -> dict | None:
         return None
     return prof if CTX.carried(state).get("tax") or TAXC.changes_estimate(state.get("original_question") or state["question"], prof) \
         or TAXC.changes_estimate(state["question"], prof) else None
+
+
+def _named_pages(titles: list[str], most: int = 3) -> list[dict]:
+    """Links to the named tax pages (the credits and deductions an estimate used), found by title in the tax pages."""
+    out = []
+    for title in titles:
+        if len(out) >= most:
+            break
+        try:
+            hits = TT.search_tax_pages(title, 5)
+        except Exception as e:  # noqa: BLE001 — the estimate stands without them
+            log.warning("tax page search failed: %s", e)
+            return out
+        hit = next((h for h in hits if h["doc_title"].lower() == title.lower()), None)
+        if hit and all(o["url"] != hit["source_url"] for o in out):
+            out.append({"id": f"kb:{hit['doc_id']}#(lead)", "title": f"{hit['doc_title']} (Wikipedia)", "url": hit["source_url"]})
+    return out
 
 
 def _tax_pages(question: str, most: int = 3) -> list[dict]:
@@ -2004,7 +2037,9 @@ SYNTH_SYSTEM = (
     "figure (| A | B | header row, then |---|---|), never as a bullet list per item, so the numbers line up. Never tell the user what to buy or sell and never promise returns. Do not include a disclaimer "
     "(it is added separately). Keep any figures exactly as given. When comparing, compare figures for the same period (today's "
     "change with today's change), never one item's day with another's month. The conversation only explains what the question refers to: "
-    "answer the Question from the context, never by repeating an earlier answer or its subject.")
+    "answer the Question from the context, never by repeating an earlier answer or its subject. When the context gives "
+    "\"Current <year> figures\", use those figures over any older amount in the other sources and say they are the "
+    "<year> figures.")
 
 
 READING_NOTE = "_I took this as {}. If you meant something else, pick an option below or name the company or topic._"

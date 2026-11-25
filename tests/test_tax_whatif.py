@@ -131,3 +131,47 @@ def test_tax_figures_route_to_the_tax_agent_alone():
     s = {"question": "How do Roth and traditional 401(k) compare for $10,000 if I earn $120,000?"}
     assert N._with_income_tax(["tax", "qa", "calc"], s) == ["tax"]
     assert N._with_income_tax(["tax", "qa"], {"question": "How does a Roth IRA work?"}) == ["tax", "qa"]   # no figures
+
+
+# ---------------------------------------------------------------- this year's figures and the pages behind an estimate
+def test_current_figures_match_the_question():
+    from src.workflow import tax_tools as TT
+    text = TT.current_figures("How much can I put in my 401(k) and a Roth IRA?")
+    assert text.startswith("**Current 2026 figures (IRS)")
+    assert "401(k)/403(b)/457/TSP: $24,500 a year, plus $8,000 catch-up at 50+ ($11,250 at ages 60-63)" in text
+    assert "IRA (traditional and Roth combined): $7,500, plus $1,100 at 50+" in text
+    assert "between $153,000 and $168,000 single, $242,000 and $252,000 married filing jointly" in text
+    assert "SALT deduction cap: $40,400" in TT.current_figures("How does the SALT deduction work?")
+    assert "$19,000 per recipient" in TT.current_figures("What is the gift tax limit?")
+    assert "up to $250,000 of gain tax-free ($500,000 married filing jointly)" in TT.current_figures("Is selling my home taxable?")
+    assert TT.current_figures("What is an ETF?") == ""
+
+
+def test_the_tax_agent_puts_current_figures_before_the_pages():
+    from src.workflow import tools
+    tools.set_kb_searcher(lambda q, k=None: [{"score": 0.8, "doc_id": "gift-tax", "doc_title": "Gift tax in the United States",
+                                               "section": "(lead)", "text": "The annual exclusion was $15,000 in 2018.",
+                                               "source_url": "https://en.wikipedia.org/wiki/Gift_tax", "category": "taxes-and-accounts",
+                                               "piece": 0, "pieces": 1, "tokens": 9, "section_tokens": 9}])
+    q = "What is the gift tax limit?"
+    out = N.tax_node({"question": q, "original_question": q, "history": [], "profile": {}, "entities": {"wiki_query": q}}, {})
+    content = out["agent_outputs"]["tax"]["content"]
+    assert content.index("$19,000 per recipient") < content.index("was $15,000 in 2018")
+
+
+def test_an_estimate_links_the_pages_of_what_it_used_and_asks_about_a_student_dependent():
+    from src.workflow import tax_calc as TC
+    items = [{"text": "I earn $85,000", "amount": 85000, "kind": "wages", "loss": False},
+             {"text": "$6,000 of tuition for my son's first year of college", "amount": 6000, "kind": "college_expenses", "loss": False}]
+    r, _ = TC.reading_from(items, "single")
+    est = TC.estimate(r)
+    assert est.topics[0] == "American Opportunity Tax Credit"
+    assert "If your student is your dependent ($500 credit for other dependents): federal taxes would be" in est.text
+    assert est.choices == TC.QUESTIONS["dependent"][1]                    # filing status was given, so this is the question
+
+
+def test_a_tax_rule_question_goes_to_the_tax_agent_not_qa():
+    s = {"question": "What is the SALT deduction cap?"}
+    assert N._tax_to_tax_agent(["qa"], s) == ["tax"]
+    assert N._tax_to_tax_agent(["qa", "market"], {"question": "How are AAPL dividends taxed?"}) == ["tax", "market"]
+    assert N._tax_to_tax_agent(["qa"], {"question": "What is an ETF?"}) == ["qa"]
