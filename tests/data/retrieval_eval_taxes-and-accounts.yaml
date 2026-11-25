@@ -5,6 +5,8 @@
 # 2026-11-24: 21 pages (the original 15 plus Property tax, State and local tax deduction, Itemized deduction, Federal
 # Insurance Contributions Act, Tax rate and Alternative minimum tax); q01-q20 written from the pages, q21-q22 are out of scope.
 
+# 2026-11-25: expanded to 300 pages; q21-q62 added for the new pages (their leads), out-of-scope renumbered q63-q64.
+
 - id: q01
   band: S
   q: How are short-term and long-term capital gains taxed differently in the US?
@@ -18,7 +20,6 @@
   key_points:
   - Short-term gains (held a year or less) are taxed as ordinary income
   - Long-term gains (held more than a year) get lower rates
-
 - id: q02
   band: L
   q: What is the net investment income tax?
@@ -26,12 +27,12 @@
   - 'capital-gains-tax-in-the-united-states :: Current law > Additional taxes'
   hints:
   - net investment income tax (NIIT)
-  reference: Taxpayers with income above certain thresholds ($200,000 single, $250,000 married filing jointly) pay an additional 3.8% tax on investment income above the threshold, the net investment income tax, so the top federal rate on long-term gains is 23.8%.
+  reference: Taxpayers with income above certain thresholds ($200,000 single, $250,000 married filing jointly) pay an additional 3.8% tax on investment income above the threshold, the net investment income
+    tax, so the top federal rate on long-term gains is 23.8%.
   key_points:
   - An extra 3.8% tax on investment income
   - Applies above $200,000 (single) or $250,000 (married filing jointly)
   - Makes the top long-term capital gains rate 23.8%
-
 - id: q03
   band: M
   q: What is the standard deduction?
@@ -39,12 +40,12 @@
   - 'standard-deduction :: (lead)'
   hints:
   - non-itemizers may subtract from their income before income tax
-  reference: The standard deduction is a dollar amount that taxpayers who don't itemize may subtract from their income before income tax is applied. It depends on filing status and usually rises each year with inflation; taxpayers choose it or itemized deductions, whichever gives less tax.
+  reference: The standard deduction is a dollar amount that taxpayers who don't itemize may subtract from their income before income tax is applied. It depends on filing status and usually rises each year
+    with inflation; taxpayers choose it or itemized deductions, whichever gives less tax.
   key_points:
   - A fixed amount subtracted from income before income tax
   - An alternative to itemizing; people pick whichever lowers tax more
   - Depends on filing status and rises with inflation
-
 - id: q04
   band: XL
   q: Should I take the standard deduction or itemize my deductions?
@@ -54,11 +55,11 @@
   hints:
   - whichever is greater
   - usually choose whichever results in the lesser amount of tax payable
-  reference: Most taxpayers can choose between itemizing allowable expenses and taking the standard deduction for their filing status; generally they deduct whichever amount is greater, since that results in less tax.
+  reference: Most taxpayers can choose between itemizing allowable expenses and taking the standard deduction for their filing status; generally they deduct whichever amount is greater, since that results
+    in less tax.
   key_points:
   - Taxpayers choose either itemized deductions or the standard deduction
   - Generally the larger of the two is used
-
 - id: q05
   band: M
   q: Can I deduct my property taxes on my federal return?
@@ -68,12 +69,12 @@
   - 'state-and-local-tax-deduction :: Definition > How it works'
   hints:
   - Eligible taxes include state and local income taxes and property taxes
-  reference: Property taxes are deductible through the state and local tax (SALT) deduction, an itemized deduction covering state and local income and property taxes. It was capped at $10,000 for 2018-2025, and only helps taxpayers who itemize.
+  reference: Property taxes are deductible through the state and local tax (SALT) deduction, an itemized deduction covering state and local income and property taxes. It was capped at $10,000 for 2018-2025,
+    and only helps taxpayers who itemize.
   key_points:
   - Property taxes count toward the SALT deduction
   - SALT is an itemized deduction
   - The deduction is capped
-
 - id: q06
   band: S
   q: How did the One Big Beautiful Bill Act change the SALT cap?
@@ -86,7 +87,6 @@
   - Cap raised from $10,000 to $40,000
   - Only for taxpayers making less than $500,000
   - Reverts to $10,000 after five years
-
 - id: q07
   band: M
   q: What is a property tax?
@@ -99,7 +99,6 @@
   - A tax based on the value of property
   - Levied by the local jurisdiction where the property is
   - The property is appraised to set the tax
-
 - id: q08
   band: S
   q: What does FICA tax pay for?
@@ -111,7 +110,6 @@
   key_points:
   - A payroll tax paid by employees and employers
   - Funds Social Security and Medicare
-
 - id: q09
   band: L
   q: How much Social Security and Medicare tax comes out of an employee's paycheck?
@@ -123,7 +121,6 @@
   key_points:
   - 6.2% for Social Security up to a wage limit
   - 1.45% for Medicare on all wages
-
 - id: q10
   band: L
   q: What self-employment tax do independent contractors pay?
@@ -136,7 +133,6 @@
   - The rate is 15.3% (12.4% + 2.9%)
   - Applied to 92.35% of net self-employment earnings
   - Self-employed pay both the employee and employer share
-
 - id: q11
   band: S
   q: What are tax brackets?
@@ -148,7 +144,6 @@
   key_points:
   - Cutoff values of taxable income where the rate changes
   - Income above a cutoff is taxed at the higher rate
-
 - id: q12
   band: L
   q: What is a marginal tax rate?
@@ -160,7 +155,6 @@
   key_points:
   - The tax on the next dollar of income
   - Example of 37% on an extra dollar
-
 - id: q13
   band: L
   q: What is the difference between an effective tax rate and a marginal tax rate?
@@ -171,11 +165,11 @@
   - 'income-tax-in-the-united-states :: Basics > Effective income tax rates'
   hints:
   - percent of their income that an individual or a corporation pays in taxes
-  reference: The effective tax rate is the share of total income paid in taxes, while the marginal rate is the rate on the next dollar earned; in a progressive system the effective rate is below the top marginal rate.
+  reference: The effective tax rate is the share of total income paid in taxes, while the marginal rate is the rate on the next dollar earned; in a progressive system the effective rate is below the top
+    marginal rate.
   key_points:
   - Effective rate is total tax divided by income
   - Marginal rate applies to the next dollar earned
-
 - id: q14
   band: M
   q: What makes a dividend a qualified dividend?
@@ -184,12 +178,12 @@
   - 'qualified-dividend :: Requirements'
   hints:
   - generally 60 days for common stock
-  reference: Qualified dividends are ordinary dividends that meet criteria to be taxed at the lower long-term capital gains rates (0% to 23.8%); the stock must be held long enough, generally 60 days for common stock, and paid by a US or qualifying corporation.
+  reference: Qualified dividends are ordinary dividends that meet criteria to be taxed at the lower long-term capital gains rates (0% to 23.8%); the stock must be held long enough, generally 60 days for
+    common stock, and paid by a US or qualifying corporation.
   key_points:
   - Taxed at the long-term capital gains rate
   - Holding period of about 60 days for common stock
   - Paid by a US or qualifying corporation
-
 - id: q15
   band: L
   q: What is a wash sale?
@@ -202,7 +196,6 @@
   - Selling at a loss and buying substantially identical securities
   - 30 days before or after the sale (61-day window)
   - The loss is disallowed as a deduction
-
 - id: q16
   band: S
   q: How does tax-loss harvesting lower my taxes?
@@ -216,7 +209,6 @@
   - Selling investments at a loss to realize losses
   - Losses reduce the tax on gains
   - Mind the 30-day wash sale window
-
 - id: q17
   band: L
   q: What is cost basis and why does it matter for taxes?
@@ -228,7 +220,6 @@
   key_points:
   - Basis is the adjusted original cost
   - Taxable gain equals sale amount minus basis
-
 - id: q18
   band: L
   q: How is a health savings account taxed?
@@ -242,7 +233,6 @@
   - Requires a high-deductible health plan
   - Contributions are not subject to federal income tax
   - Qualified medical withdrawals are tax-free and funds roll over
-
 - id: q19
   band: S
   q: What is a 529 plan?
@@ -254,7 +244,6 @@
   key_points:
   - Tax-advantaged education savings
   - Also covers K-12 tuition since 2017
-
 - id: q20
   band: XL
   q: What is the alternative minimum tax?
@@ -262,13 +251,481 @@
   - 'alternative-minimum-tax :: (lead)'
   hints:
   - in addition to the regular income tax
-  reference: The AMT is a US federal tax in addition to the regular income tax, computed on a broader base (adding back items such as the state and local tax deduction) at 26% or 28% with a larger exemption; it affects few taxpayers.
+  reference: The AMT is a US federal tax in addition to the regular income tax, computed on a broader base (adding back items such as the state and local tax deduction) at 26% or 28% with a larger exemption;
+    it affects few taxpayers.
   key_points:
   - A parallel tax in addition to regular income tax
   - Adds back items like the SALT deduction
   - Rates of 26% and 28%
-
 - id: q21
+  band: S
+  q: What filing statuses can I choose on my federal tax return?
+  expect:
+  - 'filing-status :: (lead)'
+  hints:
+  - There are five possible filing status categories
+  reference: 'There are five filing statuses: single, married filing jointly (or surviving spouse), married filing separately, head of household, and qualifying widow(er). Filing status depends on marital
+    status and family situation.'
+  key_points:
+  - Five filing statuses
+  - Depends on marital status and family situation
+- id: q22
+  band: M
+  q: Who can file as head of household?
+  expect:
+  - 'head-of-household :: (lead)'
+  hints:
+  - preferential tax rates and a larger standard deduction
+  reference: Head of household is a filing status for unmarried taxpayers who care for qualifying dependents; it gives preferential rates and a larger standard deduction than single.
+  key_points:
+  - For unmarried people caring for qualifying dependents
+  - Better rates and a larger standard deduction
+- id: q23
+  band: L
+  q: What is a W-2 form?
+  expect:
+  - 'form-w-2 :: (lead)'
+  hints:
+  - report wages paid to employees and the federal taxes withheld
+  reference: Form W-2, the Wage and Tax Statement, reports an employee's wages and the federal taxes withheld from their pay; employers must issue one to each employee.
+  key_points:
+  - Reports wages and taxes withheld
+  - Employers issue it to each employee
+- id: q24
+  band: M
+  q: What is a 1099 form used for?
+  expect:
+  - 'form-1099 :: (lead)'
+  hints:
+  - report various types of income other than wages, salaries, and tips
+  reference: Form 1099 is an information return reporting income other than wages, salaries and tips (such as freelance pay, interest or dividends); wages go on a W-2.
+  key_points:
+  - Information return for non-wage income
+  - Wages are reported on a W-2 instead
+- id: q25
+  band: S
+  q: What does the W-4 form do?
+  expect:
+  - 'form-w-4 :: (lead)'
+  hints:
+  - tells the employer the correct amount of federal tax to withhold
+  reference: Form W-4 is filled in by an employee to tell the employer how much federal income tax to withhold from their pay.
+  key_points:
+  - Completed by the employee
+  - Sets how much federal tax is withheld
+- id: q26
+  band: S
+  q: How does the mortgage interest deduction work?
+  expect:
+  - 'home-mortgage-interest-deduction :: (lead)'
+  hints:
+  - reduce their taxable income by the amount of interest paid on the loan
+  reference: Homeowners can reduce their taxable income by the interest paid on a loan secured by their main home (sometimes a second home), if they itemize.
+  key_points:
+  - Deducts mortgage interest from taxable income
+  - For loans on a main or second home
+- id: q27
+  band: M
+  q: What is the earned income tax credit?
+  expect:
+  - 'earned-income-tax-credit :: (lead)'
+  hints:
+  - refundable tax credit for low- to moderate-income working individuals
+  reference: The EITC is a refundable credit for low- to moderate-income workers, especially those with children; the amount depends on income and number of children.
+  key_points:
+  - Refundable credit
+  - For low- to moderate-income workers
+  - Depends on income and children
+- id: q28
+  band: S
+  q: What is the child and dependent care credit?
+  expect:
+  - 'child-and-dependent-care-credit :: (lead)'
+  hints:
+  - nonrefundable tax credit
+  reference: The Household and Dependent Care Credit is a nonrefundable credit for taxpayers who pay for care of a qualifying person so they (and their spouse) can work.
+  key_points:
+  - Nonrefundable credit
+  - For care costs that let the taxpayer work
+- id: q29
+  band: L
+  q: What is the American Opportunity Tax Credit?
+  expect:
+  - 'american-opportunity-tax-credit :: (lead)'
+  hints:
+  - partially refundable tax credit
+  reference: The American Opportunity Tax Credit is a partially refundable credit for college costs, created in 2009 and made permanent in 2015.
+  key_points:
+  - Partially refundable
+  - For higher-education costs
+  - Permanent since 2015
+- id: q30
+  band: M
+  q: What is the premium tax credit?
+  expect:
+  - 'premium-tax-credit :: (lead)'
+  hints:
+  - partially subsidizes the cost of private health insurance
+  reference: The premium tax credit, from the Affordable Care Act, is a refundable credit that subsidizes private health insurance for lower- and middle-income people, and can be paid in advance to the
+    insurer.
+  key_points:
+  - ACA subsidy for health insurance
+  - Refundable
+  - For lower- and middle-income households
+- id: q31
+  band: S
+  q: What is the kiddie tax?
+  expect:
+  - 'kiddie-tax :: (lead)'
+  hints:
+  - applies to certain unearned income of children
+  reference: The kiddie tax taxes a child's unearned investment income (interest, dividends, gains) above a threshold at the parents' marginal rate.
+  key_points:
+  - Applies to children's unearned income
+  - Taxed at the parents' rate
+- id: q32
+  band: L
+  q: When does the federal estate tax apply?
+  expect:
+  - 'estate-tax-in-the-united-states :: (lead)'
+  hints:
+  - federal tax on the transfer of the estate of a person who dies
+  reference: The estate tax is a federal tax on transferring the estate of a person who dies, including property passed by will, intestacy, trusts and some life insurance.
+  key_points:
+  - Tax on a deceased person's estate
+  - Covers transfers by will, intestacy and trusts
+- id: q33
+  band: L
+  q: How does the gift tax work?
+  expect:
+  - 'gift-tax-in-the-united-states :: (lead)'
+  hints:
+  - tax imposed on the transfer of ownership of property during the giver's life
+  reference: The gift tax is imposed on transfers of property during the giver's life for less than full value.
+  key_points:
+  - Tax on gifts during the giver's life
+  - Applies when full value isn't received
+- id: q34
+  band: S
+  q: What is a stepped-up basis on inherited assets?
+  expect:
+  - 'stepped-up-basis :: (lead)'
+  hints:
+  - market value at the time the benefactor dies
+  reference: An inherited asset's basis becomes its market value when the giver died, so the gain before death isn't taxed when the heir sells.
+  key_points:
+  - Basis resets to value at death
+  - Earlier gain escapes capital gains tax
+- id: q35
+  band: S
+  q: What is a 1031 like-kind exchange?
+  expect:
+  - 'like-kind-exchange :: (lead)'
+  hints:
+  - without generating a current tax liability
+  reference: A 1031 exchange lets you sell an asset and buy a like-kind replacement without paying tax on the gain now; the tax is deferred.
+  key_points:
+  - Swap one property for a like-kind one
+  - Defers the tax on the gain
+- id: q36
+  band: S
+  q: What is qualified small business stock?
+  expect:
+  - 'qualified-small-business-stock :: (lead)'
+  hints:
+  - Section 1202
+  reference: QSBS (Section 1202) is a tax incentive that can exempt gains on stock of qualifying small US businesses from federal tax.
+  key_points:
+  - Section 1202
+  - Exempts gains on qualifying small-business stock
+- id: q37
+  band: M
+  q: What is depreciation recapture?
+  expect:
+  - 'depreciation-recapture :: (lead)'
+  hints:
+  - collecting income tax on a gain realized
+  reference: Depreciation recapture taxes the gain on selling an asset to the extent depreciation deductions earlier lowered ordinary income.
+  key_points:
+  - Taxes gain from earlier depreciation
+  - When the asset is sold
+- id: q38
+  band: L
+  q: How are incentive stock options taxed?
+  expect:
+  - 'incentive-stock-option :: (lead)'
+  hints:
+  - confer a U.S. tax benefit
+  reference: Incentive stock options are employee stock options that carry a US tax benefit (statutory options) and have a strike price.
+  key_points:
+  - Only for employees
+  - Carry a tax benefit
+- id: q39
+  band: S
+  q: How is an S corporation taxed?
+  expect:
+  - 's-corporation :: (lead)'
+  hints:
+  - S corporations do not pay any income taxes
+  reference: An S corporation elects Subchapter S; it generally pays no income tax itself and its income passes through to shareholders.
+  key_points:
+  - Elects Subchapter S
+  - 'Pass-through: no corporate income tax'
+- id: q40
+  band: L
+  q: How is an LLC taxed?
+  expect:
+  - 'limited-liability-company :: (lead)'
+  hints:
+  - pass-through taxation of a partnership or sole proprietorship
+  reference: An LLC combines pass-through taxation like a partnership or sole proprietorship with the limited liability of a corporation.
+  key_points:
+  - Pass-through taxation
+  - Limited liability
+- id: q41
+  band: S
+  q: What is a payroll tax?
+  expect:
+  - 'payroll-tax :: (lead)'
+  hints:
+  - calculated as a percentage of the salaries that employers pay
+  reference: Payroll taxes are a percentage of salaries, imposed on employers or employees; economists agree employees bear most of the burden.
+  key_points:
+  - Percentage of wages
+  - On employers or employees
+- id: q42
+  band: S
+  q: What is FUTA?
+  expect:
+  - 'federal-unemployment-tax-act :: (lead)'
+  hints:
+  - federal employer tax used to help fund state workforce agencies
+  reference: FUTA is a federal employer tax that helps fund state workforce agencies, reported on Form 940.
+  key_points:
+  - Employer tax
+  - Funds unemployment programs
+  - Form 940
+- id: q43
+  band: L
+  q: Do I owe nanny tax if I hire a babysitter?
+  expect:
+  - 'nanny-tax :: (lead)'
+  hints:
+  - household employee
+  reference: Families who pay a household employee more than a threshold a year must withhold and pay payroll taxes, called the nanny tax.
+  key_points:
+  - Applies to household employees above a threshold
+  - Family must withhold and pay payroll taxes
+- id: q44
+  band: L
+  q: What is the Social Security wage base?
+  expect:
+  - 'social-security-wage-base :: (lead)'
+  hints:
+  - maximum earned gross income or upper threshold
+  reference: The Social Security wage base is the most earned income Social Security tax applies to each year.
+  key_points:
+  - Cap on income subject to Social Security tax
+- id: q45
+  band: S
+  q: What is the foreign earned income exclusion?
+  expect:
+  - 'foreign-earned-income-exclusion :: (lead)'
+  hints:
+  - foreign earned income exclusion that reduces taxable income
+  reference: Americans living and working abroad may exclude foreign earned income from taxable income, up to $132,900 per person for 2026.
+  key_points:
+  - For citizens and residents working abroad
+  - Excludes up to a yearly maximum
+- id: q46
+  band: XL
+  q: What is FATCA?
+  expect:
+  - 'foreign-account-tax-compliance-act :: (lead)'
+  hints:
+  - requiring all non-U.S. foreign financial institutions
+  reference: FATCA (2010) requires foreign financial institutions to identify and report accounts of US persons to the IRS.
+  key_points:
+  - 2010 law
+  - Foreign banks report US account holders
+- id: q47
+  band: S
+  q: What is an IRS offer in compromise?
+  expect:
+  - 'offer-in-compromise :: (lead)'
+  hints:
+  - negotiate a settled amount that is less than the total owed
+  reference: An offer in compromise lets a qualified taxpayer settle a tax debt for less than the full amount owed (Form 656).
+  key_points:
+  - Settle tax debt for less
+  - Form 656
+- id: q48
+  band: L
+  q: What penalties can the IRS charge?
+  expect:
+  - 'irs-penalties :: (lead)'
+  hints:
+  - various penalties for failures related to federal, state, and local tax matters
+  reference: Taxpayers can face penalties for failures in federal, state and local tax matters; the IRS can only assert penalties set by federal law.
+  key_points:
+  - Penalties for tax failures
+  - Only those in federal law
+- id: q49
+  band: S
+  q: What is an enrolled agent?
+  expect:
+  - 'enrolled-agent :: (lead)'
+  hints:
+  - federally authorized tax practitioner
+  reference: An enrolled agent is a federally licensed tax practitioner who passed the three-part Special Enrollment Examination and can represent taxpayers before the IRS.
+  key_points:
+  - Federally authorized tax practitioner
+  - Passed a three-part exam
+- id: q50
+  band: L
+  q: What did the Tax Cuts and Jobs Act change?
+  expect:
+  - 'tax-cuts-and-jobs-act :: (lead)'
+  hints:
+  - amended the Internal Revenue Code of 1986
+  reference: The Tax Cuts and Jobs Act of 2017 amended the tax code, cutting rates, nearly doubling the standard deduction and capping the SALT deduction.
+  key_points:
+  - 2017 law amending the tax code
+  - Lower rates and larger standard deduction
+- id: q51
+  band: S
+  q: What does the SECURE 2.0 Act do?
+  expect:
+  - 'secure-2-0-act :: (lead)'
+  hints:
+  - builds on the changes made by the SECURE Act of 2019
+  reference: SECURE 2.0 (2022) builds on the 2019 SECURE Act with further changes to retirement savings rules.
+  key_points:
+  - 2022 law
+  - Builds on the 2019 SECURE Act
+- id: q52
+  band: S
+  q: What is a homestead exemption?
+  expect:
+  - 'homestead-exemption :: (lead)'
+  hints:
+  - protect the value of the homes of residents from property taxes
+  reference: A homestead exemption protects part of a home's value from property taxes and creditors, under state law.
+  key_points:
+  - Lowers property tax on a primary home
+  - Set by state law
+- id: q53
+  band: L
+  q: Does every state have a sales tax?
+  expect:
+  - 'sales-taxes-in-the-united-states :: (lead)'
+  hints:
+  - no national general sales tax exists
+  reference: Sales tax is set by states; there's no national sales tax, and 45 states plus DC impose a general sales tax.
+  key_points:
+  - Set at the state level
+  - No national sales tax
+  - 45 states have one
+- id: q54
+  band: L
+  q: Which states have an income tax?
+  expect:
+  - 'state-income-tax-in-the-united-states :: (lead)'
+  hints:
+  - 41 states, the District of Columbia
+  reference: 'Most states collect an income tax: 41 states and DC tax wages, and some localities add their own.'
+  key_points:
+  - 41 states and DC
+  - Some local income taxes
+- id: q55
+  band: M
+  q: What is the marriage penalty?
+  expect:
+  - 'marriage-penalty :: (lead)'
+  hints:
+  - higher tax rate applicable to the lower-earning spouse
+  reference: The marriage penalty is the higher tax a married couple can pay filing jointly than as two singles; others get a marriage bonus.
+  key_points:
+  - Joint filing can raise tax
+  - Some couples get a bonus instead
+- id: q56
+  band: S
+  q: Is forgiven debt taxable?
+  expect:
+  - 'cancellation-of-debt-income :: (lead)'
+  hints:
+  - discharge of indebtedness must be included
+  reference: Cancelled debt is generally taxable income (cancellation-of-debt income), with some exceptions.
+  key_points:
+  - Forgiven debt counts as income
+  - There are exceptions
+- id: q57
+  band: S
+  q: What is an opportunity zone?
+  expect:
+  - 'opportunity-zone :: (lead)'
+  hints:
+  - defer capital gains taxes by reinvesting those gains
+  reference: Opportunity zones (2017) let investors defer capital gains tax by reinvesting gains in Qualified Opportunity Funds in lower-income areas.
+  key_points:
+  - Created by the 2017 tax law
+  - Defer gains by reinvesting in QOFs
+- id: q58
+  band: M
+  q: What is a health reimbursement arrangement?
+  expect:
+  - 'health-reimbursement-account :: (lead)'
+  hints:
+  - reimburses employees on a tax-free basis
+  reference: An HRA is an employer-funded plan that reimburses employees' medical expenses tax-free up to a limit.
+  key_points:
+  - Employer-funded
+  - Tax-free reimbursements up to a limit
+- id: q59
+  band: S
+  q: What is an ABLE account?
+  expect:
+  - 'able-account :: (lead)'
+  hints:
+  - savings program for eligible people with disabilities
+  reference: An ABLE (529A) account is a state-run tax-advantaged savings account for eligible people with disabilities.
+  key_points:
+  - For people with disabilities
+  - Section 529A
+- id: q60
+  band: L
+  q: What is a Trump account?
+  expect:
+  - 'trump-account :: (lead)'
+  hints:
+  - investment account in the United States established for a U.S. citizen child
+  reference: A Trump account (530A) is an index-fund investment account for a US citizen child, created by the 2025 One Big Beautiful Bill Act and available from July 2026.
+  key_points:
+  - For US citizen children
+  - Created by the 2025 law
+- id: q61
+  band: XL
+  q: What tax changes are in the One Big Beautiful Bill Act?
+  expect:
+  - 'one-big-beautiful-bill-act :: (lead)'
+  hints:
+  - signed into law by Trump on July 4, 2025
+  reference: The One Big Beautiful Bill Act, signed July 4, 2025, contains the tax and spending policies of Trump's second-term agenda.
+  key_points:
+  - Signed July 4, 2025
+  - Tax and spending law
+- id: q62
+  band: M
+  q: How is an installment sale taxed?
+  expect:
+  - 'installment-sale :: (lead)'
+  hints:
+  - at least 1 loan payment is to be received after the close of the taxable year
+  reference: An installment sale is a sale where at least one payment comes after the tax year of the sale, letting the gain be reported as payments are received.
+  key_points:
+  - Payments after the year of sale
+  - Gain spread over the payments
+- id: q63
   band: none
   q: What will the IRS standard mileage rate be in 2030?
   expect: []
@@ -277,8 +734,7 @@
   key_points:
   - Says the provided sources don't contain the answer
   - Does not invent specific figures or advice
-
-- id: q22
+- id: q64
   band: none
   q: Which stocks should I sell to save on taxes this year?
   expect: []

@@ -28,3 +28,12 @@ def test_a_search_without_a_category_has_no_filter():
     assert store.category_filter(None) is None
     assert isinstance(store.category_filter("bonds").must[0].match, models.MatchValue)
     assert store.category_filter(["taxes-and-accounts", "retirement"]).must[0].match.any == ["taxes-and-accounts", "retirement"]
+
+
+def test_two_sections_with_the_same_heading_get_their_own_chunks():
+    """'Sales taxes in the United States' has two 'History' sections; with the same id one overwrote the other in Qdrant."""
+    from src.rag.chunker import chunk_document
+    text = "Lead text here.\n\n## History\nFirst history.\n\n## Rates\nSome rates.\n\n## History\nSecond history."
+    chunks = chunk_document("doc", "Doc", "cat", "https://x", text, max_tokens=250, split_target=200)
+    assert [c.section for c in chunks] == ["(lead)", "History", "Rates", "History (2)"]
+    assert len({store.point_id(c) for c in chunks}) == len(chunks)

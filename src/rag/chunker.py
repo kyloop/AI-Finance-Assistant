@@ -103,11 +103,14 @@ def split_section(body: str, budget: int, split_target: int, overlap: int) -> li
 
 def chunk_document(doc_id: str, title: str, category: str, source_url: str, raw_text: str, *,
                    max_tokens: int = 512, split_target: int = 350, overlap: int = 50) -> list[Chunk]:
-    chunks = []
+    chunks, seen = [], {}
     for section, _, body in sections(clean(raw_text)):
         body = body.strip()
         if not body:
             continue                                   # heading with only subsections: appears in their paths
+        seen[section] = seen.get(section, 0) + 1
+        if seen[section] > 1:                          # a page with two "History" sections: keep both (same id otherwise)
+            section = f"{section} ({seen[section]})"
         probe = Chunk(doc_id, title, category, section, 0, 0, 1, "", source_url)
         budget = max_tokens - count_tokens(probe.heading + "\n\n")
         section_tokens = count_tokens(body)

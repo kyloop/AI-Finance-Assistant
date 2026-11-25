@@ -19,10 +19,10 @@ details are in `kb-token-stats-<category>.md`.
 | [retirement](kb-token-stats-retirement.md) | 16 | max 250 | 13 | 15 | 14 | 0.865 | 824 |
 | [stocks](kb-token-stats-stocks.md) | 30 | max 512 | 27 | 30 | 30 | 0.950 | 1,157 |
 | [stocks](kb-token-stats-stocks.md) | 30 | max 250 | 25 | 30 | 30 | 0.917 | 767 |
-| [taxes-and-accounts](kb-token-stats-taxes-and-accounts.md) | 20 | max 512 | 18 | 20 | 20 | 0.942 | 1,135 |
-| [taxes-and-accounts](kb-token-stats-taxes-and-accounts.md) | 20 | max 250 | 18 | 20 | 19 | 0.942 | 775 |
-| **All** | **192** | **max 512** | **157** | **188** | **186** | **0.886** | **1,198** |
-| **All** | **192** | **max 250** | **154** | **190** | **181** | **0.882** | **778** |
+| [taxes-and-accounts](kb-token-stats-taxes-and-accounts.md) | 62 | max 512 | 47 | 60 | 59 | 0.835 | 1,132 |
+| [taxes-and-accounts](kb-token-stats-taxes-and-accounts.md) | 62 | max 250 | 45 | 57 | 54 | 0.808 | 759 |
+| **All** | **234** | **max 512** | **186** | **228** | **225** | **0.868** | **1,186** |
+| **All** | **234** | **max 250** | **181** | **227** | **216** | **0.858** | **773** |
 
 MRR and tokens for **All** are weighted by the number of questions.
 
@@ -42,9 +42,9 @@ MRR and tokens for **All** are weighted by the number of questions.
 | [retirement](kb-token-stats-retirement.md) | max 250 | 4.75 | 0.99 | 4.69 | 0.88 | 1 | 2 of 2 |
 | [stocks](kb-token-stats-stocks.md) | max 512 | 5.00 | 0.99 | 5.00 | 1.00 | 0 | 2 of 2 |
 | [stocks](kb-token-stats-stocks.md) | max 250 | 5.00 | 0.99 | 5.00 | 1.00 | 0 | 2 of 2 |
-| [taxes-and-accounts](kb-token-stats-taxes-and-accounts.md) | max 512 | 5.00 | 0.95 | 4.85 | 0.98 | 0 | 2 of 2 |
-| [taxes-and-accounts](kb-token-stats-taxes-and-accounts.md) | max 250 | 5.00 | 0.95 | 4.90 | 0.98 | 0 | 2 of 2 |
-| **All (192)** | **max 512** | **4.93** | **0.98** | **4.88** | **0.94** | **3** | **16 of 16** |
-| **All (192)** | **max 250** | **4.94** | **0.98** | **4.89** | **0.94** | **2** | **16 of 16** |
+| [taxes-and-accounts](kb-token-stats-taxes-and-accounts.md) | max 512 | 5.00 | 0.98 | 4.95 | 0.97 | 0 | 2 of 2 |
+| [taxes-and-accounts](kb-token-stats-taxes-and-accounts.md) | max 250 | 4.97 | 0.98 | 4.87 | 0.96 | 0 | 2 of 2 |
+| **All (234)** | **max 512** | **4.94** | **0.98** | **4.90** | **0.95** | **3** | **16 of 16** |
+| **All (234)** | **max 250** | **4.94** | **0.98** | **4.88** | **0.95** | **2** | **16 of 16** |
 
 **All** averages every answerable question across categories (faithfulness over answered questions only).

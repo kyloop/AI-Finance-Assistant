@@ -1,0 +1,54 @@
+# Cigarette taxes in the United States
+
+<!-- https://en.wikipedia.org/wiki/Cigarette_taxes_in_the_United_States | revision 1387455860 -->
+
+In the United States, cigarettes are taxed at both the federal and state levels, in addition to any state and local sales taxes and local cigarette-specific taxes. Cigarette taxation has appeared throughout American history and is still a contested issue today.
+
+## History
+
+Although cigarettes were not popular in the United States until the mid-19th century, the federal government still attempted to implement a tax on tobacco products such as snuff early on in its history. In 1794, secretary of the treasury Alexander Hamilton introduced the first ever federal excise tax on tobacco products. Hamilton's original proposal passed after major modifications, only to be repealed shortly thereafter with an insignificant effect on the federal budget. Even though Hamilton's tax on tobacco failed, tobacco taxation continued to play an important role in American history.
+On July 1, 1862, the United States Congress passed excise taxes on many items including tobacco. This occurred as a result of the Union's increasing debt during the American Civil War and the federal government's need for additional revenue. After the war, many of these excise taxes were repealed but the tax on tobacco remained. In fact, by 1868, the federal government's main source of income came from these lingering tobacco taxes.
+Despite the excise tax of the federal government, U.S. states did not ratify a tobacco excise tax until well into the 20th century. In 1921, Iowa became the first state to pass a tobacco excise tax at the state level in addition to the federal tax.  Other states quickly followed suit, and by 1950, 40 states and Washington D.C. enacted taxes on cigarette sales.
+By 1969, all states and the District of Columbia implemented cigarette taxes. Several cities such as Chicago and New York City have also implemented their own citywide cigarette taxes. The combined federal, state, county, and local tax on a pack of 20 cigarettes in the city of Chicago, in Cook County, Illinois, is $7.42, the highest in the entire country with New York City as second highest with $6.85. The lowest rate in the nation is in Missouri, at 17 cents, where the state's electorate voted to keep it that way in 2002, 2006, 2012, and 2016. The American Cancer Society opposed the increase in 2016 (Amendment 3). Their opposition is largely attributed to close ties with in-state institution Washington University in St. Louis. That university desired greater freedom  to apply for grant money under the proposed law which largely prohibited such expenditures.
+On February 4, 2009, the Children's Health Insurance Program Reauthorization Act of 2009 was signed into law, which raised the federal tax rate for cigarettes on April 1, 2009 from $0.39 per pack to $1.01 per pack. The increase was to help cover the cost of increased coverage under the State Children's Health Insurance Program (SCHIP).
+One of the biggest criticisms of the bill came from Americans for Tax Reform which feared that it would lead to lower state tax revenue. According to Nobel Prize-winning economist Gary Becker, who has studied the long-run price elasticity of cigarettes, the tax increase as a result of the Children's Health Insurance Program Reauthorization Act increases the price of cigarettes 13.3% which ultimately means a 10.6% decrease in unit sales.  The Tax Foundation calculates these numbers to determine a predicted $1 billion loss for states. Another argument against this bill claims it to be regressive, holding that the tax increase unfairly targets the poor because according to the Centers for Disease Control and Prevention (CDC) more than half of all smokers are low income.  The CDC also notes that, "However, because low-income groups are more responsive to price increases, increasing the real price of cigarettes can reduce cigarette consumption among low income smokers by a greater percentage than among higher income smokers, and thereby diminish socioeconomic smoking disparities.  Further, lower income communities also suffer from tobacco-related illnesses at a disproportionately higher rate than their higher income counterparts.
+
+## Effects
+
+One of the reasons for the support of increased cigarette taxes among public health officials is that many studies show that this leads to a decrease in smoking rates. The relationship between smoking rates and cigarette taxes follows the property of elasticity; the greater the amount of the tax increase, the fewer cigarettes that are bought and consumed. This is especially prevalent among teenagers. For every ten percent increase in the price of a pack of cigarettes, youth smoking rates overall drop about seven percent. This rate is also true amongst minorities and low income population smokers. Similar reductions in smoking rates following cigarette tax increases have been found among sexual minorities. The rates of calls to quitting hotlines are directly related to cigarette tax hikes. When Wisconsin raised its state cigarette tax to $1.00 per pack, the hotline received a record of 20,000 calls in a two-month time period versus its typical 9,000 calls annually.
+An analysis of smoking and cigarette tax rates in 1955 through 1964, prior to the Surgeon General's first report and general antismoking sentiment, shows the same relationship between tax increases and declining smoking rates that are prevalent today, suggesting that popular attitudes towards smoking are not a confounding factor. Tobacco taxes also produce significant improvements in public health, and arguments about alleged adverse economic effects of such taxes tend to be unsupported.
+In 2012, RTI International conducted an analysis of data from the 2010-2011 New York and national Adult Tobacco Surveys to assess the financial burden cigarette taxes place on low-income families for the New York State Department of Health. According to ABC News, the study found that "higher cigarette taxes may be financially hurting low-income smokers rather than making them more likely to quit." Among the 13,000 surveyed in New York State, lower income smokers (those in households making under $30,000) spent 23.6 percent of their income on cigarettes, compared to two percent by higher income New York residents and an average of 14 percent among lower income smokers nationally.
+
+### Smuggling
+
+States with high taxes often have cigarettes smuggled in from lower taxed states and a black market is created. The Tax Foundation estimated that New York State lost an estimated $1.63 billion to black market sales.
+Tobacco companies themselves have been involved in tobacco smuggling. In 2010 in Canada, R. J. Reynolds Tobacco Company agreed to pay a total of $325 million to settle claims related to the smuggling. A Reynolds subsidiary, Northern Brands International Inc., was fined $75 million after pleading guilty under the Canadian Criminal Code to one count of conspiracy for helping others sell contraband cigarettes. While the smuggling operation was ongoing in the 1990s, tobacco companies were lobbying federal and provincial governments to lower cigarette taxes, pointing to the prevalence of contraband product as all the more reason to reduce taxes.
+From foreign experience, scholars also suggest that while tax on cigarettes can allow total cigarette consumption to be effectively controlled, they can also increase smuggling and cause a loss of income for the government. As smuggled cigarettes are a substitute of taxed cigarettes, the price of the former would also increase for higher tax rates. Consumption of cigarettes in total then drop as consumers must pay more regardless of whether they buy smuggled or taxed products.
+
+## Taxes as a proportion of cigarette prices
+
+While the price of cigarettes has continuously increased since 1965, the percentage of that price going towards taxes is now half of what it was then. As of 2011, Phillip Morris lists total government revenue, including federal, state, local, and sales taxes, as 55% of the estimated retail price of a pack of cigarettes in the United States.
+According to data from the World Health Organization on cigarette taxes around the world, the U.S. is ranked 36th out of the 50 most populous countries in terms of the percent of cigarette pack costs from taxes. Their data estimates that taxes make up 42.5% of the cost of a pack of cigarettes in the U.S., compared to 82.2% in the United Kingdom, which has the highest cigarette taxes.
+
+## Cigarette tax rates by jurisdiction
+
+The following table lists state tax rates as of 2026:
+
+The above table does not include the federal excise tax on cigarettes of $1.01 per pack, cigarette taxes levied by individual municipalities (such as New York City, Chicago, and Anchorage), or sales taxes levied in addition to the retail price and excise taxes.
+
+## Non-cigarette tobacco taxes
+
+Taxes on smokeless (chewing) tobacco, as well as (and often concurrent with) snuff, cigars and pipe tobacco, are also common in the United States. Forty-nine states and the District of Columbia have such a non-cigarette tax(es), Pennsylvania being the sole exception, with no cigar tax at all (though it considers small cigars to be cigarettes for taxation purposes) and the last to impose taxes for smokeless and pipe tobaccos in 2016. Of the 49 states that do impose in this category, Florida does not tax cigars, though all other tobacco products are taxed. The federal government charges different non-cigarette excise taxes, according to the following 6 categories: snuff, chewing tobacco, pipe tobacco, roll-your-own, large cigars, and small cigars. Cigarette papers and tubes are also taxed. As of June 2019, ten states and Washington, D.C. also had excise taxes on e-cigarettes.
+
+## Electronic cigarette taxes
+
+As of September 30, 2024, 33 states, the District of Columbia, Puerto Rico, and the U.S. Virgin Islands have passed legislation that requires a tax on electronic cigarettes. Thirteen states tax e-cigarettes per milliliter of liquid or consumable material. Sixteen states, the District of Columbia, and the U.S. Virgin Islands tax e-cigarettes on a percentage of a specified cost. Five states tax closed e-cigarette systems (prefilled cartridges) per milliliter of liquid and open e-cigarette systems (refillable cartridges) on a percentage of a specified cost.
+
+### Key
+
+VALM: Manufacturer Price/Wholesale Purchase Price
+VALW: Wholesale Sales Price
+VALWD: Wholesale Sales Price with Discount
+VAL: Selling Price
+
+The above table does not include electronic cigarette taxes levied by county and municipal-level jurisdictions (such as those placed by Cook County, Illinois, and the city of Chicago), or sales taxes levied in addition to the retail price and excise taxes.

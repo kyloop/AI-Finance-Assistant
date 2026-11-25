@@ -8,6 +8,8 @@
 
 ## Why it exists
 
+Its pages: `taxes-and-accounts` (300 Wikipedia pages since 2026-11-25, 7,044 chunks; see kb-token-stats-taxes-and-accounts.md) and `retirement` (15).
+
 Before this, the Tax agent was the Q&A agent with "tax" added to its fallback query and a caveat: the same function
 (`_kb_answer`), the same 336 pages, no calculation. Tax figures came from the general calculator, which used a flat
 sample rate and subtracted property tax in full. A tax expert does five things, and the agent is built around them:

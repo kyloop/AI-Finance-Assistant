@@ -162,13 +162,13 @@ for off-topic questions (a plain score threshold doesn't work, see Validation).
 Categories are indexed **one at a time**, each only after its own token statistics and retrieval test
 (`mds/kb-token-stats-<category>.md`).
 
-Built 2026-10-01 (etfs-and-mutual-funds added the same day; taxes-and-accounts and retirement added 2026-11-24) with `python -m src.rag.build_index --offline` (indexes `rag.categories` in config.yaml):
+Built 2026-10-01 (etfs-and-mutual-funds added the same day; taxes-and-accounts and retirement added 2026-11-24; taxes-and-accounts grown to 300 pages 2026-11-25) with `python -m src.rag.build_index --offline` (indexes `rag.categories` in config.yaml):
 
 | | |
 |---|---|
 | Categories indexed | **basics**, **bonds**, **stocks**, **etfs-and-mutual-funds**, **taxes-and-accounts**, **retirement** (all tested) |
-| Documents | 336 (basics 50, bonds 50, stocks 150, etfs-and-mutual-funds 50, taxes-and-accounts 21, retirement 15) |
-| Chunks (Qdrant points) | 6,894 (basics 1,332, bonds 947, stocks 2,569, etfs-and-mutual-funds 869, taxes-and-accounts 654, retirement 523), median 162 tokens, max 250. These are the same chunks as the max 250 retrieval tests. |
+| Documents | 615 (basics 50, bonds 50, stocks 150, etfs-and-mutual-funds 50, taxes-and-accounts 300, retirement 15) |
+| Chunks (Qdrant points) | 13,284 (basics 1,332, bonds 947, stocks 2,569, etfs-and-mutual-funds 869, taxes-and-accounts 7,044, retirement 523), median 162 tokens, max 250. These are the same chunks as the max 250 retrieval tests. |
 | Source text | Full Wikipedia pages in `src/data/raw/wikipedia/<category>/` (not truncated) |
 | Store | Qdrant Cloud when `QDRANT_CLUSTER_ENDPOINT` is set, else local Qdrant at `src/data/qdrant/` (git-ignored); collection `finnie_kb` |
 | Chunk list | [data/kb_index_chunks.csv](data/kb_index_chunks.csv) |
