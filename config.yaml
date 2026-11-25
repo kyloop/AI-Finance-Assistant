@@ -71,8 +71,9 @@ rag:                        # knowledge-base retrieval; design and evidence in m
   qdrant_path: src/data/qdrant      # local embedded Qdrant; set qdrant_url (+ QDRANT_API_KEY in .env) for a server / Qdrant Cloud
   qdrant_url: null
   collection: finnie_kb
-  categories: [basics, bonds, stocks, etfs-and-mutual-funds, taxes-and-accounts, retirement]
-  us_only: [taxes-and-accounts, retirement]     # these drop sections about other countries when chunked (chunker.foreign_section)      # indexed categories; add one only after its token stats + retrieval test (mds/)
+  categories: [basics, bonds, stocks, etfs-and-mutual-funds, taxes-and-accounts, retirement, tax-notes]
+  local_categories: {tax-notes: src/data/tax_notes}   # our own notes (committed), indexed like the Wikipedia pages
+  us_only: [taxes-and-accounts, retirement, tax-notes]     # these drop sections about other countries when chunked (chunker.foreign_section)      # indexed categories; add one only after its token stats + retrieval test (mds/)
   embedding_model: BAAI/bge-small-en-v1.5
   max_tokens: 250                   # one chunk per section up to this (sections above are split); chosen for token cost, see mds/rag-data-design.md
   split_target_tokens: 200          # piece size for split sections (capped at max - overlap - heading anyway)

@@ -40,12 +40,16 @@ def read_page(path: Path) -> tuple[str, str, str]:
 def collect_pages(categories: list[str], *, refresh: bool, offline: bool) -> tuple[list[tuple[str, Path]], list[tuple[str, str]]]:
     """Returns ([(category, page_path)], [(title, error)]) for the given kb_topics.yaml categories."""
     topics = load_topics()
-    unknown = set(categories) - set(topics)
+    local = (get_config()["rag"].get("local_categories") or {})
+    unknown = set(categories) - set(topics) - set(local)
     if unknown:
         raise SystemExit(f"unknown categories: {', '.join(sorted(unknown))} (see src/data/kb_topics.yaml)")
     client = None if offline else WikiClient()
     pages, failed = [], []
     for category in categories:
+        if category in local:                           # our own notes (committed), not fetched from Wikipedia
+            pages += [(category, path) for path in sorted((ROOT / local[category]).glob("*.md"))]
+            continue
         for title in topics[category]:
             path = RAW_DIR / slugify(category) / f"{slugify(title)}.md"
             if not path.exists() or refresh:

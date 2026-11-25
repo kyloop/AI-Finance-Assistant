@@ -1,0 +1,147 @@
+# Retrieval ground truth for the `tax-notes` category (python -m scripts.eval_retrieval --category tax-notes).
+# Same format as retrieval_eval_basics.yaml: expect = "<doc_id> :: <section path>" (any one counts), hints = answer
+# phrases (any one counts), band = size of the expected section in tokens: S < 150, M 150-249, L 250-512, XL > 512.
+# reference / key_points: the true answer, from the note; used by the generation test.
+# 2026-11-25: 9 notes written in our own words (src/data/tax_notes/) for topics Wikipedia covers badly; q01-q18 written
+# from the notes, two per note; q19-q20 are out of scope.
+
+- id: q01
+  band: S
+  q: Do I need to pay estimated quarterly taxes?
+  expect: ['estimated-quarterly-tax :: Who has to pay estimated tax']
+  hints: ['$1,000 or more']
+  reference: You generally must make estimated payments if you expect to owe $1,000 or more when you file, after withholding and refundable credits; freelancers usually must, salaried workers with enough withholding usually don't.
+  key_points: ['Owe $1,000 or more after withholding', 'Freelancers usually must pay']
+- id: q02
+  band: S
+  q: How do I avoid the penalty for underpaying estimated tax?
+  expect: ['estimated-quarterly-tax :: Avoiding the underpayment penalty (safe harbor)']
+  hints: ["100% of last year's tax"]
+  reference: Pay at least 90% of this year's tax or 100% of last year's tax (110% if last year's AGI was over $150,000) through withholding and on-time estimated payments.
+  key_points: ["90% of this year's tax", "100% of last year's (110% above $150,000 AGI)"]
+- id: q03
+  band: S
+  q: How much profit from selling my house is tax-free?
+  expect: ['selling-your-home-and-taxes :: The exclusion', 'selling-your-home-and-taxes :: (lead)']
+  hints: ['$250,000']
+  reference: Up to $250,000 of gain on your main home is excluded from income, or $500,000 for married couples filing jointly.
+  key_points: ['$250,000 single', '$500,000 married filing jointly']
+- id: q04
+  band: S
+  q: How long do I have to live in my home before selling to avoid tax?
+  expect: ['selling-your-home-and-taxes :: The two-out-of-five-years test']
+  hints: ['at least two years']
+  reference: You must have owned the home and lived in it as your main home for at least two of the five years before the sale; the exclusion can be used once every two years.
+  key_points: ['Owned and lived in it two of the last five years', 'Once every two years']
+- id: q05
+  band: S
+  q: How is interest from my savings account taxed?
+  expect: ['how-dividends-and-interest-are-taxed :: Interest']
+  hints: ['ordinary income']
+  reference: Savings, CD and bond interest is ordinary income taxed at your regular bracket in the year it's credited; Treasury interest is exempt from state tax and municipal bond interest from federal tax.
+  key_points: ['Ordinary income at your bracket', 'Treasury interest state-exempt', 'Municipal bond interest federally exempt']
+- id: q06
+  band: S
+  q: What is the difference between qualified and ordinary dividends?
+  expect: ['how-dividends-and-interest-are-taxed :: Dividends']
+  hints: ['more than 60 days']
+  reference: Qualified dividends are taxed at 0%, 15% or 20% if you held the shares more than 60 days around the ex-dividend date; ordinary dividends are taxed at your regular bracket.
+  key_points: ['Qualified at 0/15/20%', 'Holding period of more than 60 days', 'Ordinary at regular rates']
+- id: q07
+  band: S
+  q: Are my Social Security benefits taxable?
+  expect: ['how-social-security-benefits-are-taxed :: (lead)', 'how-social-security-benefits-are-taxed :: The thresholds']
+  hints: ['At most 85% of your benefits is ever taxable']
+  reference: Part of your benefits can be taxable depending on your other income; at most 85% is ever taxable, and at low incomes none.
+  key_points: ['Depends on other income', 'At most 85% taxable']
+- id: q08
+  band: S
+  q: What income makes Social Security benefits taxable for a married couple?
+  expect: ['how-social-security-benefits-are-taxed :: The thresholds']
+  hints: ['$32,000']
+  reference: For married filing jointly, up to 50% is taxable when provisional income is between $32,000 and $44,000, and up to 85% above $44,000; these thresholds aren't indexed.
+  key_points: ['$32,000 and $44,000 joint thresholds', 'Not indexed for inflation']
+- id: q09
+  band: S
+  q: Do I pay tax when I sell bitcoin?
+  expect: ['how-cryptocurrency-is-taxed :: When you owe tax', 'how-cryptocurrency-is-taxed :: Gains and losses']
+  hints: ['**sell** crypto for dollars']
+  reference: Yes; crypto is property, and selling, exchanging or spending it is taxable; gains are short-term or long-term depending on whether you held it more than a year.
+  key_points: ['Crypto is property', 'Selling, swapping or spending is taxable', 'Short vs long term by holding period']
+- id: q10
+  band: S
+  q: Is staking or mining crypto taxable?
+  expect: ['how-cryptocurrency-is-taxed :: When you owe tax']
+  hints: ['mining and staking rewards']
+  reference: Mining and staking rewards are ordinary income at their market value when you receive them.
+  key_points: ['Ordinary income when received', 'At market value']
+- id: q11
+  band: S
+  q: Can I deduct my student loan interest?
+  expect: ['student-loan-interest-deduction :: (lead)', 'student-loan-interest-deduction :: Who qualifies']
+  hints: ['up to **$2,500**']
+  reference: You can deduct up to $2,500 of qualified student loan interest a year, whether or not you itemize, if you're not married filing separately and your income is under the limit.
+  key_points: ['Up to $2,500', 'No need to itemize']
+- id: q12
+  band: S
+  q: Is forgiven student loan debt taxable?
+  expect: ['student-loan-interest-deduction :: Related: student loan forgiveness']
+  hints: ['Public Service Loan Forgiveness']
+  reference: Forgiven student loans are generally taxable, except death or disability discharges, Public Service Loan Forgiveness and some public-service programs; income-driven forgiveness becomes taxable again from 2026.
+  key_points: ['Generally taxable', 'PSLF and disability discharges exempt', 'IDR forgiveness taxable from 2026']
+- id: q13
+  band: S
+  q: Why was so much tax taken out of my bonus?
+  expect: ['how-a-bonus-is-taxed :: Withholding vs the tax you actually owe']
+  hints: ['flat **22%**']
+  reference: Employers often withhold a flat 22% on bonuses as supplemental wages; that's only a prepayment, and your real tax depends on your bracket.
+  key_points: ['22% flat supplemental withholding', 'Real tax depends on your bracket']
+- id: q14
+  band: S
+  q: Is a bonus taxed at a higher rate than salary?
+  expect: ['how-a-bonus-is-taxed :: (lead)']
+  hints: ['There is no special "bonus tax rate"']
+  reference: No; a bonus is regular wages taxed at your normal rates with Social Security and Medicare; only the withholding method differs.
+  key_points: ['Taxed as regular wages', 'No special bonus rate']
+- id: q15
+  band: S
+  q: What expenses can I deduct on a rental property?
+  expect: ['how-rental-income-is-taxed :: Deductible expenses']
+  hints: ['property management fees']
+  reference: Mortgage interest, property tax, insurance, repairs, utilities you pay, management fees, advertising, travel and professional fees; improvements are depreciated instead.
+  key_points: ['Interest, taxes, insurance, repairs', 'Improvements are depreciated']
+- id: q16
+  band: S
+  q: Can I deduct a loss on my rental property against my salary?
+  expect: ['how-rental-income-is-taxed :: Losses and the passive activity rules']
+  hints: ['$25,000']
+  reference: Rental losses are passive, but active participants can deduct up to $25,000 against other income, phased out between $100,000 and $150,000 of modified AGI; the rest carries forward.
+  key_points: ['Up to $25,000 if you actively participate', 'Phased out $100,000-$150,000', 'Unused losses carry forward']
+- id: q17
+  band: S
+  q: How are RSUs taxed when they vest?
+  expect: ['how-rsus-and-stock-options-are-taxed :: Restricted stock units (RSUs)']
+  hints: ['ordinary wage income']
+  reference: The value of RSU shares at vesting is ordinary wage income on your W-2; later gains from the vest value are capital gains.
+  key_points: ['Value at vesting is wages', 'Basis is the vest value']
+- id: q18
+  band: S
+  q: How are incentive stock options taxed?
+  expect: ['how-rsus-and-stock-options-are-taxed :: Incentive stock options (ISOs)']
+  hints: ['alternative minimum tax']
+  reference: No regular tax at exercise but the spread counts for AMT; holding two years from grant and one from exercise makes the whole gain long-term.
+  key_points: ['No regular tax at exercise; AMT may apply', 'Qualifying sale gets long-term treatment']
+- id: q19
+  band: none
+  q: What will the 2030 tax brackets be?
+  expect: []
+  hints: []
+  reference: The knowledge base does not cover this. A good answer says so and does not invent figures or give a buy/sell recommendation.
+  key_points: ["Says the provided sources don't contain the answer", 'Does not invent specific figures or advice']
+- id: q20
+  band: none
+  q: Which crypto should I buy to avoid taxes?
+  expect: []
+  hints: []
+  reference: The knowledge base does not cover this. A good answer says so and does not invent figures or give a buy/sell recommendation.
+  key_points: ["Says the provided sources don't contain the answer", 'Does not invent specific figures or advice']

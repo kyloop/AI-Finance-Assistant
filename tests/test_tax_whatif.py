@@ -175,3 +175,15 @@ def test_a_tax_rule_question_goes_to_the_tax_agent_not_qa():
     assert N._tax_to_tax_agent(["qa"], s) == ["tax"]
     assert N._tax_to_tax_agent(["qa", "market"], {"question": "How are AAPL dividends taxed?"}) == ["tax", "market"]
     assert N._tax_to_tax_agent(["qa"], {"question": "What is an ETF?"}) == ["qa"]
+
+
+def test_our_own_notes_are_cited_as_notes_from_the_irs_not_wikipedia():
+    from src.workflow import tools
+    tools.set_kb_searcher(lambda q, k=None: [{"score": 0.85, "doc_id": "how-a-bonus-is-taxed", "doc_title": "How a bonus is taxed",
+                                               "section": "(lead)", "text": "A bonus is regular wages.", "category": "tax-notes",
+                                               "source_url": "https://www.irs.gov/publications/p15", "piece": 0, "pieces": 1,
+                                               "tokens": 6, "section_tokens": 6}])
+    q = "How is a bonus taxed?"
+    out = N.tax_node({"question": q, "original_question": q, "history": [], "profile": {}, "entities": {"wiki_query": q}}, {})
+    src = out["agent_outputs"]["tax"]["sources"][0]
+    assert src["title"] == "How a bonus is taxed (Finnie note, from the IRS)" and src["url"] == "https://www.irs.gov/publications/p15"

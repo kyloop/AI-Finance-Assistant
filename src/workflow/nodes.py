@@ -604,6 +604,14 @@ def _reranked(fresh: list[dict], earlier: list[dict], k: int) -> list[dict]:
     return out[:k]
 
 
+LOCAL_SOURCE = "Finnie note, from the IRS"
+
+
+def _origin(hit: dict) -> str:
+    """Where a knowledge-base chunk comes from, for its source label: our own notes (rag.local_categories) or Wikipedia."""
+    return LOCAL_SOURCE if hit.get("category") in (get_config()["rag"].get("local_categories") or {}) else "Wikipedia"
+
+
 def _kb_answer(agent: str, state: FinanceState, query: str, prefix: str = "", searches: list[str] | None = None,
                categories: tuple[str, ...] | None = None) -> dict:
     """Answer from the knowledge base (Qdrant). not_found (→ research on Wikipedia) when the index is missing or failing,
@@ -641,7 +649,8 @@ def _kb_answer(agent: str, state: FinanceState, query: str, prefix: str = "", se
         seen.add(key)
         anchor = "" if h["section"] == "(lead)" else "#" + h["section"].split(" > ")[-1].replace(" ", "_")
         label = h["doc_title"] if h["section"] == "(lead)" else f"{h['doc_title']} › {h['section'].split(' > ')[-1]}"
-        sources.append({"id": f"kb:{h['doc_id']}#{h['section']}", "title": f"{label} (Wikipedia)", "url": h["source_url"] + anchor})
+        sources.append({"id": f"kb:{h['doc_id']}#{h['section']}", "title": f"{label} ({_origin(h)})",
+                        "url": h["source_url"] + ("" if _origin(h) != "Wikipedia" else anchor)})
     return _out(agent, prefix + body, sources=sources, query=query, prefix=prefix, origin="kb",
                 confidence="high" if top["score"] >= cfg["min_score"] + 0.08 else "medium",
                 trace=f"kb_search → {len(hits)} chunks, best {top['doc_title']} › {top['section']} ({top['score']:.2f})")
@@ -779,7 +788,7 @@ def _named_pages(titles: list[str], most: int = 3) -> list[dict]:
             return out
         hit = next((h for h in hits if h["doc_title"].lower() == title.lower()), None)
         if hit and all(o["url"] != hit["source_url"] for o in out):
-            out.append({"id": f"kb:{hit['doc_id']}#(lead)", "title": f"{hit['doc_title']} (Wikipedia)", "url": hit["source_url"]})
+            out.append({"id": f"kb:{hit['doc_id']}#(lead)", "title": f"{hit['doc_title']} ({_origin(hit)})", "url": hit["source_url"]})
     return out
 
 
@@ -796,7 +805,8 @@ def _tax_pages(question: str, most: int = 3) -> list[dict]:
             continue
         seen.add(h["doc_id"])
         anchor = "" if h["section"] == "(lead)" else "#" + h["section"].split(" > ")[-1].replace(" ", "_")
-        out.append({"id": f"kb:{h['doc_id']}#{h['section']}", "title": f"{h['doc_title']} (Wikipedia)", "url": h["source_url"] + anchor})
+        out.append({"id": f"kb:{h['doc_id']}#{h['section']}", "title": f"{h['doc_title']} ({_origin(h)})",
+                    "url": h["source_url"] + ("" if _origin(h) != "Wikipedia" else anchor)})
     return out[:most]
 
 
@@ -2143,7 +2153,8 @@ def synthesizer_node(state: FinanceState, config: RunnableConfig):
             # (and did it itself); the explaining agents' pages are linked for further reading instead
             links = list({x["url"]: x for o in [*prose, *exact] for x in o.get("sources", [])
                           if x.get("url") and x.get("id", "").startswith("kb:")}.values())[:4]
-            text = ("**Read more:** " + " · ".join(f"[{x['title'].removesuffix(' (Wikipedia)')}]({x['url']})" for x in links)
+            text = ("**Read more:** " + " · ".join(f"[{re.sub(r' [(](Wikipedia|Finnie note, from the IRS)[)]$', '', x['title'])}]({x['url']})"
+                                                  for x in links)
                     if links else "")
             prose, mode = [], "verbatim (steps explain themselves)"
         if prose and current_llm() is not None:

@@ -167,8 +167,8 @@ Built 2026-10-01 (etfs-and-mutual-funds added the same day; taxes-and-accounts a
 | | |
 |---|---|
 | Categories indexed | **basics**, **bonds**, **stocks**, **etfs-and-mutual-funds**, **taxes-and-accounts**, **retirement** (all tested) |
-| Documents | 653 (basics 50, bonds 50, stocks 150, etfs-and-mutual-funds 50, taxes-and-accounts 338, retirement 15) |
-| Chunks (Qdrant points) | 13,218 (basics 1,332, bonds 947, stocks 2,569, etfs-and-mutual-funds 869, taxes-and-accounts 6,997, retirement 504; the last two US only, `rag.us_only`), median 163 tokens, max 250. These are the same chunks as the max 250 retrieval tests. |
+| Documents | 662 (basics 50, bonds 50, stocks 150, etfs-and-mutual-funds 50, taxes-and-accounts 338, retirement 15, tax-notes 9: our own notes, `rag.local_categories`) |
+| Chunks (Qdrant points) | 13,270 (basics 1,332, bonds 947, stocks 2,569, etfs-and-mutual-funds 869, taxes-and-accounts 6,997, retirement 504, tax-notes 52; the last three US only, `rag.us_only`), median 162 tokens, max 250. These are the same chunks as the max 250 retrieval tests. |
 | Source text | Full Wikipedia pages in `src/data/raw/wikipedia/<category>/` (not truncated) |
 | Store | Qdrant Cloud when `QDRANT_CLUSTER_ENDPOINT` is set, else local Qdrant at `src/data/qdrant/` (git-ignored); collection `finnie_kb` |
 | Chunk list | [data/kb_index_chunks.csv](data/kb_index_chunks.csv) |

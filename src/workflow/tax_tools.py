@@ -13,7 +13,7 @@ from src.core import income_tax as T
 from . import tax_calc as TC
 from .tools import kb_search
 
-TAX_CATEGORIES = ("taxes-and-accounts", "retirement")
+TAX_CATEGORIES = ("tax-notes", "taxes-and-accounts", "retirement")
 
 
 def search_tax_pages(query: str, k: int | None = None) -> list[dict]:

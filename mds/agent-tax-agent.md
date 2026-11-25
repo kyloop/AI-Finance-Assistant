@@ -123,6 +123,14 @@ an amount ("I have a monthly mortgage payment") gets a question for the yearly a
 it would take to beat the standard deduction against the running estimate; the profile keeps `pending` so the answer
 ("about $12,000 a year") goes straight into the estimate, skipping the tool picker.
 
+## Notes in our own words
+
+Nine short notes (`src/data/tax_notes/`, category `tax-notes`, `rag.local_categories`) cover what Wikipedia lacks:
+estimated quarterly tax, selling a home, dividends and interest, Social Security benefits, crypto, student loan interest,
+bonuses, rental income, RSUs and options. The tax agent searches them with the tax and retirement pages
+(`TAX_CATEGORIES`); answers cite them as "Finnie note, from the IRS" with the IRS page as the link. Measurements in
+kb-token-stats-tax-notes.md.
+
 ## Next
 
 4. A tax eval set (about 20 cases with hand-checked answers), run after any prompt or rules change.
