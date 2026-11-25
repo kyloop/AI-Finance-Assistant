@@ -239,7 +239,7 @@ Each cell: **relevance / faithfulness / correctness / completeness**. Bold marks
 ## Findings
 
 <!-- findings:start -->
-- All 18 answerable questions find an expected section first; answers are relevant (5.00), correct (4.89) and faithful
+- All 18 answerable questions find an expected section in the top 5 (15 first, the other three a neighbouring section of the same note); answers are relevant (5.00), correct (4.89) and faithful
   (0.99). Both out-of-scope questions were declined.
 - Searched together with the 353 Wikipedia tax and retirement pages (the tax agent's search), the ten everyday questions
   that previously landed on loosely related pages (estimated tax, selling a home, dividends, savings interest, Social
