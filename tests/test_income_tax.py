@@ -868,3 +868,34 @@ def test_a_landlords_property_tax_and_mortgage_interest_stay_rental_costs():
     assert reading.inputs.rental_expenses == 12000 and reading.inputs.property_tax == 0
     own, _ = TC.read(q + " He also pays property tax on his own home, his main residence.", reply)
     assert own.inputs.property_tax == 4000
+
+
+def test_follow_up_explanations_after_the_home_sale_use_python_figures():
+    items = [{"text": t, "amount": a, "kind": k, "loss": False, "included": False} for t, a, k in HOME]
+    p = {"year": 2025, "filing_status": "married_joint", "items": items, "household": {"home_main_residence": 1}, "total_federal": 1}
+    gain = TC.estimate_facts(p, "Will any of the gain be subject to federal capital gains tax?")
+    assert "none of the gain is taxed" in gain and "qualified dividends" not in gain
+    office = TC.estimate_facts(p, "Can John deduct the $3,000 of home office furniture as a W-2 employee?")
+    assert "- Spent $3,000 on office furniture: not deducted" in office and "Adjusted basis" not in office
+    saved = TC.estimate_facts(p, "How do the 401(k) and traditional IRA contributions affect taxable income?")
+    assert "adjusted gross income of **$196,500**" in saved and "taxable income is **$165,000**" in saved
+    assert "saves about **$6,600**" in saved and "the other $8,000 is an excess contribution" in saved
+    from src.workflow import tax_tools
+    assert "Employee expenses" in tax_tools.current_figures("can a W-2 employee deduct a home office?", 2025)
+    import re
+    tail = "**In your estimate (2025 rules, computed by Finnie):**\n- a\n- b"
+    copied = "No.\n\n" + tail + "\n\nMore."
+    assert "In your estimate" not in re.sub(r"\*\*In your estimate[^\n]*\*\*:?\n(?:\s*- [^\n]*(?:\n|$))+", "", copied)
+
+
+def test_the_answer_to_a_pending_amount_question_is_not_a_change_request():
+    class Router:
+        model = "x"
+
+        def invoke(self, m):
+            return type("R", (), {"content": '{"intents": ["read_only"], "confidence": 0.9}'})()
+    llm_module.set_llm(Router())
+    s = {"question": "about $12,000 a year", "history": [], "profile": {}, "entities": {},
+         "context_in": {"tax": {"items": [], "pending": "mortgage_interest"}}}
+    assert N._route(s)["intent"] == ["tax"]
+    assert N._route({**s, "context_in": {}})["intent"] == ["read_only"]

@@ -282,7 +282,9 @@ CHOOSER_SYSTEM = (
     "You are the tax expert's planner in a personal-finance education app. Pick the ONE tool that answers the user's "
     "message and fill its arguments only with numbers the user gave (in the message or the LAST ESTIMATE); leave out any "
     "argument the user didn't give. Never compute anything yourself. A question about how a rule works, with no figures to "
-    "work out, is explain_rules.")
+    "work out, is explain_rules. A sale the user describes with its price and cost (\"I sold shares for $3,000 that cost "
+    "$7,000 ... can I deduct the loss?\") is capital_gain, also when it asks whether the loss is deductible; a sale of the "
+    "home they live in is estimate_income_tax.")
 
 
 WHATIFS = {"marginal_effect": lambda a, q, p, **_: marginal_effect(a, q, p), "compare_accounts": compare_accounts,

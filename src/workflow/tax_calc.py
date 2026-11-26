@@ -1090,7 +1090,8 @@ def estimate_facts(profile: dict | None, question: str) -> str:
                      + (f" {money(-rent['allowed'])} of the loss offsets other income this year; {money(rent['carried_forward'])} "
                         "carries forward." if rent["net"] < 0 else ""))
     home = est["home_sale"]
-    if home["sold"] and re.search(r"\b(home|house|basis|realized|realised|sale|sold|section 121|exclu\w*|gain)\b", question, re.I):
+    home_q = bool(home["sold"] and re.search(r"\b(basis|realized|realised|sale|sold|section 121|exclu\w*|gains?)\b", question, re.I))
+    if home_q:
         lines.append(f"Adjusted basis: {money(i['home_purchase_price'])} purchase price + {money(i['home_improvements'])} "
                      f"improvements = **{money(home['basis'])}**. Amount realized: {money(i['home_sale_price'])} sale price − "
                      f"{money(i['home_selling_costs'])} selling costs = **{money(home['realized'])}**. Realized gain: "
@@ -1109,7 +1110,8 @@ def estimate_facts(profile: dict | None, question: str) -> str:
         lines.append(f"Your {money(est['short_term_taxed'])} of short-term gains (shares held a year or less) is taxed as "
                      f"ordinary income, like salary, in your brackets (your top one is {pct(est['marginal_rate'])}), not at "
                      "the lower 0%/15%/20% long-term rates. Like other investment profit, it owes no payroll tax.")
-    if re.search(r"capital gains?|long[- ]term|short[- ]term|stock|shares|dividend", question, re.I) and est["preferential_rows"]:
+    if (re.search(r"long[- ]term|short[- ]term|stock|shares|dividend", question, re.I)
+            or re.search(r"capital gains?", question, re.I) and not home_q) and est["preferential_rows"]:
         gain = est["preferential_income"]
         rows = "; ".join(f"{money(b['amount'])} at {pct(b['rate'])} = {money(b['tax'])}" for b in est["preferential_rows"])
         lines.append(f"Your long-term gains and qualified dividends ({money(gain)}) sit on top of {money(est['ordinary_taxable'])} "
@@ -1117,6 +1119,31 @@ def estimate_facts(profile: dict | None, question: str) -> str:
                      f"would have cost about {money(gain * est['marginal_rate'])}, so the lower rate saves about "
                      f"{money(gain * est['marginal_rate'] - est['preferential_tax'])}. The gains owe no payroll tax; your wages "
                      f"owe {money(est['payroll']['total'])} of Social Security and Medicare.")
+    ira = est["ira"]
+    if re.search(r"\b(401|403|457|ira|retirement|contribut\w*|pre-?tax)\b", question, re.I) and (i["pre_tax_retirement"] or ira["contributed"]):
+        parts = ([f"The {money(i['pre_tax_retirement'])} put into a workplace plan (401(k)) comes off pay before tax."]
+                 if i["pre_tax_retirement"] else [])
+        if ira["contributed"]:
+            parts.append(f"Of the {money(ira['contributed'])} put into a traditional IRA, {money(ira['deductible'])} is deducted"
+                         + (f": the {est['year']} limit is {money(ira['limit'])}, so the other {money(ira['excess'])} is an "
+                            "excess contribution, not deducted, which owes a 6% penalty each year until it is taken out"
+                            if ira["excess"] else "") + ".")
+            if ira["range"] and ira["deductible"] >= ira["allowed"] - 0.5:
+                parts.append(f"With a workplace plan in the household the IRA deduction phases out between "
+                             f"{money(ira['range'][0])} and {money(ira['range'][1])} of income; yours is below that.")
+        cut = i["pre_tax_retirement"] + ira["deductible"]
+        lines.append(f"{' '.join(parts)} Income of {money(est['gross_income'])} less "
+                     f"{money(cut)} of contributions{' and other adjustments' if est['adjustments'] - cut > 0.5 else ''} "
+                     f"gives adjusted gross income of **{money(est['agi'])}**; less the {money(est['deduction'])} "
+                     f"{'itemized' if est['itemizes'] else 'standard'} deduction, taxable income is **{money(est['taxable_income'])}**. "
+                     f"At your {pct(est['marginal_rate'])} bracket the {money(cut)} saves about **{money(cut * est['marginal_rate'])}** "
+                     "of income tax this year; it is taxed when withdrawn. It doesn't lower Social Security and Medicare tax.")
+    office = [it for it in profile["items"] if it["kind"] == "not_tax_input"
+              and re.search(r"\b(office|furniture|equipment|computer|laptop|desk|uniform|tools?|supplies)\b", it["text"], re.I)]
+    if office and re.search(r"\b(office|furniture|equipment|w-?2|employee|work from home|remote)\b", question, re.I):
+        lines.append(f"{'; '.join(figure_words(it['text'], it['amount']) for it in office)}: not deducted in your estimate. An employee (W-2) can't deduct home-office or work-equipment costs the "
+                     "employer doesn't repay. That deduction (unreimbursed employee expenses) was suspended for 2018-2025 "
+                     "and the 2025 tax law ended it for good; only self-employed people deduct a home office (Schedule C).")
     if re.search(r"itemi[sz]|standard deduction|deduct", question, re.I):
         lines.append(f"You {'itemize' if est['itemizes'] else 'take the standard deduction'}: itemized {money(est['itemized'])} "
                      f"vs standard {money(est['standard'])}.")
@@ -1125,4 +1152,5 @@ def estimate_facts(profile: dict | None, question: str) -> str:
                      f"total income.")
     if not lines:
         return ""
-    return f"**In your estimate ({est['year']} rules, computed by Finnie):**\n" + "\n".join(f"- {x}" for x in lines) + "\n\n"
+    return (f"**In your estimate ({est['year']} rules, computed by Finnie):**\n"
+            + "\n".join(f"- {x[0].upper()}{x[1:]}" for x in lines) + "\n\n")

@@ -6,6 +6,8 @@ limits. The design these numbers feed into is [rag-data-design.md](rag-data-desi
 CSVs in [data/](data/); only the notes and findings are written by hand.
 
 <!-- notes:start -->
+**Added 2026-11-26, not yet in the measurements below:** a tenth note, home office and work expenses for employees (W-2 employees can't deduct them; the self-employed can), 4 chunks, and an eleventh, the wash sale rule, 5 chunks; both upserted into `finnie_kb` without a rebuild.
+
 **First measurement (2026-11-25):** nine notes written in our own words (spec FR-K7) for personal-tax topics that the
 Wikipedia pages cover badly or not at all: estimated quarterly tax, selling a home, how dividends and interest are taxed,
 Social Security benefits, cryptocurrency, the student loan interest deduction, bonuses, rental income, RSUs and stock

@@ -519,6 +519,9 @@ def _route(state: FinanceState) -> dict:
             intents, confidence = parsed
             if confidence < 0.3:
                 return {"intent": ["clarify"], "entities": entities, "router_mode": "llm", "trace": [f"router (LLM): low confidence {confidence:.1f} → clarify"]}
+            pending = ((state.get("context_in") or {}).get("tax") or {}).get("pending")
+            if "read_only" in intents and pending and TAXC.amounts(state.get("original_question") or text):
+                intents = ["tax"]                    # "about $12,000 a year": the answer to the tax agent's question, not a change
             if "read_only" in intents:
                 return {"intent": ["read_only"], "entities": {**entities, "write_request": "data"}, "router_mode": "llm",
                         "trace": ["router (LLM): asks to change something → read_only guard"]}
@@ -2220,6 +2223,8 @@ def synthesizer_node(state: FinanceState, config: RunnableConfig):
         text = link_sources(text, [s for o in prose for s in o.get("sources", [])])
         read_more = text if mode.startswith("verbatim (steps") else ""
         tails = [o["verbatim_tail"] for o in answered if o.get("verbatim_tail") and not read_more]   # figures after the words
+        if tails:                       # the writer sometimes copies the figures it was given: they follow once, as worked out
+            text = re.sub(r"\n{3,}", "\n\n", re.sub(r"\*\*In your estimate[^\n]*\*\*:?\n(?:\s*- [^\n]*(?:\n|$))+", "", text)).strip()
         text = "\n\n".join(t for t in [sector_lines, "" if read_more else text] + tails + [o["content"] for o in exact]
                            + [read_more] if t)
         readings = [o for o in answered if o.get("reading")]       # answered on a guess: say how it was read, never left to the LLM

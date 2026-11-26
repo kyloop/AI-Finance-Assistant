@@ -77,6 +77,15 @@ def _figure_lines(year: int, r: dict) -> list[tuple[str, str]]:
          "rental's property tax isn't limited by the SALT cap. A net loss is passive: up to "
          f"{_m(r['rental_loss_allowance']['amount'])} offsets other income if you actively manage it, reduced by $1 for every $2 "
          f"of income over {_m(r['rental_loss_allowance']['phase_out_start'])} (none from $150,000); the rest carries forward"),
+        (r"home office|office (?:furniture|equipment)|w-?2 employee|unreimbursed|employee (?:business )?expenses|work from home",
+         "Employee expenses: a W-2 employee can't deduct a home office, furniture, equipment or other work costs the employer "
+         "doesn't repay. Unreimbursed employee expenses were suspended for 2018-2025 and the One Big Beautiful Bill Act ended "
+         "the deduction permanently (except for a few groups, such as reservists and fee-basis officials; educators get a "
+         "$300 deduction). Self-employed people deduct a home office on Schedule C."),
+        (r"wash sale|bought .{0,30}back|buy .{0,30}back|repurchas|rebought", "Wash sale: a loss on selling shares or "
+         "another security isn't deductible when you buy the same or a substantially identical one within 30 days before or "
+         "after the sale (61 days in all, including through an IRA). The loss isn't lost: it is added to the new shares' cost "
+         "basis, and their holding period carries over, so it counts when you sell them later."),
         (r"senior|65|tip|overtime|car loan|auto loan|big beautiful", "2025-2028 deductions (One Big Beautiful Bill Act): $6,000 "
          "per person 65+, tips up to $25,000, overtime premium up to $12,500 ($25,000 joint), car-loan interest up to $10,000; "
          "each reduced at higher incomes"),
