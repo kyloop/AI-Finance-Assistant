@@ -789,3 +789,82 @@ def test_explanations_after_davids_estimate_use_his_figures():
     assert "$12,000 of short-term gains" in gain and "taxed as ordinary income" in gain and "24%" in gain
     from src.workflow import tax_tools
     assert "Rental property (Schedule E)" in tax_tools.current_figures("which rental expenses can I deduct?", 2025)
+
+
+# ---------------------------------------------------------------- selling a home (Section 121), IRA limit, two earners
+HOME = [("purchased their home in 2018 for $450,000", 450000, "home_purchase_price"), ("sold it for $850,000", 850000, "home_sale_price"),
+        ("John's salary: $130,000", 130000, "wages"), ("Lisa's salary: $90,000", 90000, "wages"),
+        ("Interest income: $2,500", 2500, "interest_dividends"), ("Qualified dividends: $4,000", 4000, "qualified_dividends"),
+        ("Capital improvements: $50,000", 50000, "home_improvements"), ("Selling expenses: $45,000", 45000, "home_selling_costs"),
+        ("spent $3,000 on office furniture", 3000, "not_tax_input"), ("Lisa contributed $23,000 to her 401(k)", 23000, "pre_tax_retirement"),
+        ("John contributed $15,000 to a traditional IRA", 15000, "ira_contribution"),
+        ("$11,000 in state income taxes", 11000, "state_local_taxes"), ("$6,000 in property taxes", 6000, "property_tax"),
+        ("Charitable contributions totaled $4,500", 4500, "charity")]
+
+
+def test_home_sale_gain_and_the_section_121_exclusion():
+    sale = dict(home_purchase_price=450000, home_improvements=50000, home_sale_price=850000, home_selling_costs=45000)
+    h = T.estimate(T.TaxInputs(filing_status="married_joint", wages=100000, **sale), 2025)["home_sale"]
+    assert (h["basis"], h["realized"], h["gain"], h["excluded"], h["taxable"]) == (500000, 805000, 305000, 305000, 0)
+    single = T.estimate(T.TaxInputs(wages=100000, **sale), 2025)
+    assert single["home_sale"]["taxable"] == 55000 and single["long_term_taxed"] == 55000      # over the $250,000 cap
+    rented = T.estimate(T.TaxInputs(wages=100000, home_main_residence=0, **sale), 2025)
+    assert rented["home_sale"]["taxable"] == 305000
+    loss = T.estimate(T.TaxInputs(wages=100000, home_purchase_price=500000, home_sale_price=450000), 2025)
+    assert loss["home_sale"]["gain"] == -50000 and loss["capital_loss_deducted"] == 0 and loss["gross_income"] == 100000
+
+
+def test_ira_contributions_are_limited_and_phased_out_with_a_workplace_plan():
+    ira = T.estimate(T.TaxInputs(wages=60000, ira_contribution=15000), 2025)["ira"]
+    assert ira["deductible"] == 7000 and ira["excess"] == 8000 and ira["range"] is None
+    assert T.estimate(T.TaxInputs(wages=60000, ira_contribution=9000, age_65_or_older=1), 2025)["ira"]["deductible"] == 8000
+    covered = T.estimate(T.TaxInputs(wages=94000, pre_tax_retirement=10000, ira_contribution=7000), 2025)["ira"]   # MAGI 84,000
+    assert covered["range"] == [79000, 89000] and covered["deductible"] == 3500
+    assert T.estimate(T.TaxInputs(wages=110000, pre_tax_retirement=10000, ira_contribution=7000), 2025)["ira"]["deductible"] == 0
+    assert T.estimate(T.TaxInputs(wages=60000, ira_contribution=7500), 2026)["ira"]["deductible"] == 7500
+
+
+def test_social_security_wage_base_is_per_spouse():
+    one = T.estimate(T.TaxInputs(filing_status="married_joint", wages=220000), 2025)["payroll"]["social_security"]
+    two = T.estimate(T.TaxInputs(filing_status="married_joint", wages=220000, spouse_wages=90000), 2025)["payroll"]["social_security"]
+    assert one == pytest.approx(0.062 * 176100) and two == pytest.approx(0.062 * 220000)
+
+
+def test_john_and_lisas_home_sale_is_read_and_worked_out():
+    # worked by hand: AGI 226,500 - 23,000 - 7,000 = 196,500; taxable 165,000 (161,000 ordinary + 4,000 dividends);
+    # 2,385 + 8,772 + 14,091 + 600 = 25,848 income tax; payroll 6.2% x 220,000 + 1.45% x 220,000 = 16,830
+    items = [{"text": t, "amount": a, "kind": k, "loss": False} for t, a, k in HOME]
+    text = "They lived in the home as their primary residence for the entire 7 years they owned it."
+    assert TC.main_home(text) == 1 and TC.main_home("we rented it out the whole time") == 0 and TC.main_home("we sold a house") is None
+    reading, why = TC.reading_from(items, "married_joint", 2025, {"home_main_residence": 1})
+    assert why == "" and reading.inputs.spouse_wages == 90000 and not reading.alternatives
+    est = TC.estimate(reading)
+    assert est.profile["income_tax"] == pytest.approx(25848) and est.profile["total_federal"] == pytest.approx(42678)
+    for phrase in ("Adjusted basis: $450,000 purchase price + $50,000 improvements = **$500,000**",
+                   "Amount realized: $850,000 sale price − $45,000 selling costs = **$805,000**",
+                   "Gain: $805,000 − $500,000 = **$305,000**", "so $305,000 is excluded and **$0** is taxable",
+                   "the other $8,000 is an excess contribution", "each spouse's pay is under it",
+                   "Subtract pre-tax retirement contributions and traditional IRA contribution"):
+        assert phrase in est.text, phrase
+    unsure, _ = TC.reading_from(items, "married_joint", 2025, {})
+    assert [k for k, _, _ in unsure.alternatives] == ["home"] and "main home" in unsure.assumed[0]
+    facts = TC.estimate_facts(est.profile, "What is their realized gain on the sale?")
+    assert "Realized gain: $805,000 − $500,000 = **$305,000**" in facts and "**$305,000** excluded" in facts
+
+
+def test_section_121_questions_go_to_the_tax_agent():
+    s = {"question": "Does the Section 121 home-sale exclusion apply, and how much gain can be excluded?"}
+    assert N._tax_to_tax_agent(["qa"], s) == ["tax"]
+
+
+def test_a_landlords_property_tax_and_mortgage_interest_stay_rental_costs():
+    reply = {"items": [{"amount": 120000, "kind": "wages", "text": "earns $120,000"},
+                       {"amount": 30000, "kind": "rental_income", "text": "Rental income received: $30,000"},
+                       {"amount": 4000, "kind": "property_tax", "text": "Property taxes: $4,000"},
+                       {"amount": 8000, "kind": "mortgage_interest", "text": "Mortgage interest: $8,000"}], "filing_status": "single"}
+    q = ("David is single and earns $120,000. He owns a rental house. Rental income received: $30,000. "
+         "Property taxes: $4,000. Mortgage interest: $8,000. What is his net rental income?")
+    reading, _ = TC.read(q, reply)
+    assert reading.inputs.rental_expenses == 12000 and reading.inputs.property_tax == 0
+    own, _ = TC.read(q + " He also pays property tax on his own home, his main residence.", reply)
+    assert own.inputs.property_tax == 4000

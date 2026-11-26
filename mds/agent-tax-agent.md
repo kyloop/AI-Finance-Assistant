@@ -124,6 +124,34 @@ which couldn't place the figures. Now:
   the tax agent works out anyone's own taxes from their figures.
 - **Test.** `d21` in `tests/data/tax_eval.yaml` (David's three questions).
 
+## Selling a home (Section 121), the IRA limit, two earners
+
+Added 2026-11-26 after John and Lisa's scenario (married, bought for $450,000, sold for $850,000, $50,000 of
+improvements, $45,000 of selling costs; "what is their adjusted basis? realized gain? does Section 121 apply?"): the
+estimate called the sale figures "not used", the AI worked the gain out itself and got $395,000 (right: $305,000), and
+the Section 121 question went to Q&A.
+
+- **Sorting.** Four kinds for the home sold: `home_purchase_price`, `home_improvements`, `home_sale_price`,
+  `home_selling_costs`; `ira_contribution` (traditional IRA) is now apart from `pre_tax_retirement` (workplace plans).
+  An employee's home-office costs are `not_tax_input`.
+- **Maths** (`income_tax.home_sale`). Adjusted basis = price + improvements; amount realized = sale price − selling
+  costs; gain = realized − basis. Section 121 excludes up to $250,000 ($500,000 married filing jointly) when it was the
+  main home 2 of the 5 years before the sale; the rest is a long-term gain in the estimate. A loss isn't deductible. The
+  main-home test is read from the message (`tax_calc.main_home`); when it doesn't say, it is assumed, stated, and asked
+  with buttons if it matters. Left out: partial exclusions (a move for work or health before 2 years), depreciation
+  recapture after renting the home, a spouse who doesn't meet the test.
+- **IRA** (`income_tax.ira_deduction`). Deductible up to the year's limit ($7,000 for 2025, $7,500 for 2026, plus the
+  50+ catch-up) for one person's IRA; above it is an excess contribution (6% a year unless taken out). With a workplace
+  plan in the household the deduction phases out over the year's range (`limits.ira_deduction_phase_out`): the filer's
+  own range when single, the spouse-of-a-covered-worker range when filing jointly.
+- **Two earners.** Two or more wages on a joint return set `spouse_wages`: Social Security's wage base is per person
+  (before, $130,000 + $90,000 was capped at one $176,100 base).
+- **Answers.** The estimate opens with "Work out the gain on the home sale"; questions after it about the basis, the
+  gain or Section 121 get Python's figures (`estimate_facts`), and the writer is told not to do arithmetic. The
+  capital-gain what-if tool is skipped for a home sale (it has no improvements, selling costs or exclusion).
+  "Section 121", "home sale" and "cost basis" are tax words for routing (`_TAX_TOPIC`).
+- **Test.** `d22` in `tests/data/tax_eval.yaml`.
+
 ## This year's figures in explanations
 
 `tax_tools.current_figures` picks the current-year figures a question touches from `tax_rules.yaml` (`limits` and the

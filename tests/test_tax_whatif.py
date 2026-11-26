@@ -187,3 +187,11 @@ def test_our_own_notes_are_cited_as_notes_from_the_irs_not_wikipedia():
     out = N.tax_node({"question": q, "original_question": q, "history": [], "profile": {}, "entities": {"wiki_query": q}}, {})
     src = out["agent_outputs"]["tax"]["sources"][0]
     assert src["title"] == "How a bonus is taxed (Finnie note, from the IRS)" and src["url"] == "https://www.irs.gov/publications/p15"
+
+
+def test_a_base_income_repeating_the_last_estimate_is_not_refused():
+    profile = {"year": 2026, "filing_status": "single", "items": [{"text": "I earn $120,000", "amount": 120000, "kind": "wages",
+                                                                   "loss": False, "included": False}], "household": {}}
+    text, _ = TW.compare_accounts({"contribution": 10000, "base_income": 120000}, "How do Roth and traditional compare for $10,000?",
+                                  profile)
+    assert "Traditional vs Roth" in text and "$2,200" in text

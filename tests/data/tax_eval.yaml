@@ -373,3 +373,17 @@
        contains: ["Net rental income: $30,000 − $25,000 = **$5,000**"]}
     - {tax_only: true, contains: ["net rental income of **$5,000**", "SALT cap"]}
     - {tax_only: true, contains: ["taxed as ordinary income"]}
+
+- id: d22
+  about: a married couple's home sale (basis, gain, Section 121) with an IRA over the limit and two earners
+  messages: ["John and Lisa are married and file jointly. They purchased their home in 2018 for $450,000. In 2025, they sold it for $850,000.\nDuring 2025, they also had the following financial activity:\nIncome\nJohn's salary: $130,000\nLisa's salary: $90,000\nInterest income: $2,500\nQualified dividends: $4,000\nHome Sale\nOriginal purchase price: $450,000\nCapital improvements over the years (new kitchen, roof, etc.): $50,000\nSelling expenses (commissions, closing costs): $45,000\nThey lived in the home as their primary residence for the entire 7 years they owned it.\nOther Information\nJohn worked remotely from home and spent $3,000 on office furniture and equipment.\nLisa contributed $23,000 to her employer's 401(k).\nJohn contributed $15,000 to a traditional IRA.\nThey paid $11,000 in state income taxes and $6,000 in property taxes.\nCharitable contributions totaled $4,500.\nWhat is their adjusted cost basis in the home?",
+             "What is their realized gain on the sale?",
+             "Does the Section 121 home-sale exclusion apply, and if so, how much gain can be excluded?"]
+  expect:
+    - {tax_only: true, filing_status: married_joint, income_tax: 25848, total_federal: 42678,
+       figures: {450000: home_purchase_price, 850000: home_sale_price, 130000: wages, 90000: wages, 2500: interest_dividends,
+                 4000: qualified_dividends, 50000: home_improvements, 45000: home_selling_costs, 3000: not_tax_input,
+                 23000: pre_tax_retirement, 15000: ira_contribution, 11000: state_local_taxes, 6000: property_tax, 4500: charity},
+       contains: ["= **$500,000**", "Gain: $805,000 − $500,000 = **$305,000**", "$8,000 is an excess contribution"]}
+    - {tax_only: true, contains: ["Realized gain: $805,000 − $500,000 = **$305,000**"]}
+    - {tax_only: true, contains: ["**$305,000** excluded, **$0** taxable"]}

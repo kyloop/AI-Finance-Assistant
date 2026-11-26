@@ -28,7 +28,12 @@ KINDS = {
     "short_term_gains": "profit from selling investments held a year or less",
     "long_term_gains": "profit from selling investments held more than a year",
     "stock_unspecified": "stock or investment earnings/profit/gains without saying how long they were held",
-    "pre_tax_retirement": "money put INTO a traditional 401(k)/403(b)/IRA (contributions)",
+    "pre_tax_retirement": "money put INTO a traditional 401(k)/403(b)/457 or other workplace plan (contributions)",
+    "ira_contribution": "money put INTO a traditional IRA (not a Roth IRA, not a 401(k))",
+    "home_purchase_price": "the price paid for the home the person lives or lived in, when the message is about selling it",
+    "home_improvements": "capital improvements to that home (a new kitchen, roof, addition; not repairs)",
+    "home_sale_price": "the price that home was sold for",
+    "home_selling_costs": "costs of selling that home (agent commissions, closing costs)",
     "retirement_withdrawal": "money taken OUT of a traditional IRA or 401(k), or a pension or annuity payment (taxable income)",
     "state_local_taxes": "state or local income tax paid",
     "property_tax": "property / real estate tax paid on the home the person lives in (a rental's is rental_expense)",
@@ -40,7 +45,8 @@ KINDS = {
     "student_loan_interest": "interest paid on student loans",
     "care_expenses": "child care or dependent care paid (daycare, after-school care, a nanny) so the user can work",
     "college_expenses": "college tuition, fees and course materials paid",
-    "not_tax_input": "an amount that doesn't change the federal tax (rent paid, savings, a price, a target)",
+    "not_tax_input": "an amount that doesn't change the federal tax (rent paid, savings, a price, a target, an "
+                     "employee's home-office or work equipment costs)",
 }
 
 SYSTEM = (
@@ -48,7 +54,8 @@ SYSTEM = (
     "message, give one item {\"amount\": <number as a plain number, 200k -> 200000>, \"kind\": <kind>, \"loss\": "
     "<true only for a capital loss>, \"text\": <the words it came from>}. Kinds:\n"
     + "\n".join(f"- {k}: {v}" for k, v in KINDS.items())
-    + "\nFor tips and overtime also give \"included_in_pay\": true when the message says the job pay already includes "
+    + "\nCosts listed for a rental property, including its property taxes and mortgage interest, are rental_expense; "
+    "property_tax and mortgage_interest are only for the home the person lives in.\nFor tips and overtime also give \"included_in_pay\": true when the message says the job pay already includes "
     "them (\"I earn $60k including $10k in tips\").\n"
     "filing_status: \"married_joint\" (married filing jointly, or married and filing together), \"married_separate\" "
     "(married filing separately), \"head_of_household\" (head of household, or an unmarried parent supporting their "
@@ -194,7 +201,10 @@ TREATED = {"wages": "wages (job pay)", "self_employment": "self-employment incom
            "tips": "tips (pay, and a deduction)", "retirement_withdrawal": "retirement withdrawal / pension (income)", "overtime": "overtime pay (pay, and a deduction for the premium)",
            "car_loan_interest": "car-loan interest (deduction)", "student_loan_interest": "student loan interest (deduction)", "care_expenses": "child/dependent care (credit)",
            "college_expenses": "college costs (credit)", "rental_income": "rent received (rental income)",
-           "rental_expense": "rental expense (subtracted from the rent)"}
+           "rental_expense": "rental expense (subtracted from the rent)",
+           "ira_contribution": "traditional IRA contribution (deduction, up to the limit)",
+           "home_purchase_price": "home: purchase price (basis)", "home_improvements": "home: improvements (added to basis)",
+           "home_sale_price": "home: sale price", "home_selling_costs": "home: selling costs (subtracted from the price)"}
 
 
 def _items(raw: list, allowed: list[float], must_use: list[float], base: list[dict] | None = None) -> tuple[list[dict] | None, str]:
@@ -256,8 +266,27 @@ def read(question: str, reply: dict | None, typed: str = "") -> tuple[Reading | 
         for it in items:
             if it["kind"] in ("tips", "overtime"):
                 it["included"] = True
-    return reading_from(items, status_from(reply.get("filing_status"), both), reply.get("year"),
-                        household_of(reply.get("household"), both))
+    house = household_of(reply.get("household"), both)
+    if any(it["kind"] == "rental_income" for it in items) and not _MAIN_HOME.search(both):
+        for it in items:                    # a landlord's figures with no home of their own: its property tax and
+            if it["kind"] in ("property_tax", "mortgage_interest"):     # mortgage interest are the rental's (the model
+                it["kind"] = "rental_expense"                           # once itemized them, under the SALT cap)
+    if any(it["kind"] == "home_sale_price" for it in items):
+        main = main_home(both)
+        if main is not None:
+            house["home_main_residence"] = main
+    return reading_from(items, status_from(reply.get("filing_status"), both), reply.get("year"), house)
+
+
+_NOT_MAIN_HOME = re.compile(r"\b(never lived|didn'?t live|did not live|not (?:our|my|their|his|her) (?:main|primary) (?:home|residence)|"
+                            r"second home|vacation home|investment property|rented (?:it|the (?:home|house)) out)\b", re.I)
+_MAIN_HOME = re.compile(r"\b(primary residence|main (?:home|residence)|principal residence|lived (?:in )?(?:it|there|in the home|in the house)|"
+                        r"(?:our|my|their) home)\b", re.I)
+
+
+def main_home(text: str):
+    """1 when the message says the home sold was the main home, 0 when it says it wasn't, None when it doesn't say."""
+    return 0 if _NOT_MAIN_HOME.search(text) else 1 if _MAIN_HOME.search(text) else None
 
 HOUSEHOLD = {"children_under_17": r"\b(kids?|child|children|sons?|daughters?|toddler|baby|babies|dependents?|\d{1,2}[- ](year|yr)s?[- ]old)\b",
              # a student or relative is a dependent only when the message says so: tuition for "my son" doesn't make him one
@@ -357,6 +386,14 @@ def reading_from(items: list[dict], status: str | None, year=None, household: di
         else:
             setattr(inp, kind, getattr(inp, kind) + (-amount if loss else amount))
     inp.filing_status = status if status in T.STATUSES else "single"
+    pay = sorted((it["amount"] for it in items if it["kind"] == "wages"), reverse=True)
+    if inp.filing_status == "married_joint" and len(pay) > 1:
+        inp.spouse_wages = sum(pay[1:])            # Social Security's wage base is per person
+    if inp.home_sale_price and "home_main_residence" not in r.household:
+        r.assumed.append("the home was your **main home** for at least 2 of the 5 years before the sale, so the Section 121 "
+                         "exclusion applies")
+        r.alternatives.append(("home", "the home wasn't your main home for 2 of the last 5 years (no exclusion)",
+                               {"home_main_residence": -1}))
     if inp.college_expenses and not inp.students:
         inp.students = 1
     said = " ".join(it["text"] for it in items)
@@ -387,7 +424,7 @@ def reading_from(items: list[dict], status: str | None, year=None, household: di
     except (TypeError, ValueError):
         r.year = None
     income = (inp.wages + inp.self_employment + inp.interest_dividends + inp.other_income + inp.short_term_gains
-              + inp.long_term_gains + inp.qualified_dividends + inp.rental_income)
+              + inp.long_term_gains + inp.qualified_dividends + inp.rental_income + inp.home_sale_price)
     if income <= 0:
         return None, "no income among the amounts"
     return r, ""
@@ -469,7 +506,34 @@ def render(r: Reading, est: dict, alts: list[tuple[str, dict]]) -> str:
         step += 1
         L.extend(["", f"**Step {step}. {title}**"] + ([why] if why else []) + [""])
 
-    # 1. a rental property
+    # a home sale
+    home = est["home_sale"]
+    if home["sold"]:
+        head("Work out the gain on the home sale",
+             "The gain is what you got for the home minus what it cost you. Its cost (the adjusted basis) is the price you "
+             "paid plus improvements (a new kitchen or roof, not repairs); what you got (the amount realized) is the sale "
+             "price minus the costs of selling, such as agent commissions and closing costs. Under Section 121, if you owned "
+             "the home and lived in it as your main home for at least 2 of the 5 years before the sale, up to $250,000 of "
+             "the gain ($500,000 married filing jointly) is tax-free.")
+        L.append(f"- Adjusted basis: {money(i['home_purchase_price'])} purchase price"
+                 + (f" + {money(i['home_improvements'])} improvements" if i["home_improvements"] else "")
+                 + f" = **{money(home['basis'])}**")
+        L.append(f"- Amount realized: {money(i['home_sale_price'])} sale price"
+                 + (f" − {money(i['home_selling_costs'])} selling costs" if i["home_selling_costs"] else "")
+                 + f" = **{money(home['realized'])}**")
+        L.append(f"- Gain: {money(home['realized'])} − {money(home['basis'])} = **{money(home['gain'])}**")
+        if home["gain"] <= 0:
+            L.append("- A loss on selling your own home can't be deducted, so nothing goes into your income.")
+        elif home["cap"]:
+            L.append(f"- Section 121 exclusion: up to {money(home['cap'])} "
+                     f"({'married filing jointly' if est['filing_status'] == 'married_joint' else 'per person filing alone'}), "
+                     f"so {money(home['excluded'])} is excluded and **{money(home['taxable'])}** is taxable"
+                     + (" as a long-term capital gain" if home["taxable"] else ": none of the gain is taxed"))
+        else:
+            L.append(f"- It wasn't your main home for 2 of the 5 years, so no exclusion: all **{money(home['taxable'])}** is a "
+                     "taxable long-term capital gain.")
+
+    # a rental property
     rent = est["rental"]
     if rent["income"] or rent["expenses"]:
         head("Work out the rental property's profit",
@@ -496,8 +560,10 @@ def render(r: Reading, est: dict, alts: list[tuple[str, dict]]) -> str:
     parts = [(label, i[k]) for k, label in INCOME_LABELS if i[k]]
     head("Add up your income",
          "Income tax starts from everything you earned in the year: pay from jobs and profit from investments you sold. "
-         + ("Taxes you paid, like property tax, are not income; they come in at step 2." if i["property_tax"] or i["state_local_taxes"] else ""))
+         + ("Taxes you paid, like property tax, are not income; they come in with the deduction." if i["property_tax"] or i["state_local_taxes"] else ""))
     yours = [(amount, treated) for _, amount, treated, kind in r.rows if kind in INCOME_KINDS]
+    if home["taxable"]:
+        yours.append((home["taxable"], "taxable home-sale gain"))
     if rent["allowed"]:
         yours.append((rent["allowed"], "net rental income"))
         parts.append(("Net rental income", rent["allowed"]))
@@ -509,12 +575,26 @@ def render(r: Reading, est: dict, alts: list[tuple[str, dict]]) -> str:
         L.append(f"- Your investments lost money overall: at most $3,000 of the loss can be subtracted from other income, "
                  f"so total income is **{money(est['gross_income'])}**.")
     if est["adjustments"]:
-        parts = [(i["pre_tax_retirement"], "pre-tax retirement contributions"),
-                 (est["adjustments"] - i["pre_tax_retirement"] - est["student_loan_deduction"], "half of the self-employment tax"),
+        ira = est["ira"]
+        parts = [(i["pre_tax_retirement"], "pre-tax retirement contributions"), (ira["deductible"], "traditional IRA contribution"),
+                 (est["adjustments"] - i["pre_tax_retirement"] - ira["deductible"] - est["student_loan_deduction"],
+                  "half of the self-employment tax"),
                  (est["student_loan_deduction"], "student loan interest")]
         parts = [(v, label) for v, label in parts if v > 0.5]
-        L.append(f"- Subtract {', '.join(label for _, label in parts)}: {money(est['gross_income'])} − "
+        names = [label for _, label in parts]
+        L.append(f"- Subtract {', '.join(names[:-1]) + ' and ' + names[-1] if len(names) > 1 else names[0]}: {money(est['gross_income'])} − "
                  + " − ".join(money(v) for v, _ in parts) + f" = **{money(est['agi'])}** (adjusted gross income)")
+        if ira["contributed"] and (ira["excess"] or ira["deductible"] < ira["allowed"] - 0.5):
+            line = f"- Traditional IRA: you put in {money(ira['contributed'])}"
+            if ira["excess"]:
+                line += (f"; at most {money(ira['limit'])} can go into one person's IRA for {year}, so the other "
+                         f"{money(ira['excess'])} is an excess contribution (take it out, with what it earned, before the tax "
+                         "deadline to avoid a 6% penalty each year)")
+            if ira["range"] and ira["deductible"] < ira["allowed"] - 0.5:
+                lo, hi = ira["range"]
+                line += (f"; with a workplace plan in the household the deduction phases out between {money(lo)} and "
+                         f"{money(hi)} of income")
+            L.append(line + f" → {money(ira['deductible'])} deducted")
         if i["student_loan_interest"] and est["student_loan_deduction"] < min(i["student_loan_interest"], 2500) - 0.5:
             sl = rules.get("student_loan_interest") or {}
             lo, hi = (sl.get("phase_out") or {}).get(est["filing_status"], (0, 0))
@@ -646,9 +726,16 @@ def render(r: Reading, est: dict, alts: list[tuple[str, dict]]) -> str:
              "Investment profit isn't taxed here.")
         wages = i["wages"]
         if p["social_security"]:
-            base = min(wages, pr["social_security_wage_base"])
-            L.append(f"- Social Security: {pct(pr['social_security_rate'])} × {money(base)} = {money(p['social_security'])}"
-                     + (f" (only the first {money(base)} of your {money(wages)})" if wages > base else ""))
+            wb, sp = pr["social_security_wage_base"], min(i.get("spouse_wages") or 0.0, wages)
+            base = min(wages - sp, wb) + min(sp, wb)
+            line = f"- Social Security: {pct(pr['social_security_rate'])} × {money(base)} = {money(p['social_security'])}"
+            if sp and base >= wages - 0.5:
+                line += f" (the wage base of {money(wb)} is per person, and each spouse's pay is under it)"
+            elif sp:
+                line += f" (the wage base of {money(wb)} is per person: only that much of either spouse's pay is taxed)"
+            elif wages > base:
+                line += f" (only the first {money(base)} of your {money(wages)})"
+            L.append(line)
         if p["medicare"]:
             L.append(f"- Medicare: {pct(pr['medicare_rate'])} × {money(wages)} = {money(p['medicare'])}")
         if p["self_employment_tax"]:
@@ -695,6 +782,8 @@ QUESTIONS = {
     "status": ("Do you file as single, or married filing jointly?", ["I file as single", "We're married filing jointly"]),
     "status_hoh": ("Are you married filing jointly, or unmarried and supporting your children (head of household)?",
                    ["I file as head of household", "We're married filing jointly"]),
+    "home": ("Did you own the home and live in it as your main home for at least 2 of the 5 years before selling it?",
+             ["It was our main home for 2 of the last 5 years", "It wasn't our main home for 2 of the last 5 years"]),
     "dependent": ("Is the student you pay tuition for your dependent?",
                   ["Yes, my student is my dependent", "No, they aren't my dependent"]),
 }
@@ -723,6 +812,8 @@ def topics_of(est: dict) -> list[str]:
         out.append("Earned income tax credit")
     if "child_and_dependent_care" in names:
         out.append("Child and Dependent Care Credit")
+    if est["home_sale"]["sold"]:
+        out.append("Selling your home and taxes")
     if est["rental"]["income"] or est["rental"]["expenses"]:
         out.append("How rental income is taxed")
     if est["new_deductions"]:
@@ -772,7 +863,8 @@ def estimate(r: Reading, change: str = "", before: dict | None = None) -> Estima
         text = text.replace("\n\n_Not included:", f"\n\n**One question:** {question} It changes your federal taxes by about "
                                                   f"{money(ask[0])}; tap an answer below and I'll redo it.\n\n_Not included:", 1)
     i = est["inputs"]
-    shown = ", ".join(f"{k}={i[k]:,.0f}" for k in i if k != "filing_status" and i[k])
+    shown = ", ".join(f"{k}={i[k]:,.0f}" for k in i if k != "filing_status" and i[k]
+                      and (k != "home_main_residence" or i["home_sale_price"]))
     note = (f"estimate({est['year']}, {est['filing_status']}, {shown}) → income tax {money(est['income_tax'])}, federal total "
             f"{money(est['total_federal'])}" + (f"; asks about {ask[1]} ({money(ask[0])})" if ask else ""))
     return Estimate(text, note, {**profile_of(r, est), "choices": choices}, choices, topics_of(est))
@@ -897,6 +989,8 @@ def follow_up(question: str, profile: dict, typed: str = "") -> tuple[Estimate |
     said_now = " ".join((typed or question).lower().strip(" .!?").split())
     if said_now == QUESTIONS["dependent"][1][0].lower():      # the "yes, my student is my dependent" button
         house = {**house, "other_dependents": max(house.get("other_dependents", 0), house.get("students", 0) or 1)}
+    if any(b["kind"] == "home_sale_price" for b in base) and (main := main_home(f"{question} {typed}")) is not None:
+        house = {**house, "home_main_residence": main}      # the main-home button, or "what if it wasn't our main home?"
     same = (status == profile.get("filing_status") and house == old_house and
             [(i["amount"], i["kind"], i["loss"]) for i in items] == [(b["amount"], b["kind"], b["loss"]) for b in base])
     if same:
@@ -908,8 +1002,10 @@ def follow_up(question: str, profile: dict, typed: str = "") -> tuple[Estimate |
     if reading is None:
         return None, f"tax follow-up: {why}"
     change = what_changed(base, items, profile.get("filing_status"), status)
-    moved = [f"{HOUSEHOLD_WORDS.get(k, k)}: {house.get(k, 0)}" for k in sorted(set(house) | set(old_house))
-             if house.get(k, 0) != old_house.get(k, 0)]
+    moved = [("the home was your main home for 2 of the last 5 years" if house.get(k, 1) else
+              "the home wasn't your main home for 2 of the last 5 years") if k == "home_main_residence" else
+             f"{HOUSEHOLD_WORDS.get(k, k)}: {house.get(k, 0)}" for k in sorted(set(house) | set(old_house))
+             if house.get(k, 0 if k != "home_main_residence" else 1) != old_house.get(k, 0 if k != "home_main_residence" else 1)]
     if moved:
         change = "; ".join([*([] if change == "your figures changed" else [change]), *moved])
     out = estimate(reading, change, profile)
@@ -993,6 +1089,22 @@ def estimate_facts(profile: dict | None, question: str) -> str:
                      "SALT cap doesn't limit them and they count even with the standard deduction."
                      + (f" {money(-rent['allowed'])} of the loss offsets other income this year; {money(rent['carried_forward'])} "
                         "carries forward." if rent["net"] < 0 else ""))
+    home = est["home_sale"]
+    if home["sold"] and re.search(r"\b(home|house|basis|realized|realised|sale|sold|section 121|exclu\w*|gain)\b", question, re.I):
+        lines.append(f"Adjusted basis: {money(i['home_purchase_price'])} purchase price + {money(i['home_improvements'])} "
+                     f"improvements = **{money(home['basis'])}**. Amount realized: {money(i['home_sale_price'])} sale price − "
+                     f"{money(i['home_selling_costs'])} selling costs = **{money(home['realized'])}**. Realized gain: "
+                     f"{money(home['realized'])} − {money(home['basis'])} = **{money(home['gain'])}**.")
+        if home["gain"] > 0:
+            lines.append((f"Section 121: as your main home for at least 2 of the 5 years before the sale, up to "
+                          f"{money(home['cap'])} ({'married filing jointly' if est['filing_status'] == 'married_joint' else 'filing alone'}) "
+                          f"of the gain is excluded: **{money(home['excluded'])}** excluded, **{money(home['taxable'])}** taxable"
+                          + (" as a long-term capital gain." if home["taxable"] else ", so none of the gain is taxed."))
+                         if home["cap"] else
+                         f"Section 121 doesn't apply (not your main home for 2 of the last 5 years): all {money(home['gain'])} "
+                         "is a taxable long-term capital gain.")
+        else:
+            lines.append("A loss on selling your own home isn't deductible.")
     if re.search(r"capital gains?|short[- ]term|stock|shares|ordinary", question, re.I) and est["short_term_taxed"] > 0:
         lines.append(f"Your {money(est['short_term_taxed'])} of short-term gains (shares held a year or less) is taxed as "
                      f"ordinary income, like salary, in your brackets (your top one is {pct(est['marginal_rate'])}), not at "

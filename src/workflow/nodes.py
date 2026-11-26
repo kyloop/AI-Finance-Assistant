@@ -429,7 +429,8 @@ _FIGURE_ASKED = re.compile(r"\b(how much|how many dollars|estimate|work out|calc
 
 
 _TAX_TOPIC = re.compile(r"\b(tax|taxes|taxed|taxable|irs|deduct\w*|itemi[sz]\w*|salt|401\(?k\)?|403\(?b\)?|\bira\b|roth|hsa|"
-                        r"rmd|required minimum|capital gains?|gift tax|estate tax|w-?2|1099|withholding|refund)\b", re.I)
+                        r"rmd|required minimum|capital gains?|gift tax|estate tax|w-?2|1099|withholding|refund|section 121|"
+                        r"home[- ]sale|cost basis|adjusted basis)\b", re.I)
 
 
 def _tax_scenario(text: str) -> bool:
@@ -693,6 +694,11 @@ def tax_node(state: FinanceState, config: RunnableConfig):
     if picked:
         name, args, note = picked
         trace_first.append(note)
+        home = any(it.get("kind") == "home_sale_price" for it in (last.get("items") or [])) or bool(
+            re.search(r"\b(home|house|residence|section 121)\b", f"{question} {typed_now}", re.I))
+        if name == "capital_gain" and home:          # a home sale: the estimate works out basis, gain and Section 121
+            trace_first.append("tax tool capital_gain skipped (a home sale) → the estimate")
+            name, picked = "estimate_income_tax", ("estimate_income_tax", {}, note)
         if name in TW.WHATIFS:
             typed = state.get("original_question") or ""
             try:
@@ -715,7 +721,10 @@ def tax_node(state: FinanceState, config: RunnableConfig):
         res["turn_context"] = {"tax": kept}
         return res
     # the model picked the estimate ("Sarah is a single taxpayer ... salary $95,000 ..."): a scenario with no question
-    figure = TAXC.states_tax_figure(typed) or TAXC.states_tax_figure(question) or TAXC.is_scenario(typed) or bool(
+    # a question about a rule that mentions a figure ("I sold shares for $3,000 that cost $7,000 and bought them back:
+    # can I deduct the loss?") is explained when the model picked explain_rules; an estimate there misread the sale
+    rule_question = bool(picked and picked[0] == "explain_rules" and TAXC.is_question(typed) and not TAXC.asks_income_tax(question))
+    figure = ((TAXC.states_tax_figure(typed) or TAXC.states_tax_figure(question)) and not rule_question) or TAXC.is_scenario(typed) or bool(
         picked and picked[0] == "estimate_income_tax" and TAXC.amounts(question))
     if current_llm() is not None and (profile or TAXC.asks_income_tax(question) or figure):
         est, note = None, ""

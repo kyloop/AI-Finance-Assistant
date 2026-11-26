@@ -37,6 +37,13 @@ def _mine(value, allowed: list[float], name: str) -> float | None:
     return v
 
 
+def _base_income(args: dict, allowed: list[float], profile: dict | None) -> float | None:
+    """The base_income argument, which may repeat a figure of the carried estimate (the model passed the $120,000 the
+    user gave a message earlier; it's ignored then, since the estimate is the base)."""
+    carried = [float(it.get("amount") or 0) for it in (profile or {}).get("items") or []]
+    return _mine(args.get("base_income"), allowed + carried, "base income")
+
+
 def base_inputs(profile: dict | None, base_income: float | None) -> tuple[T.TaxInputs | None, str]:
     """The user's other income to measure against: the carried estimate, else the income the message gives (as wages)."""
     if profile:
@@ -62,7 +69,7 @@ def marginal_effect(args: dict, question: str, profile: dict | None) -> tuple[st
     kind = str(args.get("kind") or "wages")
     if amount is None or kind not in INCOME_FIELDS:
         raise Refused("no amount or kind")
-    inp, base = base_inputs(profile, _mine(args.get("base_income"), allowed, "base income"))
+    inp, base = base_inputs(profile, _base_income(args, allowed, profile))
     if inp is None:
         raise Refused("no income to measure against")
     sign = -1 if args.get("decrease") else 1
@@ -101,7 +108,7 @@ def compare_accounts(args: dict, question: str, profile: dict | None, goal: dict
     contribution = _mine(args.get("contribution"), allowed, "contribution")
     if contribution is None:
         raise Refused("no contribution amount")
-    inp, base = base_inputs(profile, _mine(args.get("base_income"), allowed, "base income"))
+    inp, base = base_inputs(profile, _base_income(args, allowed, profile))
     if inp is None:
         raise Refused("no income to measure against")
     assumed = []
@@ -173,7 +180,7 @@ def capital_gain(args: dict, question: str, profile: dict | None) -> tuple[str, 
     if held_long is None:
         held_long = True
         assumed.append("you held the shares **more than a year** (long-term)")
-    inp, base = base_inputs(profile, _mine(args.get("base_income"), allowed, "base income"))
+    inp, base = base_inputs(profile, _base_income(args, allowed, profile))
     g = T.capital_gain(proceeds, basis, held_long, bool(args.get("rebought_within_30_days")), inp)
     gain = g["gain"]
     lines = ["**Your gain or loss on the sale**, step by step", "", "**Step 1. Gain or loss**",

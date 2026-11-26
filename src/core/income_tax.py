@@ -2,8 +2,9 @@
 (brackets, standard deduction, capital-gains breakpoints, SALT cap, NIIT, FICA) are in src/data/tax_rules.yaml.
 
 Covers all four filing statuses; wages, self-employment income, interest and dividends, other ordinary income, short- and
-long-term capital gains; a rental property's net income or loss (Schedule E, with the passive-loss limit); pre-tax
-retirement contributions; the standard deduction (with the 65+/blind addition) or the
+long-term capital gains; a rental property's net income or loss (Schedule E, with the passive-loss limit); the sale of
+a main home (adjusted basis, gain, the Section 121 exclusion); pre-tax workplace-plan contributions and traditional IRA
+contributions (the year's limit, and the deduction's phase-out when a workplace plan is in the household); the standard deduction (with the 65+/blind addition) or the
 itemized deductions most people have (state/local taxes, mortgage interest, charity); the One Big Beautiful Bill Act
 deductions (seniors, tips, overtime, car-loan interest); and the common credits: child tax credit and credit for other
 dependents, earned income credit, child and dependent care credit, American Opportunity and Lifetime Learning credits.
@@ -26,7 +27,8 @@ STATUSES = ("single", "married_joint", "head_of_household", "married_separate")
 class TaxInputs:
     """A year's figures, in dollars. Losses are negative capital gains."""
     filing_status: str = "single"
-    wages: float = 0.0                       # W-2 pay (payroll taxes withheld)
+    wages: float = 0.0                       # W-2 pay (payroll taxes withheld), both spouses' on a joint return
+    spouse_wages: float = 0.0                # the part of `wages` the other spouse earned: Social Security's wage base is per person
     self_employment: float = 0.0             # net self-employment / 1099 earnings (self-employment tax applies)
     interest_dividends: float = 0.0          # interest and non-qualified dividends: ordinary rates, counts for NIIT
     other_income: float = 0.0                # other ordinary income (not investment income)
@@ -36,7 +38,14 @@ class TaxInputs:
     short_term_gains: float = 0.0            # assets held a year or less
     long_term_gains: float = 0.0             # assets held more than a year
     qualified_dividends: float = 0.0
-    pre_tax_retirement: float = 0.0          # traditional 401(k)/IRA contributions: lower taxable income, not payroll tax
+    pre_tax_retirement: float = 0.0          # traditional 401(k)/403(b)/457 contributions: lower taxable income, not payroll tax
+    ira_contribution: float = 0.0            # traditional IRA contributions: deductible up to the year's limit
+    # the sale of the home you live in (Section 121)
+    home_purchase_price: float = 0.0
+    home_improvements: float = 0.0           # capital improvements (a new kitchen, a roof), not repairs
+    home_sale_price: float = 0.0
+    home_selling_costs: float = 0.0          # commissions, closing costs
+    home_main_residence: int = 1             # 1: owned and lived in as the main home 2 of the 5 years before the sale
     student_loan_interest: float = 0.0       # deducted above the line (up to $2,500, phased out by income)
     state_local_taxes: float = 0.0           # state/local income or sales tax paid (SALT)
     property_tax: float = 0.0                # real estate tax paid (SALT)
@@ -130,13 +139,56 @@ def rental(inp: TaxInputs, magi: float, r: dict) -> dict:
     return {**out, "allowed": -allowed, "carried_forward": -net - allowed, "allowance": allowance}
 
 
+def home_sale(inp: TaxInputs, r: dict) -> dict:
+    """The sale of the home you live in: adjusted basis (price + improvements), amount realized (sale price - selling
+    costs), the gain, and the Section 121 exclusion ($250,000, or $500,000 married filing jointly) when it was your main
+    home 2 of the 5 years before the sale. What is left is a long-term capital gain; a loss on your own home isn't deductible."""
+    basis = inp.home_purchase_price + inp.home_improvements
+    realized = inp.home_sale_price - inp.home_selling_costs
+    gain = realized - basis
+    excl = r.get("limits", {}).get("home_sale_exclusion") or {"single": 250000, "married_joint": 500000}
+    cap = excl["married_joint" if inp.filing_status == "married_joint" else "single"] if inp.home_main_residence else 0.0
+    excluded = min(max(gain, 0.0), cap)
+    return {"sold": inp.home_sale_price > 0, "basis": basis, "realized": realized, "gain": gain, "cap": cap,
+            "excluded": excluded, "taxable": max(0.0, gain - excluded)}
+
+
+def ira_deduction(inp: TaxInputs, magi: float, r: dict) -> dict:
+    """A traditional IRA contribution: deductible up to the year's limit (plus the 50+ catch-up), and phased out across
+    the year's range of modified AGI when a workplace plan is in the household (pre_tax_retirement): for a single filer
+    it's theirs; filing jointly the IRA is taken to be the spouse's without the plan. Over the limit is an excess
+    contribution. It is taken to be one person's IRA."""
+    out = {"contributed": inp.ira_contribution, "limit": 0.0, "allowed": 0.0, "deductible": 0.0, "excess": 0.0, "range": None}
+    if inp.ira_contribution <= 0:
+        return out
+    L = r.get("limits") or {}
+    ira = L.get("ira") or {"limit": 7000, "catch_up_50": 1000}
+    limit = ira["limit"] + (ira["catch_up_50"] if inp.age_65_or_older else 0)     # one person's IRA
+    allowed = min(inp.ira_contribution, limit)
+    rng = None
+    if inp.pre_tax_retirement > 0 and L.get("ira_deduction_phase_out"):
+        ph = L["ira_deduction_phase_out"]
+        rng = (ph["spouse_covered"].get(inp.filing_status) if inp.filing_status == "married_joint"
+               else ph["covered"].get(inp.filing_status))
+    deductible = allowed
+    if rng:
+        lo, hi = rng
+        if magi >= hi:
+            deductible = 0.0
+        elif magi > lo:
+            deductible = min(allowed, max(200.0, math.ceil(allowed * (hi - magi) / (hi - lo) / 10) * 10))
+    return {**out, "limit": limit, "allowed": allowed, "deductible": deductible, "excess": inp.ira_contribution - allowed,
+            "range": rng}
+
+
 def payroll_taxes(inp: TaxInputs, r: dict) -> dict:
     p, status = r["payroll"], inp.filing_status
     wages, se = max(inp.wages, 0.0), max(inp.self_employment, 0.0)
-    ss = min(wages, p["social_security_wage_base"]) * p["social_security_rate"]
+    spouse = min(max(inp.spouse_wages, 0.0), wages)
+    ss = (min(wages - spouse, p["social_security_wage_base"]) + min(spouse, p["social_security_wage_base"])) * p["social_security_rate"]
     medicare = wages * p["medicare_rate"]
     se_base = se * p["self_employment_base"]
-    se_ss = min(se_base, max(0.0, p["social_security_wage_base"] - wages)) * 2 * p["social_security_rate"]
+    se_ss = min(se_base, max(0.0, p["social_security_wage_base"] - (wages - spouse))) * 2 * p["social_security_rate"]
     se_medicare = se_base * 2 * p["medicare_rate"]
     additional = max(0.0, wages + se_base - p["additional_medicare_threshold"][status]) * p["additional_medicare_rate"]
     return {"social_security": ss, "medicare": medicare, "self_employment_tax": se_ss + se_medicare,
@@ -150,13 +202,15 @@ def estimate(inp: TaxInputs, year: int | None = None) -> dict:
         raise ValueError(f"filing status must be one of {', '.join(STATUSES)}")
     year, r = rules(year)
     status = inp.filing_status
-    st, lt, loss = _net_gains(inp.short_term_gains, inp.long_term_gains, r["capital_loss_limit"])
+    home = home_sale(inp, r)
+    st, lt, loss = _net_gains(inp.short_term_gains, inp.long_term_gains + home["taxable"], r["capital_loss_limit"])
     qdiv = max(inp.qualified_dividends, 0.0)
     payroll = payroll_taxes(inp, r)
     gross = (inp.wages + inp.self_employment + inp.interest_dividends + inp.other_income + st + lt + qdiv + loss)
     rent = rental(inp, max(0.0, gross - payroll["half_se_deduction"] - inp.pre_tax_retirement), r)
     gross += rent["allowed"]
-    agi_before = max(0.0, gross - payroll["half_se_deduction"] - inp.pre_tax_retirement)
+    ira = ira_deduction(inp, max(0.0, gross - payroll["half_se_deduction"] - inp.pre_tax_retirement), r)
+    agi_before = max(0.0, gross - payroll["half_se_deduction"] - inp.pre_tax_retirement - ira["deductible"])
     student_loan = student_loan_deduction(inp, agi_before, r)
     agi = max(0.0, agi_before - student_loan)
 
@@ -187,7 +241,8 @@ def estimate(inp: TaxInputs, year: int | None = None) -> dict:
     return {
         "year": year, "filing_status": status, "inputs": asdict(inp),
         "gross_income": gross, "rental": rent, "short_term_taxed": st, "long_term_taxed": lt, "capital_loss_deducted": loss,
-        "adjustments": payroll["half_se_deduction"] + inp.pre_tax_retirement + student_loan, "agi": agi,
+        "adjustments": payroll["half_se_deduction"] + inp.pre_tax_retirement + ira["deductible"] + student_loan,
+        "ira": ira, "home_sale": home, "agi": agi,
         "student_loan_deduction": student_loan,
         "salt_paid": salt_paid, "salt_cap": salt_cap, "salt_deduction": salt, "itemized": itemized, "standard": standard,
         "itemizes": itemized > standard, "deduction": deduction,

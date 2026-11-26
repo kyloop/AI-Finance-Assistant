@@ -79,6 +79,9 @@ years:
     limits:
       workplace_plan: {employee: 24500, catch_up_50: 8000, catch_up_60_63: 11250, roth_catch_up_wage_line: 150000}
       ira: {limit: 7500, catch_up_50: 1100}
+      ira_deduction_phase_out: {covered: {single: [81000, 91000], head_of_household: [81000, 91000],
+                                          married_joint: [129000, 149000], married_separate: [0, 10000]},
+                                spouse_covered: {married_joint: [242000, 252000], married_separate: [0, 10000]}}
       roth_ira_phase_out: {single: [153000, 168000], head_of_household: [153000, 168000], married_joint: [242000, 252000],
                            married_separate: [0, 10000]}
       hsa: {self_only: 4400, family: 8750, catch_up_55: 1000}
@@ -134,6 +137,24 @@ years:
       car_loan_interest: {cap: 10000, phase_out_start: {single: 100000, married_joint: 200000, head_of_household: 100000}, per_1000: 200}
     student_loan_interest: {cap: 2500, phase_out: {single: [85000, 100000], head_of_household: [85000, 100000],
                                                    married_joint: [170000, 200000]}}
+    # 2025 limits: IRS Notice 2024-80 (401(k)/IRA limits, Roth and IRA-deduction ranges), Rev. Proc. 2024-25 (HSA),
+    # Rev. Proc. 2024-40 (gift exclusion, estate exemption); statutory lines as in 2026.
+    limits:
+      workplace_plan: {employee: 23500, catch_up_50: 7500, catch_up_60_63: 11250, roth_catch_up_wage_line: 145000}
+      ira: {limit: 7000, catch_up_50: 1000}
+      ira_deduction_phase_out: {covered: {single: [79000, 89000], head_of_household: [79000, 89000],
+                                          married_joint: [126000, 146000], married_separate: [0, 10000]},
+                                spouse_covered: {married_joint: [236000, 246000], married_separate: [0, 10000]}}
+      roth_ira_phase_out: {single: [150000, 165000], head_of_household: [150000, 165000], married_joint: [236000, 246000],
+                           married_separate: [0, 10000]}
+      hsa: {self_only: 4300, family: 8550, catch_up_55: 1000}
+      gift_annual_exclusion: 19000
+      estate_gift_exemption: 13990000
+      estate_tax_top_rate: 0.40
+      home_sale_exclusion: {single: 250000, married_joint: 500000}
+      social_security_benefits_taxed: {up_to_50_percent: {single: 25000, married_joint: 32000},
+                                       up_to_85_percent: {single: 34000, married_joint: 44000}}
+      rmd_age: {born_1951_to_1959: 73, born_1960_or_later: 75}
     credits:
       child: {amount: 2200, refundable: 1700, refundable_rate: 0.15, refundable_floor: 2500, other_dependent: 500,
               phase_out_start: {single: 200000, married_joint: 400000, married_separate: 200000, head_of_household: 200000},
