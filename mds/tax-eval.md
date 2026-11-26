@@ -1,6 +1,6 @@
 # Tax agent eval
 
-`python -m scripts.eval_tax` on 2026-11-25: **42/42 cases passed** (83/83 messages). Provider `auto`; models anthropic: claude-sonnet-5-5, openai: gpt-4o-mini, gemini: gemini-2.0-flash. Cases: [tests/data/tax_eval.yaml](../tests/data/tax_eval.yaml); design: [agent-tax-agent.md](agent-tax-agent.md).
+`python -m scripts.eval_tax` on 2026-11-26: **43/43 cases passed** (87/87 messages). Provider `auto`; models anthropic: claude-sonnet-5-5, openai: gpt-4o-mini, gemini: gemini-2.0-flash. Cases: [tests/data/tax_eval.yaml](../tests/data/tax_eval.yaml); design: [agent-tax-agent.md](agent-tax-agent.md).
 
 Each case is replayed through the real workflow with the real model, the conversation's memory carried between messages as in the app. After every message the check compares who answered, the filing status, how each amount was sorted, the household, the income tax and federal total (within $1), the question asked and required phrases. Expected inputs are set by hand; the totals come from them by hand or with the hand-tested estimator. The model varies between runs, so a case can pass one run and fail the next: a failure is a lead to look at.
 
@@ -48,3 +48,4 @@ Each case is replayed through the real workflow with the real model, the convers
 | d20 | chain (2) | a low-income family with credits, then a raise | pass | $-10,416 | $-6,973 | none |  |
 | d21 | chain (3) | a rental property owner (Schedule E), then which rental expenses count and how a short-term gain is taxed | pass | $19,907 | $29,087 | none |  |
 | d22 | chain (6) | a married couple's home sale (basis, gain, Section 121, tax on it), a W-2 home office, and 401(k) and IRA contributions (over the limit) | pass | $25,848 | $42,678 | none |  |
+| e01 | chain (4) | Kevin's chain; a house down-payment example, "how would the tax change in this case?" with a saved retirement plan, then a $200,000 loan at 1.5% | pass | — | — | none |  |

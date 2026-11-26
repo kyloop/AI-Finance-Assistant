@@ -289,3 +289,150 @@ CHOOSER_SYSTEM = (
 
 WHATIFS = {"marginal_effect": lambda a, q, p, **_: marginal_effect(a, q, p), "compare_accounts": compare_accounts,
            "capital_gain": lambda a, q, p, **_: capital_gain(a, q, p)}
+
+
+# ---------------------------------------------------------------- a savings goal's tax (the worked example of a goal)
+def savings_goal_tax(scenario: dict, profile: dict | None = None) -> tuple[str, str]:
+    """How federal tax applies to saving for a goal ({kind: savings_goal, goal_type, figures: target, years, monthly,
+    home_price, down_payment_pct}, context.scenario): the interest earned while saving, and for a house the first-home
+    IRA withdrawal, the mortgage-interest and property-tax deductions against the standard deduction, and the home-sale
+    exclusion. The user's rate comes from their last estimate when there is one, else common brackets are shown; every
+    other assumption (yield, mortgage rate, property tax) is config.yaml's tax_assumptions and is said."""
+    f = scenario.get("figures") or {}
+    target, years = float(f.get("target") or 0), int(f.get("years") or 0)
+    if target <= 0 or years <= 0:
+        raise Refused("the example has no target or years")
+    kind = scenario.get("goal_type") or "other"
+    a = get_config().get("tax_assumptions") or {}
+    rate = float(a.get("savings_rate", 0.04))
+    brackets = [float(b) for b in a.get("brackets") or [0.12, 0.22, 0.24]]
+    year, r = T.rules((profile or {}).get("year"))
+    L = r.get("limits") or {}
+    sd = r["standard_deduction"]
+    inp, base = base_inputs(profile, None)
+    # what is put away each month at the savings yield to reach the target (the example's own monthly may assume another return)
+    from src.core.calculators import project_goal
+    monthly = project_goal(target, years, 0, 0, rate)["required_monthly"]
+    rows = T.savings_interest(monthly, years, rate)
+    total_interest = sum(x["interest"] for x in rows)
+    assumed = [f"the savings are kept in a high-yield savings account or CDs paying {rate * 100:g}% a year"]
+    lines = [f"**How federal tax applies to {scenario.get('text') or f'saving {money(target)} over {years} years'}**, step by step", "",
+             "Saving itself isn't taxed: the money you put aside is pay you already paid tax on. What tax touches is what "
+             "the savings earn, and for a home, what you can deduct after you buy and when you sell.", "",
+             "**Step 1. Tax on the interest while you save**",
+             f"Interest from a savings account, CD or money-market fund is ordinary income, taxed at your top bracket the year "
+             f"it is paid (your bank sends a Form 1099-INT). Saving about {money(monthly)} a month at {rate * 100:g}%"
+             + (f" (the example's {money(f['monthly'])} a month assumed {'no' if f['monthly'] * 12 * years >= target - 1 else 'a different'} "
+                "return)" if f.get("monthly") and abs(float(f["monthly"]) - monthly) > 1 else "") + ":", ""]
+    if inp is not None:
+        lines += [f"Measured against {base}.", "", "| Year | Interest earned | Federal tax on it |", "|---|---|---|"]
+        taxes = []
+        for x in rows:
+            d = T.marginal_effect(inp, {"interest_dividends": x["interest"]}, year)["diff"]["total_federal"]
+            taxes.append(d)
+            lines.append(f"| {x['year']} | {money(x['interest'])} | {money(d)} |")
+        lines += [f"| **Total** | **{money(total_interest)}** | **{money(sum(taxes))}** |", ""]
+    else:
+        lines += ["| Year | Interest earned | " + " | ".join(f"Tax at {pct(b)}" for b in brackets) + " |",
+                  "|---|---|" + "---|" * len(brackets)]
+        for x in rows:
+            lines.append(f"| {x['year']} | {money(x['interest'])} | " + " | ".join(money(x["interest"] * b) for b in brackets) + " |")
+        lines += [f"| **Total** | **{money(total_interest)}** | " + " | ".join(f"**{money(total_interest * b)}**" for b in brackets) + " |",
+                  "", f"Which column is yours depends on your income: for a single filer in {year} the 22% bracket starts at "
+                  f"{money(r['brackets']['single'][1][0])} of taxable income and the 24% at {money(r['brackets']['single'][2][0])}. "
+                  "Tell me your income and I'll work out your own figure.", ""]
+    lines += [f"- After {years} years you'd have about {money(rows[-1]['balance'])}: {money(monthly * 12 * years)} paid in plus "
+              f"{money(total_interest)} of interest.",
+              "- Treasury bills and I bonds are taxed federally too, but not by your state. Investing the money in a "
+              "brokerage account instead gives capital gains (0%, 15% or 20% if held over a year), with the risk of a fall "
+              "just before you need it.", ""]
+    step = 2
+    if kind == "house":
+        price = float(f.get("home_price") or 0)
+        share = float(f.get("down_payment_pct") or 0)
+        if not price:
+            share = share or 0.20
+            price = target / share
+            assumed.append(f"the target is a {share * 100:.0f}% down payment, so a home of about {money(price)}")
+        ira = L.get("first_home_ira", 10000)
+        top = brackets[len(brackets) // 2]
+        lines += [f"**Step {step}. Using an IRA for part of the down payment**",
+                  f"A first-time homebuyer (no home owned in the last 2 years) can take up to **{money(ira)}** in their "
+                  "lifetime out of IRAs without the 10% early-withdrawal penalty; each spouse has their own "
+                  f"{money(ira)}. A 401(k) has no such exception (a 401(k) loan is the usual route there).",
+                  f"- Traditional IRA: no penalty, but the withdrawal is still taxed as income: {money(ira)} at {pct(top)} is "
+                  f"{money(ira * top)} of tax (it saves the {money(ira * 0.10)} penalty).",
+                  "- Roth IRA: your contributions come out tax- and penalty-free at any time. Earnings up to "
+                  f"{money(ira)} are tax-free too if the Roth was opened at least 5 years ago; otherwise they're taxed but not "
+                  "penalized.", ""]
+        step += 1
+        given = bool(f.get("loan_amount"))           # the user's loan ("if I borrow $200,000 at 1.5%"), else a typical mortgage
+        m_rate = float(f.get("loan_rate") or a.get("mortgage_rate", 0.065))
+        m_years = int(f.get("loan_years") or a.get("mortgage_years", 30))
+        loan = float(f["loan_amount"]) if given else max(0.0, price - target)
+        mort = T.mortgage_first_year(loan, m_rate, m_years)
+        prop_rate = float(a.get("property_tax_rate", 0.011))
+        prop = price * prop_rate
+        cap_debt = L.get("mortgage_debt_limit", 750000)
+        salt_cap = r["salt"]["cap"]
+        itemized = mort["interest"] + min(prop, salt_cap)
+        assumed.append((f"the {money(loan)} loan is a mortgage secured by the home" if given else
+                        f"a {m_years}-year mortgage at {m_rate * 100:g}%") + f", and property tax of {prop_rate * 100:g}% of the price a year")
+        assumed += list(scenario.get("assumed") or [])
+        lines += [f"**Step {step}. After you buy: mortgage interest and property tax**",
+                  (f"- Your loan: **{money(loan)}** at {m_rate * 100:g}% over {m_years} years ({money(price)} − {money(loan)} = "
+                   f"{money(target)} paid up front)" if given else
+                   f"- Mortgage: {money(price)} − {money(target)} down = **{money(loan)}**; at {m_rate * 100:g}% over {m_years} years")
+                  + f": {money(mort['payment'])} a month, and about **{money(mort['interest'])}** of interest in the first year.",
+                  f"- Property tax: {money(price)} × {prop_rate * 100:g}% = **{money(prop)}** a year.",
+                  f"- Both are itemized deductions: interest on up to {money(cap_debt)} of mortgage, and property tax together with "
+                  f"state income tax up to the {money(salt_cap)} SALT cap. Together: **{money(itemized)}**.",
+                  f"- They only lower your tax if your itemized deductions beat the {year} standard deduction: "
+                  f"{money(sd['single'])} single, {money(sd['married_joint'])} married filing jointly."]
+        if inp is not None:
+            e = T.marginal_effect(inp, {"mortgage_interest": mort["interest"], "property_tax": prop}, year)
+            saved = -e["diff"]["total_federal"]
+            lines.append(f"- With your figures you'd {'itemize' if e['after']['itemizes'] else 'still take the standard deduction'}: "
+                         f"the home lowers your federal tax by **{money(saved)}** in the first year.")
+        else:
+            for label, std in (("Single", sd["single"]), ("Married filing jointly", sd["married_joint"])):
+                over = itemized - std
+                lines.append(f"- {label}: {money(itemized)} vs {money(std)} → " + (
+                    f"itemizing gives {money(over)} more deduction, worth about {money(over * top)} at {pct(top)}."
+                    if over > 0 else f"the standard deduction is larger by {money(-over)}, so the home itself saves no federal tax "
+                    "(unless state income tax, charity and other deductions add up to more)."))
+        prev = scenario.get("previous") or {}
+        if given and prev.get("loan_amount") and prev.get("loan_rate"):
+            before = T.mortgage_first_year(float(prev["loan_amount"]), float(prev["loan_rate"]), int(prev.get("loan_years") or m_years))
+            lines.append(f"- Compared with the example's {money(float(prev['loan_amount']))} mortgage at {float(prev['loan_rate']) * 100:g}% "
+                         f"({money(before['interest'])} of first-year interest), there is {money(abs(before['interest'] - mort['interest']))} "
+                         f"{'less' if mort['interest'] < before['interest'] else 'more'} interest to deduct, so itemizing is "
+                         f"{'less' if mort['interest'] < before['interest'] else 'more'} likely to beat the standard deduction.")
+        if given:
+            lines.append("- That interest counts only if the loan is a mortgage secured by the home. A personal (unsecured) loan's "
+                         f"interest isn't deductible at all, even if it pays for the house: then the deduction is the {money(min(prop, salt_cap))} "
+                         "of property tax alone.")
+        lines.append("")
+        step += 1
+        excl = L.get("home_sale_exclusion") or {"single": 250000, "married_joint": 500000}
+        lines += [f"**Step {step}. When you sell it later**",
+                  f"Gain on your main home is tax-free up to **{money(excl['single'])}** ({money(excl['married_joint'])} married "
+                  "filing jointly) if you owned it and lived in it for 2 of the 5 years before the sale (Section 121). Gain above "
+                  "that is a long-term capital gain. The down payment and improvements are part of your cost basis.", ""]
+        step += 1
+    elif kind == "education":
+        lines += [f"**Step {step}. A tax-free account for it**",
+                  "Saving in a 529 plan instead: no federal tax on the growth, and withdrawals for tuition, fees, books and room "
+                  "and board are tax-free (many states also deduct contributions). Earnings taken for anything else are taxed "
+                  "and get a 10% penalty.", ""]
+        step += 1
+    elif kind == "retirement":
+        lines += [f"**Step {step}. A retirement account instead**",
+                  "In a 401(k) or traditional IRA the growth isn't taxed each year and contributions lower your taxable income now; "
+                  "withdrawals are taxed later. In a Roth, growth and qualified withdrawals are tax-free. Ask me to compare "
+                  "Roth and traditional for your contribution.", ""]
+        step += 1
+    lines += ["**Assumed:** " + "; ".join(assumed) + ".", "",
+              f"_Federal only ({year} rules), no state tax; an illustration computed in Python, not a forecast._"]
+    return "\n".join(lines), (f"savings_goal_tax({kind}, {target:,.0f}, {years}y) → interest {total_interest:,.0f}"
+                              + (", with your estimate" if inp is not None else ", brackets shown"))

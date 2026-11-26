@@ -74,7 +74,7 @@ years:
     #   IRS, "401(k) limit increases to $24,500 for 2026, IRA limit increases to $7,500" (Notice 2025-67): 401(k)/403(b)/
     #     457/TSP limits and catch-ups, IRA limit and catch-up, Roth IRA income ranges.
     #   HSA: IRS Rev. Proc. 2025-19 (via plan-sponsor summaries). Estate/gift: Rev. Proc. 2025-32 (via law-firm alerts).
-    #   Statutory, not indexed: home-sale exclusion (26 U.S.C. 121), Social Security benefit thresholds (26 U.S.C. 86),
+    #   Statutory, not indexed: home-sale exclusion (26 U.S.C. 121), first-home IRA withdrawal and mortgage-debt limit, Social Security benefit thresholds (26 U.S.C. 86),
     #   RMD starting age (SECURE 2.0 Act).
     limits:
       workplace_plan: {employee: 24500, catch_up_50: 8000, catch_up_60_63: 11250, roth_catch_up_wage_line: 150000}
@@ -89,6 +89,8 @@ years:
       estate_gift_exemption: 15000000
       estate_tax_top_rate: 0.40
       home_sale_exclusion: {single: 250000, married_joint: 500000}
+      first_home_ira: 10000         # lifetime, per person: IRA withdrawal for a first home without the 10% penalty (26 U.S.C. 72(t)(2)(F), (8))
+      mortgage_debt_limit: 750000   # home-acquisition debt whose interest is deductible (26 U.S.C. 163(h)(3)(F); made permanent by P.L. 119-21)
       social_security_benefits_taxed: {up_to_50_percent: {single: 25000, married_joint: 32000},
                                        up_to_85_percent: {single: 34000, married_joint: 44000}}
       rmd_age: {born_1951_to_1959: 73, born_1960_or_later: 75}
@@ -152,6 +154,8 @@ years:
       estate_gift_exemption: 13990000
       estate_tax_top_rate: 0.40
       home_sale_exclusion: {single: 250000, married_joint: 500000}
+      first_home_ira: 10000         # lifetime, per person: IRA withdrawal for a first home without the 10% penalty (26 U.S.C. 72(t)(2)(F), (8))
+      mortgage_debt_limit: 750000   # home-acquisition debt whose interest is deductible (26 U.S.C. 163(h)(3)(F); made permanent by P.L. 119-21)
       social_security_benefits_taxed: {up_to_50_percent: {single: 25000, married_joint: 32000},
                                        up_to_85_percent: {single: 34000, married_joint: 44000}}
       rmd_age: {born_1951_to_1959: 73, born_1960_or_later: 75}

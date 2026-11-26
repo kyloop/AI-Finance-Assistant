@@ -33,6 +33,7 @@ sample rate and subtracted property tax in full. A tax expert does five things, 
 | 5 | `compare_accounts` | Roth vs traditional; what a 401(k)/IRA contribution saves today | step 3 |
 | 6 | `marginal_effect` | what an extra amount of income, a sale or a deduction changes | step 3 |
 | 7 | `capital_gain` | gain or loss on a sale from cost basis, short vs long term, wash sales | step 3 |
+| 8 | `savings_goal_tax` | a savings example's tax: interest while saving (per year, at the user's rate or common brackets), the first-home IRA rule, mortgage interest and property tax against the standard deduction, Section 121 | 2026-11-26 |
 
 ## Flow today
 
@@ -45,6 +46,20 @@ sample rate and subtracted property tax in full. A tax expert does five things, 
 - **The saved Goals plan and tax** (the message refers to the plan): three plan-specific searches of the tax pages, the
   plan's paid-in and growth figures for the explanation, and `tax_on_plan`'s table as a `verbatim_tail` after it.
   The calculator is no longer added for these.
+- **A tax question about the previous answer's savings example** ("how would the tax change in this case?" after an
+  example of saving $60,000 over 5 years for a down payment on a $300,000 house): the example is in the context
+  (`context.scenario`, from the goal agent's worked example or noted from a written answer), proofread completes the
+  question with it (`context.with_scenario`), the router sends it to the Tax agent alone (`_example_tax_to_tax_agent`)
+  and `savings_goal_tax` works it out in Python, `verbatim` and `explains_itself`. Assumptions (savings yield, mortgage
+  rate, property tax) are `tax_assumptions` in config.yaml and are stated; the first-home IRA limit and mortgage-debt
+  limit are in `tax_rules.yaml`. A message with a tax subject of its own ("what about Roth IRA limits?") or amounts of
+  its own takes the usual path.
+- **A follow-up that changes the house example** ("what would be the diff if I borrow 200000 from bank and pay 1.5
+  interest"): proofread applies the change (`context.scenario_change`: same price, the loan replaces the mortgage, so
+  price − loan is left to save) into `scenario_now`, the router sends it to goal and tax, the goal agent shows the new
+  savings plan and loan payment against the example's (`nodes._changed_goal`), and `savings_goal_tax` uses the loan,
+  compares its interest with the example's mortgage and says a personal loan's interest isn't deductible. The changed
+  example is saved as the turn's scenario.
 - **Anything else about tax**: the tax pages only, with the caveat.
 
 ## Step 2: the estimate carried, one question asked

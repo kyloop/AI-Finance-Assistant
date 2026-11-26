@@ -7,8 +7,8 @@ from src.workflow import tax_calc as TC
 
 def test_every_case_has_one_expectation_per_message():
     cases = yaml.safe_load(open(E.CASES))
-    assert len(cases) == 42 and len({c["id"] for c in cases}) == 42
-    assert sum(len(c["messages"]) > 1 for c in cases) == 30
+    assert len(cases) == 43 and len({c["id"] for c in cases}) == 43
+    assert sum(len(c["messages"]) > 1 for c in cases) == 31
     for c in cases:
         assert len(c["expect"]) == len(c["messages"]), c["id"]
 
@@ -24,3 +24,17 @@ def test_the_check_compares_status_figures_totals_and_the_question():
     wrong = {**want, "filing_status": "married_joint", "total_federal": 1.0, "asks": "status"}
     problems = E.check_turn(state, wrong)
     assert len(problems) == 3 and any("filing status" in p for p in problems)
+
+
+def test_the_check_counts_dollar_figures_and_phrases_the_reply_must_not_have():
+    state = {"agents": ["Tax Education"], "context": {}, "final_response": "Interest $201, $652 and $201; tax $44."}
+    assert E.check_turn(state, {"dollar_figures": 3, "not_contains": ["retirement plan"]}) == []
+    problems = E.check_turn({**state, "final_response": "In this Retirement plan scenario, $5."},
+                            {"dollar_figures": 3, "not_contains": ["retirement plan"]})
+    assert len(problems) == 2
+
+
+def test_the_check_compares_which_agents_answered():
+    state = {"agents": ["Tax Education", "Goal Planning"], "context": {}, "final_response": ""}
+    assert E.check_turn(state, {"agents": ["Goal Planning", "Tax Education"]}) == []
+    assert E.check_turn(state, {"agents": ["Tax Education"]})

@@ -55,6 +55,21 @@ _GOAL_WORDS = re.compile(r"\b(goals?|sav(e|es|ed|ing|ings)|target|retire\w*|plan
                          r"emergency fund|on track|house|home|car|wedding|vacation|baby|education)\b", re.I)
 
 
+# Which kind of goal a message is about, as the Goals tab names them (db.models.Goal.goal_type). "other" covers the
+# named goals the tab has no type for (a car, a wedding, an emergency fund).
+_GOAL_KINDS = (("house", r"\b(house|home|condo|apartment|down ?payment|mortgage)\b"),
+               ("education", r"\b(college|tuition|university|education|529)\b"),
+               ("retirement", r"\b(retire\w*|nest egg|401\(?k\)?)\b"),
+               ("other", r"\b(car|wedding|vacation|emergency fund|baby)\b"))
+
+
+def goal_kind(text: str) -> str | None:
+    """The goal type a message names ("an example of a planning goal for a house purchase" → "house"); None if it names
+    none, or several ("my 401(k) for a house down payment": no one goal decides)."""
+    kinds = [kind for kind, pattern in _GOAL_KINDS if re.search(pattern, text or "", re.I)]
+    return kinds[0] if len(kinds) == 1 else None
+
+
 def mentions_goal(text: str) -> bool:
     """Whether a message is about a goal or savings plan at all (the goal agent has nothing to add otherwise)."""
     return bool(_GOAL_WORDS.search(text) or _GOAL_CUE.search(text) or re.search(INTENT_PATTERNS["goal"], text, re.I))

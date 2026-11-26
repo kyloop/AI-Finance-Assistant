@@ -2,7 +2,9 @@
 # per message (an empty {} checks nothing). Checks: tax_only (only the Tax agent answers), filing_status (as carried in
 # the answer's context; null = not given), figures (amount -> kind, or a list of allowed kinds), household (non-zero
 # counts), income_tax / total_federal (within $1; null = no estimate yet), asks (a tax_calc.QUESTIONS key, "amount",
-# "none", or a list of allowed ones), contains (phrases the reply must have).
+# "none", or a list of allowed ones), contains / not_contains (phrases the reply must / must not have, the latter in any
+# case), agents (exactly these answer, any order), dollar_figures (at least this many different $ amounts). A case may set `saved_goal` (the Goals tab's plan) and
+# `view` (the tab on screen).
 # Expected inputs are set by hand. Totals for 2026 unless the case names 2025; worked by hand for s01, s02, s03, s04,
 # s06, s07, s08, s09, s10, s11, s12, c01 (see tests/test_income_tax.py and the comments), the rest with the same estimator.
 # 2026-11-25: first version, 12 single questions and 8 chains.
@@ -393,3 +395,22 @@
     - {tax_only: true, contains: ["**$305,000** excluded, **$0** taxable, so none of the gain is taxed"]}
     - {tax_only: true, contains: ["not deducted in your estimate", "unreimbursed employee expenses"]}
     - {tax_only: true, contains: ["adjusted gross income of **$196,500**", "taxable income is **$165,000**", "$8,000 is an excess contribution"]}
+
+# 2026-11-26: a tax question about the previous answer's worked example, with a different plan saved on the Goals tab
+- id: e01
+  about: Kevin's chain; a house down-payment example, "how would the tax change in this case?" with a saved retirement plan, then a $200,000 loan at 1.5%
+  saved_goal: {goal_type: retirement, target_amount: 1000000, horizon_years: 10, current_savings: 10000,
+               monthly_contribution: 500, risk_tolerance: moderate}
+  view: {tab: Goals}
+  messages: ["explain the planning goal ?",
+             "Can you give an example of setting a planning goal for a house purchase?",
+             "how would the tax change in this case?",
+             "what would be the diff if I borrow 200000 from bank and pay 1.5 interest"]
+  expect:
+    - {}
+    - {dollar_figures: 3, contains: ["house"]}
+    - {tax_only: true, dollar_figures: 8, contains: ["house", "1099-INT", "standard deduction", "Section 121"],
+       not_contains: ["retirement plan scenario", "doesn't provide specific information"]}
+    - {agents: ["Goal Planning", "Tax Education"], dollar_figures: 12,
+       contains: ["$200,000 loan at 1.5%", "to save", "a month", "standard deduction", "personal (unsecured) loan"],
+       not_contains: ["retirement plan"]}

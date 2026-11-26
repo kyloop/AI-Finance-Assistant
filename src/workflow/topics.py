@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 from src.core.llm import ask_llm
 
-from .context import subjectless          # rule 2 shares proofread's check
+from .context import refers_back, subjectless          # rule 2 shares proofread's checks
 from .jsonreply import first_json
 
 log = logging.getLogger(__name__)
@@ -273,6 +273,8 @@ def choose(state: dict, pool: dict, *, embed=None, same_chat: float = 0.8, earli
         return decided("continue", current_id, f"follow-up → stays in {current_id}" if current_id else "follow-up of an untracked turn → new topic")
     if current_id and not state.get("screen") and subjectless(state.get("original_question") or question):
         return decided("continue", current_id, f"no subject of its own → stays in {current_id}")             # rule 2
+    if current_id and not state.get("screen") and refers_back(state.get("original_question") or question):
+        return decided("continue", current_id, f"points back at the previous answer → stays in {current_id}")  # rule 2
     hard, soft = message_entities(state)
     keys = hard or soft
     if keys:

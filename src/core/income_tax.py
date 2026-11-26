@@ -411,3 +411,30 @@ def capital_gain(proceeds: float, cost_basis: float, held_more_than_a_year: bool
         field = "long_term_gains" if held_more_than_a_year else "short_term_gains"
         out["effect"] = marginal_effect(inp, {field: gain}, year)
     return out
+
+
+# ---------------------------------------------------------------- saving for a goal, then buying a home
+def savings_interest(monthly: float, years: int, annual_rate: float) -> list[dict]:
+    """Interest earned each year by depositing `monthly` at the end of every month into an account paying `annual_rate`
+    (compounded monthly): [{year, deposits, interest, balance}]. Interest is taxed the year it is credited."""
+    i, balance, rows = annual_rate / 12, 0.0, []
+    for y in range(1, years + 1):
+        interest = 0.0
+        for _ in range(12):
+            earned = balance * i
+            interest += earned
+            balance += earned + monthly
+        rows.append({"year": y, "deposits": monthly * 12, "interest": interest, "balance": balance})
+    return rows
+
+
+def mortgage_first_year(loan: float, annual_rate: float, years: int) -> dict:
+    """A fixed-rate mortgage's monthly payment and the interest paid in its first 12 months."""
+    i, n = annual_rate / 12, years * 12
+    payment = loan * i / (1 - (1 + i) ** -n) if i else loan / n
+    balance, interest = loan, 0.0
+    for _ in range(min(12, n)):
+        charge = balance * i
+        interest += charge
+        balance -= payment - charge
+    return {"payment": payment, "interest": interest, "balance_after": balance}

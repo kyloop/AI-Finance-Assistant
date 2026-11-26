@@ -2,7 +2,8 @@
 real workflow with the real LLM, carrying the conversation's memory between messages the way the chat endpoint does
 (history + the last answer's context). After every message, what the tax agent understood and worked out is compared with
 the expected answer: who answered, the filing status, how each amount was sorted, the household, the income tax and
-federal total (within $1), the question it asked, and phrases the reply must contain.
+federal total (within $1), the question it asked, phrases the reply must (or must not) contain and how many dollar
+figures it gives. A case may set the plan saved on the Goals tab (`saved_goal`) and the tab on screen (`view`).
 
   python -m scripts.eval_tax              # all cases, writes mds/tax-eval.md
   python -m scripts.eval_tax --only c01   # one case, printed only
@@ -13,6 +14,7 @@ case; the expected totals were worked out from them by hand or with the hand-tes
 from __future__ import annotations
 
 import argparse
+import re
 from datetime import date
 from pathlib import Path
 
@@ -56,6 +58,8 @@ def check_turn(state: dict, want: dict) -> list[str]:
     agents = state.get("agents") or []
     if want.get("tax_only") and agents != ["Tax Education"]:
         problems.append(f"answered by {agents}, expected the Tax agent only")
+    if "agents" in want and sorted(agents) != sorted(want["agents"]):
+        problems.append(f"answered by {agents}, expected {want['agents']}")
     if "filing_status" in want and (prof or {}).get("filing_status") != want["filing_status"]:
         problems.append(f"filing status {(prof or {}).get('filing_status')!r}, expected {want['filing_status']!r}")
     if "figures" in want:
@@ -87,6 +91,13 @@ def check_turn(state: dict, want: dict) -> list[str]:
     for phrase in want.get("contains") or []:
         if phrase not in text:
             problems.append(f"reply lacks {phrase!r}")
+    for phrase in want.get("not_contains") or []:
+        if phrase.lower() in text.lower():
+            problems.append(f"reply says {phrase!r}")
+    if "dollar_figures" in want:
+        found = set(re.findall(r"\$\d[\d,]*", text))
+        if len(found) < want["dollar_figures"]:
+            problems.append(f"{len(found)} dollar figures in the reply, expected at least {want['dollar_figures']}")
     return problems
 
 
@@ -94,7 +105,7 @@ def evaluate(case: dict) -> dict:
     history, context, turns = [], None, []
     for i, msg in enumerate(case["messages"]):
         state = run_chat(msg, history=history[-get_config()["workflow"]["history_turns"]:], profile=PROFILE, holdings=[],
-                         db=None, context=context)
+                         db=None, context=context, saved_goal=case.get("saved_goal"), view=case.get("view"))
         want = (case.get("expect") or [{}])[i] if i < len(case.get("expect") or []) else {}
         problems = check_turn(state, want) if want else []
         prof = (state.get("context") or {}).get("tax")
