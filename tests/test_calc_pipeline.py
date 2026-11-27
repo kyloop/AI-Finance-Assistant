@@ -296,7 +296,8 @@ def test_a_number_the_calculation_doesnt_need_can_be_ignored_with_why(sources):
 
 def test_one_source_per_search_is_cross_checked_across_the_two_searches(sources):
     T.set_web_searcher(lambda q: [])                                                    # the web finds nothing
-    other = {**KB_EQ, "quote": "Where $\\\\,C\\\\,$ is the future amount of money that must be discounted"}
+    other = {**KB_EQ, "quote": "Where $\\\\,C\\\\,$ is the future amount of money that must be discounted",
+             "equation": "PV = C/(1+i*n)", "formula": "C/(1+i*n)"}          # a different formula (simple interest)
     llm = StepLLM(kb=(KB_EQ, other), match=({"reasoning": "One is wrong.", "match": False},))
     s, out = ask(llm)
     assert out["status"] == "need_info" and llm.calls.count("match") == 1
@@ -648,3 +649,21 @@ def test_a_percent_in_an_arithmetic_target_used_as_a_rate_is_converted():
                          "t": {"value": 30, "from": "user", "unit": "years", "means": "term"}}}
     q = "What if the rate is 5.5% on my $350,000 30-year mortgage?"
     assert round(PLAN.run(CP.build_plan(targets, eqs, filled, []), q, q, require_checks=False)["values"]["P"], 2) == 1987.26
+
+
+def test_two_sources_with_one_formula_under_other_names_match_whatever_the_judge_says():
+    # live run, Nov 2026: the judge called FV = PV*(1 + i)^n and FV = PV(1+r)^n different ("i is monthly, r yearly")
+    a = {"equation": "FV = PV*(1 + i)^n", "for": "FV", "formula": None}
+    assert CP.same_form(a, {"equation": "FV = PV(1+r)^n", "for": "FV", "formula": None})
+    assert CP.same_form({"equation": "M = P*(r*(1 + r)^n/((1 + r)^n - 1))", "for": "M", "formula": None},
+                        {"equation": "c = r*P/(1 - 1/(1 + r)^N)", "for": "c", "formula": None})
+    assert not CP.same_form(a, {"equation": "FV = PV*(1 + r*n)", "for": "FV", "formula": None})
+
+
+def test_the_rule_of_72_takes_the_rate_in_percent():
+    targets = [{"name": "t", "label": "time to double", "unit": "years", "kind": "formula"}]
+    eqs = CP.name_equations(targets, {"t": {"eq": {"quote": "divide 72 by the rate", "equation": "t = 72/rate", "formula": "72/rate",
+                                                  "for": "t", "variables": {"rate": "annual interest rate"}}}})
+    filled = {"inputs": {"rate": {"value": 0.07, "from": "user", "unit": "rate", "means": "the annual rate"}}}
+    q = "How long does it take to double my money at 7% a year?"
+    assert round(PLAN.run(CP.build_plan(targets, eqs, filled, []), q, q, require_checks=False)["values"]["t"], 2) == 10.29

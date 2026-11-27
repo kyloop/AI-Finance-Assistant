@@ -328,6 +328,12 @@ def check_numbers(p: dict, question: str, known_text: str) -> None:
                 raise PlanError(f"step {s['name']}: {', '.join(bad)} is a percentage (unit \"percent\", e.g. 15 for 15%) "
                                 f"multiplied into a money amount in {f.strip()!r}; divide it by 100, or give it as a rate, a "
                                 "decimal (0.15 for 15%)")
+    decimals = {k for k, i in p["inputs"].items() if i["unit"] == "rate"}
+    for s in p["steps"]:                                # 0.05/100/12: a rate already a decimal divided by 100 again
+        for f in _checked_formulas(s):
+            if bad := sorted(k for k in decimals if re.search(rf"\b{re.escape(k)}\s*\)?\s*/\s*100\b", f)):
+                raise PlanError(f"step {s['name']}: {', '.join(bad)} is already a decimal rate (0.05 for 5%), so "
+                                f"dividing it by 100 in {f.strip()!r} makes it 100 times too small; drop the /100")
     rates = {k for k, i in p["inputs"].items() if i["unit"] == "rate"} | {s["name"] for s in p["steps"] if s["unit"] == "rate"}
     for s in p["steps"]:                                # rm - rf with rm = 8 and rf = 0.03: 8 - 0.03 is a unit error
         for f in _checked_formulas(s):
@@ -371,6 +377,28 @@ def check_all_used(p: dict, question: str, values: dict) -> None:
         if not any(_close(q, c) for c in candidates):
             raise PlanError(f"the question's number {q:g} isn't used: make it a \"user\" input that a step uses, "
                             "compute it in a step, or list it in \"ignored\" with why")
+    check_changed_kept(p, question)
+
+
+def check_changed_kept(p: dict, question: str) -> None:
+    """A follow-up that changes a number ("what if it only earns 5% instead?" after 7%) must use the new one: a rate (or
+    an amount) of the question set aside as "ignored" while a user input of the same kind comes only from the
+    conversation is the old number kept. Raises PlanError."""
+    asked = question_numbers(question)
+    pct = {float(m[1]) for m in re.finditer(r"(\d+(?:\.\d+)?)\s*(?:%|percent\b)", question)}
+    dollars = {x for x in asked if re.search(rf"\$\s*{re.escape(f'{x:,.0f}')}|\${re.escape(f'{x:g}')}\b", question)}
+    for g in p["ignored"]:
+        q = g.get("number") if isinstance(g, dict) else None
+        if not isinstance(q, (int, float)):
+            continue
+        for k, i in p["inputs"].items():
+            if i["from"] != "user" or any(_close(abs(i["value"]), x) or _close(abs(i["value"]) * 100, x) for x in asked):
+                continue
+            old = abs(i["value"]) * 100 if i["unit"] == "rate" else abs(i["value"])
+            if (q in pct and i["unit"] in ("rate", "percent")) or (q in dollars and i["unit"] == "money"):
+                raise PlanError(f"the question gives {q:g}{'%' if q in pct else ''} but the plan uses {k} = {old:g} from "
+                                f"earlier in the conversation and sets {q:g} aside: the message changes it, so use "
+                                f"{q:g} for {k}")
 
 
 def _constants(formula: str) -> list[tuple[float, bool]]:

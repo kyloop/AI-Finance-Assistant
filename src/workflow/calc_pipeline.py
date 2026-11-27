@@ -6,8 +6,10 @@ from __future__ import annotations
 
 import ast
 import contextvars
+import itertools
 import json
 import keyword
+import math
 import random
 import re
 from concurrent.futures import ThreadPoolExecutor
@@ -62,7 +64,9 @@ DEFINE_SYSTEM = (
     "- \"arithmetic\": plain arithmetic on given numbers or earlier targets: a split, a share, a sum or difference "
     "(total interest = payment * number of payments - amount borrowed, savings = interest before - interest after, how "
     "much sooner = months before - months after). Every quantity the question asks about is a target: \"how much sooner "
-    "is it paid off and how much interest do I save?\" needs both the months saved and the interest saved. Add \"expr\": the "
+    "is it paid off and how much interest do I save?\" needs both the months saved and the interest saved; \"how much "
+    "would I have, and how much of that is growth?\" needs the total and the growth (total - everything paid in: the "
+    "starting amount + deposit * number of deposits). Add \"expr\": the "
     "formula over short names, and \"variables\": {name: meaning} for each name in it that isn't an earlier target. A "
     "yes/no question (is it enough? which costs less?) is the difference (cash saved - price) with a label saying what "
     "its sign means (\"left over after buying (negative: short by)\"); never a comparison with < or >.\n"
@@ -398,14 +402,47 @@ def extract(target: dict, passages: list[dict] | None) -> tuple[dict | None, str
             "variables": {n: read["variables"].get(n, n) for n in sorted(names) if n != unknown}}, ""
 
 
+def same_form(a: dict, b: dict) -> bool:
+    """The two equations are one formula under different names (`FV = PV*(1 + i)^n` and `FV = PV(1+r)^n`): some
+    one-to-one renaming of b's variables onto a's, with each one's unknown onto the other's, gives the same value at
+    several random points. Python decides this, so the judge can't call them different."""
+    fa, fb = a.get("formula") or _isolated(a["equation"], a["for"]), b.get("formula") or _isolated(b["equation"], b["for"])
+    if not fa or not fb:
+        return False
+    try:
+        va, vb = sorted(EQ.variables(fa)), sorted(EQ.variables(fb))
+    except EQ.EquationError:
+        return False
+    if len(va) != len(vb) or not 0 < len(va) <= 6 or a["for"] in va or b["for"] in vb:
+        return False
+    rng = random.Random(7)
+    points = [{v: rng.uniform(0.01, 0.2) if k % 2 else rng.uniform(2, 30) for k, v in enumerate(va)} for _ in range(3)]
+    try:
+        want = [EQ.evaluate(fa, p) for p in points]
+    except Exception:  # noqa: BLE001 — a formula that can't be evaluated here isn't judged by Python
+        return False
+    for perm in itertools.permutations(va):
+        try:
+            got = [EQ.evaluate(fb, {vb[j]: p[perm[j]] for j in range(len(vb))}) for p in points]
+        except Exception:  # noqa: BLE001
+            continue
+        if all(w is not None and g is not None and math.isfinite(w) and abs(g - w) <= 1e-9 * max(1.0, abs(w))
+               for w, g in zip(want, got)):
+            return True
+    return False
+
+
 def _match(question: str, target: dict, a: dict, b: dict) -> tuple[bool, str, dict, dict | None]:
     """(match?, the judge's reasoning, the equation to use, the one misread from its source when they don't match)."""
     def show(e):
         return f"{e['where']} ({e['title']}): {e['equation']}, where " + "; ".join(f"{k} = {v}" for k, v in e["variables"].items())
     reply = first_json(ask_llm(MATCH_SYSTEM, f"QUESTION: {question}\n{_target_text(target)}\n\nA, {show(a)}\nB, {show(b)}")) or {}
     why = " ".join(str(reply.get("reasoning") or "").split())[:300]
-    if reply.get("match") is True and reply.get("fits") is False:
+    alike = same_form(a, b)      # the same formula under other names, checked in Python: the judge only says if it fits
+    if (alike or reply.get("match") is True) and reply.get("fits") is False:
         return False, f"they agree, but don't compute what the question asks: {why}", a, None
+    if alike:
+        return True, "the same formula with different variable names (checked in Python)", b if reply.get("use") == "B" else a, None
     same = reply.get("match") is True
     misread = None if same else {"A": a, "B": b}.get(str(reply.get("misread") or "").strip().upper())
     return same, why, b if reply.get("use") == "B" else a, misread
@@ -635,12 +672,15 @@ def _lift_literals(inputs: dict, derived: dict, need: dict[str, str]) -> None:
 
 def _percent_to_rate(inputs: dict, derived: dict) -> None:
     """A yearly rate given as a percent (annual_rate: 5.5) and used as a decimal ("r": "annual_rate/12", unit rate) is
-    the decimal 0.055: convert the input when every derived value using it is a rate computed without /100."""
+    the decimal 0.055: convert the input when every derived value using it is a rate per period computed without /100.
+    A plain rename ("r": "annual_rate") is left alone: a formula such as the Rule of 72 takes the rate as a percent."""
     for k, i in inputs.items():
         if i.get("unit") != "percent":
             continue
         users = [d for d in derived.values() if isinstance(d, dict) and re.search(rf"\b{re.escape(k)}\b", str(d.get("expr") or ""))]
-        if users and all(d.get("unit") == "rate" and not re.search(r"\b100\b", str(d.get("expr") or "")) for d in users):
+        per_period = rf"\b{re.escape(k)}\s*/\s*(?:\d+|[A-Za-z_]\w*)"    # "annual_rate/12": a rate per period, a decimal
+        if users and all(d.get("unit") == "rate" and not re.search(r"\b100\b", str(d.get("expr") or ""))
+                         and re.search(per_period, str(d.get("expr") or "")) for d in users):
             inputs[k] = {**i, "value": i["value"] / 100, "unit": "rate"}
 
 
@@ -689,6 +729,12 @@ def build_plan(targets: list[dict], eqs: dict[str, dict], filled: dict | None, a
         else:
             step.update(solve=eqs[t["name"]]["equation"], sourced=True, **{"for": t["name"]})
         steps.append(step)
+
+    for s in steps:                                     # the Rule of 72 (69, 70) divides by the rate in percent: 72/7
+        if s.get("sourced") and re.fullmatch(r"\s*(?:72|69\.3|69|70)\s*/\s*\(?\s*[A-Za-z_]\w*\s*\)?\s*", str(s.get("expr") or "")):
+            for k in EQ.variables(s["expr"]) & set(inputs):
+                if inputs[k].get("unit") == "rate" and 0 < abs(inputs[k]["value"]) < 1:
+                    inputs[k] = {**inputs[k], "value": inputs[k]["value"] * 100, "unit": "percent"}
 
     def deps(s: dict) -> set[str]:
         text = " ".join(str(s.get(k) or "") for k in ("expr", "satisfies", "solve"))

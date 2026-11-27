@@ -546,3 +546,31 @@ def test_a_debt_paid_past_zero_is_rejected():
         P.run(plan, q, q, require_checks=False)
     plan["steps"][0]["simulate"]["each"] = {"balance": "balance - min(p, balance)"}
     assert P.run(plan, q, q, require_checks=False)["values"]["m"] == 17
+
+
+def test_a_follow_ups_new_rate_cant_be_set_aside_for_the_old_one():
+    # live run, Nov 2026: "what if it only earns 5% instead?" was answered at 7%, with "Not used: 5 (not relevant)"
+    plan = {"label": "growth", "inputs": {"PV": {"value": 25000, "from": "user", "unit": "money", "means": "balance"},
+                                          "r": {"value": 0.07, "from": "user", "unit": "rate", "means": "yearly rate"},
+                                          "t": {"value": 20, "from": "user", "unit": "years", "means": "years"}},
+            "steps": [{"name": "FV", "label": "value", "unit": "money", "expr": "PV*(1 + r/12)^(12*t)"}],
+            "checks": [{"when": {"r": 0}, "of": "FV", "expect": "PV"}],
+            "ignored": [{"number": 5, "why": "not relevant to the calculation"}]}
+    q = "How much will $25,000 earning 5% a year, compounded monthly, be worth in 20 years?"
+    known = "user: I have $25,000 earning 7% a year, compounded monthly. How much in 20 years?\n" + q
+    with pytest.raises(P.PlanError, match="the message changes it, so use 5 for r"):
+        P.run(plan, q, known)
+    plan["inputs"]["r"]["value"], plan["ignored"] = 0.05, []
+    assert round(P.run(plan, q, known)["values"]["FV"], 2) == 67816.01
+
+
+def test_a_decimal_rate_divided_by_100_again_is_rejected():
+    # live run, Nov 2026: 0.05/100/12 made the monthly rate 0.004% and $25,000 grew to only $25,251 in 20 years
+    plan = {"label": "growth", "inputs": {"PV": {"value": 25000, "from": "user", "unit": "money", "means": "balance"},
+                                          "r": {"value": 0.05, "from": "user", "unit": "rate", "means": "yearly rate"},
+                                          "t": {"value": 20, "from": "user", "unit": "years", "means": "years"}},
+            "steps": [{"name": "i", "label": "monthly rate", "unit": "rate", "expr": "r/100/12"},
+                      {"name": "FV", "label": "value", "unit": "money", "expr": "PV*(1 + i)^(12*t)"}]}
+    q = "How much will $25,000 grow to at 5% a year over 20 years?"
+    with pytest.raises(P.PlanError, match="already a decimal rate"):
+        P.run(plan, q, q, require_checks=False)
