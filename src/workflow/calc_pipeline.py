@@ -665,7 +665,7 @@ def _lift_literals(inputs: dict, derived: dict, need: dict[str, str]) -> None:
                 continue
             name = f"{k}_given" if j == 0 else f"{k}_given{j + 1}"
             expr = re.sub(number, name, expr)
-            inputs[name] = {"value": n, "from": "user", "unit": "percent" if pct else "number",
+            inputs[name] = {"value": n, "from": "user", "unit": "percent" if pct else "rate" if 0 < n < 1 else "number",
                             "means": f"{need.get(k, k)}, as given"}
         derived[k] = {**d, "expr": expr}
 

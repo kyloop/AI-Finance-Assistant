@@ -1,0 +1,346 @@
+# Calculator chain eval (python -m scripts.eval_calc_chains): 30 conversations of three messages, each follow-up changing
+# or building on the one before, replayed through the real workflow with the real model and the conversation's memory
+# carried between messages as in the app.
+# `expect`: one entry per message, a list of groups of acceptable values. Each group must match a number in the reply
+#   within 0.5% (a rate may be written as a decimal or a percentage; a count of months or years within 0.5 of it).
+#   Alternatives in a group cover legitimate modelling choices (payments at the start or the end of a period,
+#   compounding monthly or yearly) or rounding (31.9 months, or 32 payments). An empty list checks nothing.
+# References were worked out in Python from the standard formulas (loan payment, annuity present and future value,
+# compound growth, a month-by-month payoff that pays at most what is owed), not with Finnie's calculators.
+# 2026-11-27: first version. c01, c06, c12 and c15 are the four chains Kevin tried by hand.
+
+# ---------------------------------------------------------------- loans
+- id: c01
+  about: mortgage, a lower rate, then $200 a month extra
+  messages:
+    - "I'm borrowing $350,000 for a house on a 30-year fixed mortgage at 6.5%. What will my monthly payment be?"
+    - "What if the rate is 5.5% instead?"
+    - "And what if I pay an extra $200 a month on top of that? How much sooner is it paid off and how much interest do I save?"
+  expect:
+    - [[2212.24]]
+    - [[1987.26]]
+    - [[70, 71], [83056.56]]          # 290 payments vs 360 (289.1 by the formula, 70.9 sooner)
+
+- id: c02
+  about: car loan, a shorter term, then a down payment
+  messages:
+    - "I want to finance a $30,000 car over 60 months at 7% APR. What's my monthly payment?"
+    - "What if I take a 48-month loan instead?"
+    - "If I put $5,000 down and go back to 60 months, what's the payment then?"
+  expect:
+    - [[594.04]]
+    - [[718.39]]
+    - [[495.03]]
+
+- id: c03
+  about: credit card payoff at two payment sizes
+  messages:
+    - "I owe $6,000 on a credit card at 22% APR and pay $250 a month. How many months until it's paid off, and how much interest will I pay?"
+    - "What if I pay $400 a month instead?"
+    - "How much interest do I save by paying $400 instead of $250?"
+  expect:
+    - [[32, 31.92], [1979.05]]
+    - [[18, 17.7], [1081.25]]
+    - [[897.80]]
+
+- id: c04
+  about: student loan, 10 versus 20 years
+  messages:
+    - "I have $40,000 in student loans at 5.5% over 10 years. What's my monthly payment and total interest?"
+    - "What if I stretch it to 20 years?"
+    - "How much more interest would the 20-year plan cost me?"
+  expect:
+    - [[434.11], [12092.61]]
+    - [[275.15], [26037.18]]
+    - [[13944.57]]
+
+- id: c05
+  about: refinancing and its break-even
+  messages:
+    - "I owe $250,000 on my mortgage with 25 years left at 7%. What is my monthly payment?"
+    - "If I refinance the same balance and term at 5.5%, what would the new payment be and how much would I save each month?"
+    - "Refinancing costs $4,000 in closing costs. How many months until the savings cover that?"
+  expect:
+    - [[1766.95]]
+    - [[1535.22], [231.73]]
+    - [[17.26, 18, 17]]
+
+# ---------------------------------------------------------------- saving and growth
+- id: c06
+  about: lump sum growth, a lower rate, then monthly deposits and the growth part
+  messages:
+    - "I have $25,000 in a retirement account earning 7% a year, compounded monthly. How much will it be worth in 20 years?"
+    - "What if it only earns 5% instead?"
+    - "And what if I also add $300 a month at 5%? How much would I have, and how much of that is growth?"
+  expect:
+    - [[100968.47]]
+    - [[67816.01]]
+    - [[191126.11], [94126.11]]
+
+- id: c07
+  about: annual versus monthly compounding, then deposits
+  messages:
+    - "If I invest $10,000 at 6% compounded annually, how much will I have after 15 years?"
+    - "What if it's compounded monthly instead?"
+    - "And if I also add $100 every month, compounded monthly, how much would I have after 15 years?"
+  expect:
+    - [[23965.58]]
+    - [[24540.94]]
+    - [[53622.81, 53768.22]]        # deposits at the end / the start of each month
+
+- id: c08
+  about: monthly saving over 10 then 20 years
+  messages:
+    - "If I save $500 a month at 6% a year, compounded monthly, how much will I have in 10 years?"
+    - "What about after 20 years?"
+    - "How much more is that than the 10-year amount?"
+  expect:
+    - [[81939.67, 82349.37]]
+    - [[231020.45, 232175.55]]
+    - [[149080.77, 149826.18]]
+
+- id: c09
+  about: saving for a $50,000 goal
+  messages:
+    - "I want $50,000 in 5 years. If my savings earn 4% a year compounded monthly, how much do I need to save each month?"
+    - "What if I already have $10,000 saved toward it?"
+    - "And if I give myself 8 years instead of 5, still starting with the $10,000?"
+  expect:
+    - [[754.16, 751.65]]
+    - [[569.99, 568.10]]
+    - [[320.90, 319.84]]
+
+- id: c10
+  about: emergency fund
+  messages:
+    - "My monthly expenses are $3,500. How big should a 6-month emergency fund be?"
+    - "If I save $700 a month, how many months will it take to build it?"
+    - "What if my savings earn 4% a year, compounded monthly, while I build it?"
+  expect:
+    - [[21000]]
+    - [[30]]
+    - [[28.64, 29]]
+
+# ---------------------------------------------------------------- retirement
+- id: c11
+  about: a retirement nest egg drawn down
+  messages:
+    - "I'll retire with $1,000,000 earning 5% a year and withdraw $60,000 at the end of each year. How many years will it last?"
+    - "What if I withdraw $70,000 a year instead?"
+    - "How much could I withdraw each year for it to last exactly 30 years?"
+  expect:
+    - [[36.72, 36, 37]]
+    - [[25.68, 25, 26]]
+    - [[65051.44, 61953.75]]       # end / start of each year
+
+- id: c12
+  about: retirement goal at retirement, today, then the monthly saving
+  messages:
+    - "I plan to retire in 25 years and would like to receive $80,000 per year for 30 years after retirement. Assuming a 5% discount rate during retirement, what is the value of those future retirement withdrawals at the time I retire?"
+    - "What is the present value of that retirement goal today if I use a 7% discount rate before retirement?"
+    - "If I already have $100,000 invested, how much more do I need to save each month to reach my goal?"
+  expect:
+    - [[1229796.08, 1291285.89]]    # withdrawals at the end / the start of each year
+    - [[226588.92, 237918.36]]
+    - [[811.35, 848.14, 887.26, 924.04]]   # $100,000 compounding monthly or yearly, for each of the two goals
+
+- id: c13
+  about: how much to have at retirement for a monthly income
+  messages:
+    - "How much do I need at retirement to withdraw $4,000 a month for 25 years if my savings earn 5% a year, compounded monthly?"
+    - "What if they earn 6% instead?"
+    - "And at 5% again, but for 30 years of withdrawals?"
+  expect:
+    - [[684240.19, 687091.19]]
+    - [[620827.46, 623931.60]]
+    - [[745126.47, 748231.17]]
+
+- id: c14
+  about: saving for retirement, then the income it pays
+  messages:
+    - "If I invest $800 a month for 30 years at 7% a year, compounded monthly, how much will I have?"
+    - "If I then withdraw monthly over 25 years while it earns 5%, how much can I take out each month?"
+    - "What if I keep investing for 35 years instead of 30, then withdraw over 25 years at 5%?"
+  expect:
+    - [[975976.80, 981670.00]]
+    - [[5705.46, 5738.74, 5681.79]]
+    - [[1440843.68, 1449248.60], [8423.03, 8472.17, 8388.08]]
+
+# ---------------------------------------------------------------- present value
+- id: c15
+  about: college tuition in 12 years, rising costs, then the money still needed
+  messages:
+    - "My child will start college in 12 years, and I expect tuition to cost $40,000 per year for four years. If I use a 6% discount rate, what is the present value of those future tuition payments?"
+    - "What if tuition costs are expected to increase by 4% per year until college starts? What would the present value be then?"
+    - "If I currently have $30,000 saved, how much additional money do I need today to fully fund the future tuition costs?"
+  expect:
+    - [[73014.98, 68882.05]]                        # payments at the start of years 12-15 / the end of years 13-16
+    - [[116899.33, 110282.39, 123748.33]]          # the last: tuition keeps rising during college too
+    - [[86899.33, 80282.39, 93748.33]]
+
+- id: c16
+  about: a future lump sum today, a higher rate, then the gap
+  messages:
+    - "What is $50,000 received in 8 years worth today at a 5% discount rate?"
+    - "What about at 7%?"
+    - "At 5%, if I have $25,000 today, how much more would I need to set aside now to have the $50,000 in 8 years?"
+  expect:
+    - [[33841.97]]
+    - [[29100.46]]
+    - [[8841.97]]
+
+- id: c17
+  about: a project's NPV at two rates, then its IRR
+  messages:
+    - "A project costs $20,000 today and returns $6,000 at the end of each year for 5 years. What is its NPV at an 8% discount rate?"
+    - "What is the NPV at 12%?"
+    - "What is the project's internal rate of return?"
+  expect:
+    - [[3956.26]]
+    - [[1628.66]]
+    - [[15.24]]
+
+- id: c18
+  about: lump sum versus annual payments
+  messages:
+    - "Would I be better off with $1,000,000 now or $60,000 a year for 25 years, at a 5% discount rate? What are the annual payments worth today?"
+    - "What are they worth today at a 4% discount rate?"
+    - "At 5%, how much more is the lump sum worth than the payments?"
+  expect:
+    - [[845636.67, 887918.51]]
+    - [[937324.80, 974817.79]]
+    - [[154363.33, 112081.49]]
+
+# ---------------------------------------------------------------- rates and returns
+- id: c19
+  about: inflation, today's money and future prices
+  messages:
+    - "What will $100,000 be worth in today's money after 20 years of 3% inflation?"
+    - "Something costs $50 today. What will it cost in 20 years at 3% inflation?"
+    - "And what would the $100,000 be worth in today's money if inflation is 2% instead?"
+  expect:
+    - [[55367.58]]
+    - [[90.31]]
+    - [[67297.13]]
+
+- id: c20
+  about: real return and real growth
+  messages:
+    - "If my investments return 8% a year and inflation is 3%, what is my real return?"
+    - "In today's dollars, what does $10,000 grow to in 10 years at that real return?"
+    - "What would the real return be if inflation were 4%?"
+  expect:
+    - [[4.854, 5]]                                 # exact (1.08/1.03 - 1) or the approximation 8% - 3%
+    - [[16064.43, 16288.95]]
+    - [[3.846, 4]]
+
+- id: c21
+  about: APR to APY with different compounding
+  messages:
+    - "What APY does a 5% APR compounded monthly give?"
+    - "What if it's compounded daily?"
+    - "And quarterly?"
+  expect:
+    - [[5.116]]
+    - [[5.127]]
+    - [[5.095]]
+
+- id: c22
+  about: compound annual growth rate
+  messages:
+    - "My investment grew from $10,000 to $18,000 in 6 years. What was its compound annual growth rate?"
+    - "What if it took 7 years to get there?"
+    - "What yearly return would I have needed to reach $25,000 in those 6 years?"
+  expect:
+    - [[10.29]]
+    - [[8.76]]
+    - [[16.50]]
+
+- id: c23
+  about: a bond's price, current yield, then a lower yield
+  messages:
+    - "A bond has a $1,000 face value, pays a 5% annual coupon and matures in 10 years. If the market yield is 6%, what is its price?"
+    - "What is its current yield at that price?"
+    - "What would the price be if the market yield fell to 4%?"
+  expect:
+    - [[926.40]]
+    - [[5.397]]
+    - [[1081.11]]
+
+- id: c24
+  about: what fees cost over 30 years
+  messages:
+    - "If I invest $100,000 for 30 years at 7% a year, how much will I have?"
+    - "What if fees of 1% a year bring my return down to 6%?"
+    - "How much do those fees cost me by the end?"
+  expect:
+    - [[761225.50]]
+    - [[574349.12]]
+    - [[186876.39]]
+
+# ---------------------------------------------------------------- everyday maths
+- id: c25
+  about: splitting money, then growing each part
+  messages:
+    - "I have $12,000 to invest: 60% in stocks, 30% in bonds and 10% in cash. How much goes into each?"
+    - "If stocks grow 7% a year, bonds 4% and cash 0%, what is each part worth after 10 years?"
+    - "What is the total after 10 years?"
+  expect:
+    - [[7200], [3600], [1200]]
+    - [[14163.49], [5328.88]]
+    - [[20692.37]]
+
+- id: c26
+  about: salary with yearly raises
+  messages:
+    - "I earn $60,000 a year and get a 3% raise every year. What will my salary be in 10 years?"
+    - "How much will I earn in total over the next 10 years, starting at $60,000?"
+    - "What would my salary be in 10 years with 5% raises instead?"
+  expect:
+    - [[80634.98, 78286.39]]                      # after 10 raises / in year 10 (9 raises)
+    - [[687832.76, 708467.74]]
+    - [[97733.68, 93079.69]]
+
+- id: c27
+  about: renting versus a mortgage over 5 years
+  messages:
+    - "My rent is $2,000 a month and goes up 3% a year. How much rent will I pay over the next 5 years?"
+    - "If I buy a $400,000 home with 20% down and a 30-year mortgage at 6.5%, what is the down payment and the monthly payment?"
+    - "How much would I pay in mortgage payments over those same 5 years?"
+  expect:
+    - [[127419.26]]
+    - [[80000], [2022.62]]
+    - [[121357.06]]
+
+- id: c28
+  about: saving for a roof replacement
+  messages:
+    - "I need $15,000 for a new roof in 6 years. If my savings earn 3% a year compounded monthly, how much should I save each month?"
+    - "What if I save once a year instead, with 3% compounded annually?"
+    - "And monthly at 4% instead of 3%?"
+  expect:
+    - [[190.41, 189.93]]
+    - [[2318.96, 2251.42]]
+    - [[184.68, 184.07]]
+
+- id: c29
+  about: paying a loan off early
+  messages:
+    - "I owe $20,000 on a loan at 6% a year and pay $400 a month. How many months until it's paid off?"
+    - "What if I pay $500 a month?"
+    - "How much interest do I save by paying $500 instead of $400?"
+  expect:
+    - [[58, 57.68]]
+    - [[45, 44.74]]
+    - [[701.94]]
+
+- id: c30
+  about: a college savings plan
+  messages:
+    - "If I put $200 a month into a 529 plan for 18 years at 6% a year compounded monthly, how much will it grow to?"
+    - "What if I put in $300 a month?"
+    - "What if I start with $5,000 and add $200 a month?"
+  expect:
+    - [[77470.64, 77857.99]]
+    - [[116205.96, 116786.99]]
+    - [[92154.47, 92541.82]]
