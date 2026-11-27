@@ -85,7 +85,9 @@ PROOFREAD_SYSTEM = (
     "You are the proofreader in front of a personal-finance assistant. Rewrite the user's latest message with spelling, grammar and "
     "abbreviations fixed, so the agents after you can read it: \"yrs\" -> \"years\", \"mo\" -> \"months\", \"tsla\" -> \"TSLA\", "
     "\"nvdia\" -> \"NVIDIA\", \"wht abt\" -> \"what about\". Keep the meaning, every number and every ticker symbol; never answer "
-    "the message, add facts or drop a request. If a word may be a ticker or name you don't know, leave it unchanged. "
+    "the message, add facts or drop a request. Keep what each amount is: \"I'm borrowing $350,000 for a house\" is a $350,000 "
+    "loan (\"a $350,000 mortgage\"), never \"a $350,000 house\"; a price, a loan, a deposit and a saving are different "
+    "figures. If a word may be a ticker or name you don't know, leave it unchanged. "
     "If the message says what the user does NOT want, rewrite it as what they do want and leave out what they ruled out: "
     "\"I am not looking for DHSB news. I just want earlier news of today\" -> \"What were the market headlines earlier today?\"; "
     "\"not Apple, show me Microsoft's price\" -> \"What is Microsoft's stock price?\".\n"
@@ -116,6 +118,7 @@ PROOFREAD_SYSTEM = (
 _TICKER_TOKEN = re.compile(r"\b[A-Z]{2,5}\b")
 _NAME_WORD = re.compile(r"\b[A-Z][A-Za-z&.\-]+")          # a capitalised word: a ticker or a name the rewrite must not invent
 _NUMBER = re.compile(r"\d+(?:\.\d+)?")
+_LOAN_WORD = re.compile(r"\b(?:borrow\w*|loans?|lend\w*|owe[sd]?|owing|debts?|principal)\b", re.I)   # an amount that is a loan
 _THOUSANDS = re.compile(r"(?<=\d),(?=\d{3}\b)")         # "$20,000" and "$20000" are the same number
 PROOFREAD_MAX_CHARS = 500                  # longer messages go to the router as typed
 FOLLOW_UP_EXTRA_CHARS = 200                # room a completed follow-up may add (company names, the period)
@@ -141,6 +144,8 @@ def _proofread_ok(original: str, fixed: str, ctx: dict | None = None, recent: st
     original, fixed = _THOUSANDS.sub("", original), _THOUSANDS.sub("", fixed)
     if any(n not in fixed for n in _NUMBER.findall(original)):
         return False
+    if _LOAN_WORD.search(original) and not _LOAN_WORD.search(fixed) and not re.search(r"\bmortgage of\b|\$[\d.]+[km]? mortgage", fixed, re.I):
+        return False                                      # "borrowing $350,000 for a house" must not become "a $350,000 house"
     ruled_out = SYM.excluded(original)                    # "not looking for DHSB news": the rewrite may drop DHSB
     if any(t not in fixed for t in _TICKER_TOKEN.findall(original) if not original.isupper() and t.lower() not in ruled_out):
         return False

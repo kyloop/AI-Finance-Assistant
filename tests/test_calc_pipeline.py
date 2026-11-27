@@ -534,3 +534,117 @@ def test_a_derived_value_a_target_uses_is_kept():
                          "cents": {"value": 16449, "from": "user", "unit": "number", "means": "price in cents"}},
               "derived": {"p": {"expr": "cents / 100", "unit": "money"}}}
     assert [s["name"] for s in CP.build_plan(targets, {}, filled, [])["steps"]] == ["p", "A"]
+
+
+# ---------------------------------------------------------------- a mortgage chain (live run, Nov 2026)
+from src.workflow import calc_pipeline as CP  # noqa: E402
+
+PAYMENT_EQ = {"eq": {"quote": "c = r P / (1 - (1+r)^-N)", "equation": "c = r*P/(1 - (1 + r)^(-N))", "formula": "r*P/(1 - (1 + r)^(-N))",
+                     "for": "c", "variables": {"r": "monthly interest rate", "P": "principal", "N": "number of payments"}}}
+
+
+def _mortgage_targets():
+    return [{"name": "P", "label": "monthly payment", "unit": "money", "kind": "formula"},
+            {"name": "r", "label": "monthly interest rate", "unit": "rate", "kind": "arithmetic", "expr": "r_year/12",
+             "variables": {"r_year": "yearly rate"}},
+            {"name": "n", "label": "number of payments", "unit": "number", "kind": "arithmetic", "expr": "12*t",
+             "variables": {"t": "years"}},
+            {"name": "M", "label": "monthly payment calculation", "unit": "money", "kind": "formula"}]
+
+
+def test_a_target_listed_twice_is_kept_once():
+    targets, dropped = CP.dedupe_targets(_mortgage_targets() + [{"name": "P", "label": "payment", "unit": "money", "kind": "formula"}])
+    assert [t["name"] for t in targets] == ["P", "r", "n"] and len(dropped) == 2
+
+
+def test_a_second_scenario_is_not_a_duplicate():
+    t = [{"name": "A", "label": "monthly payment at 6.5%", "unit": "money", "kind": "formula"},
+         {"name": "B", "label": "monthly payment at 5.5%", "unit": "money", "kind": "formula"}]
+    assert len(CP.dedupe_targets(t)[0]) == 2
+
+
+def test_an_equation_variable_that_another_target_computes_takes_its_name():
+    # the payment formula's r and N are what the targets r and n compute: one value each, no r_2 / N for step 4 to fill
+    targets, _ = CP.dedupe_targets(_mortgage_targets())
+    eqs = CP.name_equations(targets, {"P": PAYMENT_EQ})
+    assert eqs["P"]["formula"] == "r*P_2/(1 - (1 + r)^(-n))"
+    filled = {"inputs": {"P_2": {"value": 350000, "from": "user", "unit": "money", "means": "loan"},
+                         "r_year": {"value": 0.065, "from": "user", "unit": "rate", "means": "yearly rate"},
+                         "t": {"value": 30, "from": "user", "unit": "years", "means": "term"}}}
+    plan = CP.build_plan(targets, eqs, filled, [])
+    q = "I'm borrowing $350,000 on a 30-year mortgage at 6.5%. Monthly payment?"
+    out = PLAN.run(plan, q, q, require_checks=False)
+    assert round(out["values"]["P"], 2) == 2212.24
+
+
+def test_the_users_number_written_into_a_derived_value_becomes_an_input():
+    targets = [{"name": "P", "label": "monthly payment", "unit": "money", "kind": "formula"}]
+    eqs = CP.name_equations(targets, {"P": PAYMENT_EQ})
+    filled = {"inputs": {"P_2": {"value": 350000, "from": "user", "unit": "money", "means": "loan"}},
+              "derived": {"r": {"expr": "5.5/100/12", "unit": "rate"}, "N": {"expr": "30*12", "unit": "number"}}}
+    plan = CP.build_plan(targets, eqs, filled, [])
+    assert plan["inputs"]["r_given"] == {"value": 5.5, "from": "user", "unit": "percent", "means": "monthly interest rate, as given"}
+    q = "What if the rate is 5.5% on my $350,000 30-year mortgage?"
+    out = PLAN.run(plan, q, q, require_checks=False)
+    assert round(out["values"]["P"], 2) == 1987.26
+
+
+def test_a_percent_used_as_a_decimal_rate_is_converted():
+    targets = [{"name": "P", "label": "monthly payment", "unit": "money", "kind": "formula"}]
+    eqs = CP.name_equations(targets, {"P": PAYMENT_EQ})
+    filled = {"inputs": {"P_2": {"value": 350000, "from": "user", "unit": "money", "means": "loan"},
+                         "annual_rate": {"value": 5.5, "from": "user", "unit": "percent", "means": "rate"},
+                         "N": {"value": 360, "from": "sample", "unit": "number", "means": "payments"}},
+              "derived": {"r": {"expr": "annual_rate/12", "unit": "rate"}}}
+    plan = CP.build_plan(targets, eqs, filled, [])
+    q = "What if the rate is 5.5% on my $350,000 mortgage?"
+    out = PLAN.run(plan, q, q, require_checks=False)
+    assert round(out["values"]["P"], 2) == 1987.26
+
+
+def test_negative_interest_saved_is_rejected():
+    plan = {"label": "extra payments", "inputs": {"a": {"value": 365414, "from": "sample", "unit": "money", "means": "before"},
+                                                   "b": {"value": 632357, "from": "sample", "unit": "money", "means": "paid after"}},
+            "steps": [{"name": "s", "label": "total interest saved", "unit": "money", "expr": "a - b"}]}
+    with pytest.raises(PLAN.PlanError, match="can't cost more interest"):
+        PLAN.run(plan, "how much interest do I save?", "", require_checks=False, example=True)
+    plan["steps"][0]["label"] = "total interest with extra payments"
+    with pytest.raises(PLAN.PlanError, match="can't be negative"):
+        PLAN.run(plan, "how much interest do I save?", "", require_checks=False, example=True)
+
+
+def test_the_users_number_written_into_an_arithmetic_target_becomes_an_input():
+    targets = _mortgage_targets()[:3]
+    targets[1] = {**targets[1], "expr": "6.5/100/12", "variables": {}}
+    targets[2] = {**targets[2], "expr": "30*12", "variables": {}}
+    eqs = CP.name_equations(targets, {"P": PAYMENT_EQ})
+    filled = {"inputs": {"P_2": {"value": 350000, "from": "user", "unit": "money", "means": "loan"}}}
+    plan = CP.build_plan(targets, eqs, filled, [])
+    q = "I'm borrowing $350,000 on a 30-year mortgage at 6.5%. Monthly payment?"
+    assert round(PLAN.run(plan, q, q, require_checks=False)["values"]["P"], 2) == 2212.24
+
+
+def test_a_number_written_into_a_target_reuses_the_input_step_4_gave_for_it():
+    # live run: target r = "6.5/100/12" beside step 4's r_year = 0.065 and t = 30 was rejected as "r_year, t not used"
+    targets = _mortgage_targets()[:3]
+    targets[1] = {**targets[1], "expr": "6.5/100/12", "variables": {}}
+    targets[2] = {**targets[2], "expr": "30*12", "variables": {}}
+    eqs = CP.name_equations(targets, {"P": PAYMENT_EQ})
+    filled = {"inputs": {"P_2": {"value": 350000, "from": "user", "unit": "money", "means": "loan"},
+                         "r_year": {"value": 0.065, "from": "user", "unit": "rate", "means": "yearly rate"},
+                         "t": {"value": 30, "from": "user", "unit": "years", "means": "term"}}}
+    plan = CP.build_plan(targets, eqs, filled, [])
+    assert set(plan["inputs"]) == {"P_2", "r_year", "t"}
+    q = "I'm borrowing $350,000 on a 30-year mortgage at 6.5%. Monthly payment?"
+    assert round(PLAN.run(plan, q, q, require_checks=False)["values"]["P"], 2) == 2212.24
+
+
+def test_a_percent_in_an_arithmetic_target_used_as_a_rate_is_converted():
+    targets = _mortgage_targets()[:3]
+    targets[1] = {**targets[1], "expr": "annual_rate/12", "variables": {"annual_rate": "yearly rate"}}
+    eqs = CP.name_equations(targets, {"P": PAYMENT_EQ})
+    filled = {"inputs": {"P_2": {"value": 350000, "from": "user", "unit": "money", "means": "loan"},
+                         "annual_rate": {"value": 5.5, "from": "user", "unit": "percent", "means": "rate"},
+                         "t": {"value": 30, "from": "user", "unit": "years", "means": "term"}}}
+    q = "What if the rate is 5.5% on my $350,000 30-year mortgage?"
+    assert round(PLAN.run(CP.build_plan(targets, eqs, filled, []), q, q, require_checks=False)["values"]["P"], 2) == 1987.26

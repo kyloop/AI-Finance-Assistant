@@ -479,6 +479,12 @@ class _Executor:
                 raise PlanError(f"step {s['name']}: the state stopped being a finite number in period {done + 1}")
             done += 1
             rows.append((done, dict(state)))
+        overpaid = {k: v for k, v in state.items() if re.search(r"balance|debt|owed|owing|principal|loan", k, re.I) and v < -1}
+        if stopped and overpaid:                         # the last payment paid more than was owed: totals overcount it
+            k, v = next(iter(overpaid.items()))
+            raise PlanError(f"step {s['name']}: {k} ends at {v:,.2f}, so the last period paid more than was owed: pay at "
+                            f"most what is owed (\"payment\": \"min(P, {k} + interest)\") and keep the interest paid as a "
+                            "state variable, and take totals from those running totals, not payment × periods")
         if s["until"] and not stopped:
             result = None                                # the condition never came within the limit
         else:
@@ -544,6 +550,27 @@ class _Executor:
         return done
 
 
+_PAID = re.compile(r"\binterest\b|\b(payments?|fees?|cost)\b", re.I)
+_NET = re.compile(r"sav|differ|change|\bvs\b|compar|left|short|gain|net|more|less|reduc|balance", re.I)
+
+
+def check_signs(p: dict, values: dict) -> None:
+    """An amount paid (interest, a payment, a fee) can't be negative: a negative one means its formula is the wrong way
+    round, as in "interest with extra payments = interest before - (payment + extra) * months"."""
+    for s in p["steps"]:
+        v = values.get(s["name"])
+        label = s.get("label") or ""
+        if s.get("unit") == "money" and isinstance(v, (int, float)) and v < -0.005 and re.search(r"\binterest\b", label, re.I) \
+                and re.search(r"\bsav", label, re.I) and not re.search(r"differ|change|\bvs\b|compar|net\b", label, re.I):
+            raise PlanError(f"step {s['name']} ({label}) comes out at {v:,.2f}: paying more each month can't cost more "
+                            "interest, so check its formula (interest saved = interest before - interest after, each = "
+                            "everything paid - the amount borrowed)")
+        if (s.get("unit") == "money" and isinstance(v, (int, float)) and v < -0.005
+                and _PAID.search(label) and not _NET.search(label)):
+            raise PlanError(f"step {s['name']} ({s.get('label')}) comes out at {v:,.2f}, but an amount paid can't be "
+                            "negative: check its formula (total interest = everything paid - the amount borrowed)")
+
+
 def run(plan, question: str, known_text: str, skip: frozenset[int] = frozenset(), require_checks: bool = True,
         example: bool = False) -> dict:
     """Validate and execute a plan; `skip`: indexes of checks a judge set aside; `require_checks` False for a plan built
@@ -563,6 +590,7 @@ def run(plan, question: str, known_text: str, skip: frozenset[int] = frozenset()
     ex = _Executor(p)
     values, details = ex.run(top=True)
     check_all_used(p, question, values)
+    check_signs(p, values)
     checks = ex.checks(skip)
     if skip and not checks and require_checks and _needs_checks(p):
         raise PlanError("every check was set aside as wrong, so nothing verifies the plan: add a check you are sure of "

@@ -246,3 +246,11 @@ def test_sector_figures_are_shown_word_for_word_only_for_sector_news():
     data = {"XLK": {"sector": sector}, "AAPL": {"quote": {}}}
     assert "Technology sector" in _sector_lines({"entities": {"sector_figures": True}, "market_data": data})
     assert _sector_lines({"entities": {}, "market_data": data}) == ""
+
+
+def test_proofread_keeps_a_loan_a_loan():
+    # live run, Nov 2026: "I'm borrowing $350,000 for a house" became "a $350,000 house", and the calculator asked for a down payment
+    q = "I'm borrowing $350,000 for a house on a 30-year fixed mortgage at 6.5%. What will my monthly payment be?"
+    assert not _proofread_ok(q, "What will my monthly payment be on a $350,000 house with a 30-year fixed mortgage at 6.5%?")
+    assert _proofread_ok(q, "What will my monthly payment be on a $350,000 mortgage for a house on a 30-year fixed mortgage at 6.5%?")
+    assert _proofread_ok(q, "I'm borrowing $350,000 for a house on a 30-year fixed mortgage at 6.5%. What will my monthly payment be?")

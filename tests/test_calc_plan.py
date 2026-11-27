@@ -532,3 +532,17 @@ def test_a_percentage_multiplied_into_money_must_be_divided_by_100():
     plan["inputs"]["tax_rate"] = inp(0.15, "rate", "sample")
     plan["steps"][0]["expr"] = "gain * tax_rate"
     assert P.run(plan, q, q, require_checks=False, example=True)["values"]["tax"] == pytest.approx(750)
+
+
+def test_a_debt_paid_past_zero_is_rejected():
+    # live run, Nov 2026: the balance ended at -$1,948.26 and "interest saved" counted that overpayment as interest
+    plan = {"label": "payoff", "inputs": {"B": {"value": 5000, "from": "user", "unit": "money", "means": "debt"},
+                                          "p": {"value": 300, "from": "user", "unit": "money", "means": "payment"}},
+            "steps": [{"name": "m", "label": "months", "result": "periods", "unit": "months",
+                       "simulate": {"start": {"balance": "B"}, "each": {"balance": "balance - p"},
+                                    "until": "balance < 1", "period": "month"}}]}
+    q = "I owe $5,000 and pay $300 a month. How many months?"
+    with pytest.raises(P.PlanError, match="paid more than was owed"):
+        P.run(plan, q, q, require_checks=False)
+    plan["steps"][0]["simulate"]["each"] = {"balance": "balance - min(p, balance)"}
+    assert P.run(plan, q, q, require_checks=False)["values"]["m"] == 17

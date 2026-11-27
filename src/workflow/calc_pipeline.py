@@ -60,10 +60,14 @@ DEFINE_SYSTEM = (
     "purchasing power, current yield). Add \"concept\": its standard name, \"kb_query\" and \"web_query\": searches "
     "that would find its equation (\"present value of a lump sum formula\").\n"
     "- \"arithmetic\": plain arithmetic on given numbers or earlier targets: a split, a share, a sum or difference "
-    "(total interest = payments - amount borrowed, savings = interest before - interest after). Add \"expr\": the "
+    "(total interest = payment * number of payments - amount borrowed, savings = interest before - interest after, how "
+    "much sooner = months before - months after). Every quantity the question asks about is a target: \"how much sooner "
+    "is it paid off and how much interest do I save?\" needs both the months saved and the interest saved. Add \"expr\": the "
     "formula over short names, and \"variables\": {name: meaning} for each name in it that isn't an earlier target. A "
     "yes/no question (is it enough? which costs less?) is the difference (cash saved - price) with a label saying what "
     "its sign means (\"left over after buying (negative: short by)\"); never a comparison with < or >.\n"
+    "A loan paid with a fixed payment plus a fixed extra amount each month is still a formula: the number of payments "
+    "to pay it off with payment + extra.\n"
     "- \"simulation\": only when no equation fits because the amount changes period by period with a condition (a "
     "payment that is a percentage of the remaining balance, withdrawals that rise every year).\n"
     "Add \"assumptions\": the readings you take (\"the monthly payment stays the same after the lump sum\").\n"
@@ -371,6 +375,12 @@ def extract(target: dict, passages: list[dict] | None) -> tuple[dict | None, str
     if read is None:
         return None, why
     equation, unknown = read["equation"], read["for"]
+    if not EQ.variables(equation) - {unknown}:
+        return None, f"{equation!r} is a worked example's numbers, not an equation"
+    lhs, _, rhs = equation.partition("=")
+    if unknown in EQ.variables(lhs) and unknown in EQ.variables(rhs) and any(
+            n not in PLAN.STRUCTURAL for n, _ in PLAN._constants(rhs)):     # "n = 360/(1 - (1 + i)^(-n))": an example misread
+        return None, f"{equation!r} has {unknown} on both sides and an example's numbers in it"
     stated = {float(n) for n in re.findall(r"\d+(?:\.\d+)?", quote)}
     if extra := sorted({f"{n:g}" for n, _ in PLAN._constants(equation.replace("=", "-(") + ")")
                         if n not in PLAN.STRUCTURAL and n not in stated}):
@@ -468,9 +478,48 @@ def _rename(text: str, mapping: dict[str, str]) -> str:
     return re.sub(r"[A-Za-z][A-Za-z0-9_]*", lambda m: mapping.get(m[0], m[0]), text)
 
 
+_GENERIC = {"calculation", "calculated", "computed", "formula", "result", "value", "total"}
+
+
+def _same_quantity(a, b) -> bool:
+    """Two descriptions of one quantity ("monthly payment" and "monthly payment calculation"): the same words once
+    generic ones are left out. "monthly payment at 5.5%" is not "monthly payment" (a second scenario)."""
+    wa, wb = _words(a) - _GENERIC, _words(b) - _GENERIC
+    return bool(wa) and wa == wb
+
+
+def _names_target(meaning, label) -> bool:
+    """A variable's meaning names what a target computes: the same words, or the target's (two or more) and more
+    ("number of payments over the loan's lifetime" for a target "number of payments")."""
+    wm, wl = _words(meaning) - _GENERIC, _words(label) - _GENERIC
+    return bool(wl) and (wm == wl or (len(wl) >= 2 and wl <= wm))
+
+
+def dedupe_targets(targets: list[dict]) -> tuple[list[dict], list[str]]:
+    """Step 2 sometimes lists one quantity twice (P "monthly payment" and M "monthly payment calculation", or the same
+    name twice): keep the first, and point later targets' formulas at it. Returns (targets, what was dropped)."""
+    kept, alias, dropped = [], {}, []
+    for t in targets:
+        twin = next((k for k in kept if k["name"] == t["name"] or (
+            k["kind"] == t["kind"] == "formula" and k["unit"] == t["unit"] and _same_quantity(k["label"], t["label"]))), None)
+        if twin is None:
+            kept.append(t)
+            continue
+        if twin["name"] != t["name"]:
+            alias[t["name"]] = twin["name"]
+        dropped.append(f"{t['name']} ({t['label']}, the same as {twin['name']})")
+    for t in kept:
+        if t["kind"] == "arithmetic" and alias:
+            t["expr"] = _rename(t["expr"], alias)
+            t["variables"] = {v: m for v, m in t["variables"].items() if v not in alias}
+    return kept, dropped
+
+
 def name_equations(targets: list[dict], found: dict[str, dict]) -> dict[str, dict]:
     """Each formula target's equation with its unknown named after the target and its other variables given names
-    unique across the calculation (i, i_2), so one value per name."""
+    unique across the calculation (i, i_2), so one value per name. A variable that means what another target computes
+    (the payment formula's "monthly interest rate" r beside a target r = r_year/12) takes that target's name, so the
+    target's step feeds the equation instead of step 4 giving a second value for it."""
     taken = {t["name"] for t in targets} | {v for t in targets if t["kind"] == "arithmetic" for v in t["variables"]}
     out = {}
     for t in targets:
@@ -479,6 +528,12 @@ def name_equations(targets: list[dict], found: dict[str, dict]) -> dict[str, dic
         e = found[t["name"]]["eq"]
         mapping = {e["for"]: t["name"]}
         for v in sorted(EQ.variables(e["equation"]) - {e["for"]}):
+            other = next((o["name"] for o in targets if o is not t and o["kind"] != "formula"
+                          and t["name"] not in EQ.variables(o.get("expr") or "0")       # no loop back to this target
+                          and _names_target(e["variables"].get(v, ""), o["label"])), None)
+            if other and other not in mapping.values():
+                mapping[v] = other
+                continue
             new, k = (v if _usable(v) else f"{v}_"), 2
             while new in taken:
                 new, k = f"{v}_{k}", k + 1
@@ -545,6 +600,50 @@ def _paired(missing: list[str], need: dict[str, str], inputs: dict, derived: dic
     return {v: {"expr": k} for v, k in pairs.items()}
 
 
+def _lift_literals(inputs: dict, derived: dict, need: dict[str, str]) -> None:
+    """Step 4 often writes the user's number into a derived value ("r": "6.5/100/12") instead of giving it as an input:
+    make each such number an input ("from": "user", so the plan's guard still checks it is the user's), and the
+    derived value a formula over it. Changes `inputs` and `derived` in place."""
+    for k, d in list(derived.items()):
+        d = d if isinstance(d, dict) else {"expr": d}
+        expr = str(d.get("expr") or "")
+        try:
+            literals = [n for n, exponent in PLAN._constants(expr)
+                        if n not in PLAN.STRUCTURAL and not (exponent and n in PLAN.EXPONENTS)]
+        except PLAN.PlanError:
+            continue
+        for j, n in enumerate(dict.fromkeys(literals)):
+            text = f"{n:g}"
+            number = rf"(?<![\w.]){re.escape(text)}(?:\.0+)?(?![\w.])"
+            pct = re.search(rf"{number}\s*/\s*100\b", expr)
+            # an input step 4 already gave with this value (r_year: 0.065 for "6.5/100", t: 30 for "30*12") is reused
+            same = next((i for i, v in inputs.items() if isinstance(v.get("value"), (int, float)) and (
+                (pct and v.get("unit") == "rate" and abs(v["value"] * 100 - n) < 1e-9)
+                or (v.get("unit") != "rate" and abs(v["value"] - n) < 1e-9))), None)
+            if same and pct and inputs[same].get("unit") == "rate":
+                expr = re.sub(rf"{number}\s*/\s*100\b", same, expr)
+                continue
+            if same:
+                expr = re.sub(number, same, expr)
+                continue
+            name = f"{k}_given" if j == 0 else f"{k}_given{j + 1}"
+            expr = re.sub(number, name, expr)
+            inputs[name] = {"value": n, "from": "user", "unit": "percent" if pct else "number",
+                            "means": f"{need.get(k, k)}, as given"}
+        derived[k] = {**d, "expr": expr}
+
+
+def _percent_to_rate(inputs: dict, derived: dict) -> None:
+    """A yearly rate given as a percent (annual_rate: 5.5) and used as a decimal ("r": "annual_rate/12", unit rate) is
+    the decimal 0.055: convert the input when every derived value using it is a rate computed without /100."""
+    for k, i in inputs.items():
+        if i.get("unit") != "percent":
+            continue
+        users = [d for d in derived.values() if isinstance(d, dict) and re.search(rf"\b{re.escape(k)}\b", str(d.get("expr") or ""))]
+        if users and all(d.get("unit") == "rate" and not re.search(r"\b100\b", str(d.get("expr") or "")) for d in users):
+            inputs[k] = {**i, "value": i["value"] / 100, "unit": "rate"}
+
+
 def build_plan(targets: list[dict], eqs: dict[str, dict], filled: dict | None, assumptions: list[str]) -> dict:
     """The executable plan: step 4's inputs, its derived values and the targets as steps, in dependency order. Raises
     PlanError when a variable has no value or the steps can't be ordered."""
@@ -554,6 +653,7 @@ def build_plan(targets: list[dict], eqs: dict[str, dict], filled: dict | None, a
     need = _needed(targets, eqs)
     names = {t["name"] for t in targets}
     derived = {k: d for k, d in derived.items() if k not in names}    # a target is computed by its own step
+    _lift_literals(inputs, derived, need)
     derived |= _paired(sorted(set(need) - set(inputs) - set(derived)), need, inputs, derived)
     if missing := sorted(set(need) - set(inputs) - set(derived)):
         used = " ".join(str((d.get("expr") if isinstance(d, dict) else d) or "") for d in derived.values())
@@ -577,10 +677,13 @@ def build_plan(targets: list[dict], eqs: dict[str, dict], filled: dict | None, a
         d = d if isinstance(d, dict) else {"expr": d}
         steps.append({"name": k, "label": need.get(k, k), "expr": str(d.get("expr") or ""),
                       "unit": d.get("unit") if d.get("unit") in UNITS else "number"})
+    lifted = {t["name"]: {"expr": t["expr"], "unit": t["unit"]} for t in targets if t["kind"] == "arithmetic"}
+    _lift_literals(inputs, lifted, {t["name"]: t["label"] for t in targets})   # step 2 wrote "6.5/100/12" as the target
+    _percent_to_rate(inputs, {**{k: d for k, d in derived.items() if isinstance(d, dict)}, **lifted})
     for t in targets:
         step = {"name": t["name"], "label": t["label"], "unit": t["unit"]}
         if t["kind"] == "arithmetic":
-            step["expr"] = t["expr"]
+            step["expr"] = lifted[t["name"]]["expr"]
         elif eqs[t["name"]]["formula"]:
             step.update(expr=eqs[t["name"]]["formula"], satisfies=eqs[t["name"]]["equation"], sourced=True)
         else:
@@ -709,6 +812,9 @@ def calculate(question: str, prompt: str, known_text: str, fallback: Callable[[b
             targets = [t for t in targets if t not in given]
             trace.append("2 dropped targets the message gives: "
                          + ", ".join(f"{t['name']} ({t['label']})" for t in given))
+    targets, twins = dedupe_targets(targets)
+    if twins:
+        trace.append("2 dropped duplicate targets: " + ", ".join(twins))
     trace.append("2 targets: " + "; ".join(f"{t['name']} ({t['kind']}: {t['label']})" for t in targets))
     if any(t["kind"] == "simulation" for t in targets):
         return _fallback(fallback, trace, "a target changes period by period (simulation)", example, understanding)
