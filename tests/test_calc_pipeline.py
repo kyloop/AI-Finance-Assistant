@@ -685,3 +685,25 @@ def test_the_calculator_can_run_on_its_own_model(monkeypatch):
             assert L.current_llm().model_name == "small"
     finally:
         L.get_llm.cache_clear()
+
+
+def test_a_follow_up_uses_an_earlier_result_instead_of_working_it_out_again():
+    # live run, Nov 2026: "the present value of that retirement goal today at 7%" re-derived the goal and mixed the rates
+    first = {"label": "value at retirement", "inputs": {"C": {"value": 80000, "from": "user", "unit": "money", "means": "withdrawal"},
+                                                         "r": {"value": 0.05, "from": "user", "unit": "rate", "means": "rate"}},
+             "steps": [{"name": "PV", "label": "value of the withdrawals at retirement", "unit": "money"}],
+             "values": {"PV": 1229796.0821506274}}
+    memory = CP.memory_of(first)
+    assert "value of the withdrawals at retirement = 1229796.08" in CP.memory_line(memory)
+    assert "rate = 0.05 (5%)" in CP.memory_line(memory)
+    targets = [{"name": "G", "kind": "earlier", "earlier": "value of the withdrawals at retirement"},
+               {"name": "T", "label": "value today", "unit": "money", "kind": "arithmetic", "expr": "G/(1 + i)^n",
+                "variables": {"i": "rate before retirement", "n": "years to retirement"}}]
+    rest, given, missed = CP._earlier(targets, memory)
+    assert [t["name"] for t in rest] == ["T"] and not missed and given["G"]["value"] == 1229796.08
+    filled = {"inputs": {**given, "i": {"value": 0.07, "from": "user", "unit": "rate", "means": "rate"},
+                         "n": {"value": 25, "from": "user", "unit": "years", "means": "years"}}}
+    plan = CP.build_plan(CP._targets({"targets": rest})[0], {}, filled, [])
+    q = "What is the present value of that retirement goal today if I use a 7% discount rate before retirement? I retire in 25 years."
+    out = PLAN.run(plan, q, q + "\n" + CP.memory_line(memory), require_checks=False)
+    assert round(out["values"]["T"], 2) == 226588.92

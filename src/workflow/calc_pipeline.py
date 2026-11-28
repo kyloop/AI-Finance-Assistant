@@ -74,6 +74,7 @@ DEFINE_SYSTEM = (
     "to pay it off with payment + extra.\n"
     "- \"simulation\": only when no equation fits because the amount changes period by period with a condition (a "
     "payment that is a percentage of the remaining balance, withdrawals that rise every year).\n"
+    "- \"earlier\": only when you are given Earlier results: one of them, used as it is (see below).\n"
     "Add \"assumptions\": the readings you take (\"the monthly payment stays the same after the lump sum\").\n"
     'Reply with ONLY JSON: {"targets": [...], "assumptions": ["..."]}')
 
@@ -808,6 +809,70 @@ def _targets(defined: dict | None) -> tuple[list[dict] | None, str]:
     return out, ""
 
 
+# ---------------------------------------------------------------- memory of the previous calculation
+MEMORY_RESULTS = 8
+
+
+def memory_of(result: dict) -> dict:
+    """What a finished calculation leaves for the next turn (context["calc"]): its inputs and each step's result, so a
+    follow-up ("the present value of that goal today") builds on the figure instead of working it out again."""
+    vals = result.get("values") or {}
+    return {"label": result.get("label") or "",
+            "inputs": {k: {"value": i["value"], "unit": i.get("unit"), "means": i.get("means") or k}
+                       for k, i in (result.get("inputs") or {}).items() if isinstance(i.get("value"), (int, float))},
+            "results": [{"name": st["name"], "label": st.get("label") or st["name"], "unit": st.get("unit"),
+                         "value": _kept(vals[st["name"]])} for st in result.get("steps") or []
+                        if isinstance(vals.get(st["name"]), (int, float))][-MEMORY_RESULTS:]}
+
+
+def _kept(value: float) -> float:
+    """A result as the answer shows it and the next turn reuses it: to the cent from 100 up, else 6 significant digits."""
+    return round(value, 2) if abs(value) >= 100 else float(f"{value:.6g}")
+
+
+def _figure(value: float, unit: str | None) -> str:
+    """In full digits, as the no-invented-numbers check reads them; a rate also as a percentage."""
+    text = f"{value:.2f}" if abs(value) >= 100 else f"{value:.6g}"
+    return f"{text} ({value * 100:.4g}%)" if unit == "rate" else text
+
+
+def memory_line(m: dict | None) -> str:
+    """The previous calculation as one prompt line."""
+    if not m or not m.get("results"):
+        return ""
+    ins = "; ".join(f"{i['means']} = {_figure(i['value'], i.get('unit'))}" for i in (m.get("inputs") or {}).values())
+    res = "; ".join(f"{r['label']} = {_figure(r['value'], r.get('unit'))}" for r in m["results"])
+    return f"Previous calculation ({m.get('label')}): inputs {ins}; results {res}"
+
+
+EARLIER_NOTE = ("\nEarlier results (the previous calculation). When the message builds on one of them without changing "
+                "what it was worked out from (\"the present value of that goal today\" after the goal's value at "
+                "retirement), list it as a target with \"kind\": \"earlier\" and \"earlier\": its label exactly as "
+                "below, and Python uses its value; when the message changes one of its inputs (\"what if the rate is "
+                "5.5%?\"), work it out again as usual:\n")
+
+
+def _earlier(targets: list, memory: dict | None) -> tuple[list, dict, list[str]]:
+    """Step 2's "earlier" targets made inputs with the remembered value. Returns (the other targets, the inputs, why
+    any couldn't be used)."""
+    results = (memory or {}).get("results") or []
+    rest, given, missed = [], {}, []
+    for t in targets:
+        if not (isinstance(t, dict) and t.get("kind") == "earlier"):
+            rest.append(t)
+            continue
+        want = str(t.get("earlier") or t.get("label") or "")
+        hit = next((r for r in results if r["label"].strip().lower() == want.strip().lower()), None) or next(
+            (r for r in results if _same_quantity(r["label"], want) or _names_target(want, r["label"])), None)
+        name = str(t.get("name") or "")
+        if hit is None or not _usable(name):
+            missed.append(want)
+            continue
+        given[name] = {"value": hit["value"], "from": "user", "unit": hit.get("unit") if hit.get("unit") in UNITS else "number",
+                       "means": f"{hit['label']} (from the previous answer)"}
+    return rest, given, missed
+
+
 _FILLER = {"the", "a", "an", "of", "my", "your", "their", "its", "in", "to", "for", "per", "amount"}
 
 
@@ -828,7 +893,8 @@ EXAMPLE_NOTE = ("\nThe user asked for a worked example and may give no numbers o
                 "numbers for every value they didn't give (\"from\": \"sample\").")
 
 
-def calculate(question: str, prompt: str, known_text: str, fallback: Callable[[bool, str], Outcome]) -> Outcome:
+def calculate(question: str, prompt: str, known_text: str, fallback: Callable[[bool, str], Outcome],
+              memory: dict | None = None) -> Outcome:
     """Steps 1 to 7. `prompt`: the conversation and the message, as the LLM steps see them; `fallback(example, hint)`:
     the plan path, for a question with a simulation or one the steps can't handle (`hint`: the sourced equations it
     must build on, when step 3 found them)."""
@@ -843,13 +909,28 @@ def calculate(question: str, prompt: str, known_text: str, fallback: Callable[[b
     # the targets come from the message as step 1 understood it (a follow-up's figures included), not from the
     # conversation: an earlier answer's calculations would come back as extra targets
     define = f"Message: {question}\n\nUnderstanding: {json.dumps(understanding)[:2000]}"
+    if memory and memory.get("results"):
+        define += EARLIER_NOTE + "\n".join(f"- {r['label']} = {_figure(r['value'], r.get('unit'))}" for r in memory["results"])
     defined = first_json(ask_llm(DEFINE_SYSTEM, define))
+    reused = {}
+
+    def split(d):                                       # step 2's "earlier" targets become inputs with their values
+        nonlocal reused
+        if not isinstance(d, dict) or not isinstance(d.get("targets"), list):
+            return d
+        rest, reused, missed = _earlier(d["targets"], memory)
+        if reused or missed:
+            trace.append("2 earlier results used: " + ", ".join(f"{k} = {v['value']:.6g}" for k, v in reused.items())
+                         + (f" (not found: {', '.join(missed)})" if missed else ""))
+        return {**d, "targets": rest}
+    defined = split(defined)
     targets, why = _targets(defined)
     if targets is None:                                  # one repair round, with Python's reason
         trace.append(f"2 targets rejected: {why}")
         defined = first_json(ask_llm(DEFINE_SYSTEM, f"{define}\n\nYour previous targets were rejected: {why}\n"
                                                     f"Previous reply: {json.dumps(defined)[:3000]}\n"
                                                     "Reply with ONLY corrected JSON."))
+        defined = split(defined)
         targets, why = _targets(defined)
     if targets is None:
         return _fallback(fallback, trace, f"step 2 gave no usable targets ({why})", example, understanding)
@@ -879,11 +960,17 @@ def calculate(question: str, prompt: str, known_text: str, fallback: Callable[[b
     eqs = name_equations(targets, found)
     assumptions = [" ".join(str(a).split())[:160] for a in ((defined or {}).get("assumptions") or [])[:4] if str(a).strip()]
     ask = _variables_prompt(prompt, understanding, targets, eqs) + (EXAMPLE_NOTE if example else "")
+    if reused:
+        ask += ("\nAlready given (from the previous answer; don't give values for them): "
+                + "; ".join(f"{k} = {v['value']:.10g} ({v['means']})" for k, v in reused.items()))
     errors = []
     for attempt in (1, 2):
         filled = first_json(ask_llm(VARIABLES_SYSTEM, ask if attempt == 1 else
                                     f"{ask}\n\nYour previous values were rejected: {errors[-1]}\nPrevious reply: "
                                     f"{json.dumps(filled)[:3000]}\nReply with ONLY corrected JSON."))
+        if reused:
+            filled = filled if isinstance(filled, dict) else {}
+            filled = {**filled, "inputs": {**(filled.get("inputs") if isinstance(filled.get("inputs"), dict) else {}), **reused}}
         try:
             plan = build_plan(targets, eqs, filled, assumptions)
             result = PLAN.run(plan, question, known_text, require_checks=False, example=example)

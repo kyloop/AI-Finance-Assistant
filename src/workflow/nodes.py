@@ -464,6 +464,26 @@ def _tax_scenario(text: str) -> bool:
     return bool(TAXC.amounts(text) and _TAX_TOPIC.search(text) and TAXC._FIGURE.search(text))
 
 
+_EDUCATION = re.compile(r"\b(529|tuition|college|coverdell|education (savings|account))\b", re.I)   # tax-advantaged saving
+_NUMBER_QUESTION = re.compile(r"\$\s?\d|\d\s?%|\b\d[\d,]*\s*(years?|months?)\b", re.I)
+
+
+def _without_stray_tax(intents: list[str], state: FinanceState) -> list[str]:
+    """The tax agent only for a tax question: the router LLM sends "$12,000 split 60/30/10", "a salary with 3% raises"
+    and "saving for a roof" there (chain eval, Nov 2026), and it then estimates income tax on the salary. Without a tax
+    word, a tax situation, education saving or an estimate being followed up, a question with figures goes to the
+    calculator and anything else to Q&A."""
+    if "tax" not in intents:
+        return intents
+    typed = state.get("original_question") or state["question"]
+    q = f"{typed} {state['question']}"
+    if (_TAX_TOPIC.search(q) or _EDUCATION.search(q) or _tax_scenario(q) or TAXC.is_scenario(typed)
+            or _last_estimate(state) or (state.get("context_in") or {}).get("tax")):    # a figure added to an estimate
+        return intents
+    instead = "calc" if _NUMBER_QUESTION.search(q) else "qa"
+    return list(dict.fromkeys(instead if i == "tax" else i for i in intents))
+
+
 def _tax_to_tax_agent(intents: list[str], state: FinanceState) -> list[str]:
     """A question about a tax rule goes to the tax agent rather than Q&A: it states this year's figures (the router LLM
     sent "What is the SALT deduction cap?" to Q&A, which repeated Wikipedia's out-of-date $10,000)."""
@@ -478,7 +498,10 @@ def _with_income_tax(intents: list[str], state: FinanceState) -> list[str]:
     each step, so the calculator and Q&A would only repeat it."""
     plain = set(intents) <= {"qa", "tax", "calc", "goal", "clarify"}
     typed = state.get("original_question") or state["question"]
-    follows_estimate = plain and (bool(_last_estimate(state)) or TAXC.states_tax_figure(typed)
+    # a figure of theirs with no question ("I also have $5,000 from a side job") is for the estimate; "I earn $60,000 and
+    # get 3% raises: what will my salary be in 10 years?" asks something else, so it needs a tax word too
+    figure = TAXC.states_tax_figure(typed) and ("?" not in typed or bool(_TAX_TOPIC.search(typed)))
+    follows_estimate = plain and (bool(_last_estimate(state)) or figure
                                   or bool(TAXC.missing_amount(typed, None) and (state.get("context_in") or {}).get("tax")))
     # a whole tax situation with its figures ("David earns $120,000, rent received $30,000 ... his net rental income?"):
     # the router LLM sent it to the calculator, which can't place a dozen tax figures
@@ -524,6 +547,19 @@ def _without_stray_goal(intents: list[str], state: FinanceState) -> list[str]:
     if "goal" not in intents or R.mentions_goal(q) or "goal" in (CTX.carried(state).get("intents") or []):
         return intents
     return [i for i in intents if i != "goal"] or ["qa"]
+
+
+_RATE_GIVEN = re.compile(r"\d(?:\.\d+)?\s?%|\b\d+(?:\.\d+)?\s?percent\b", re.I)
+
+
+def _goal_with_own_rate(intents: list[str], state: FinanceState) -> list[str]:
+    """"I need $15,000 in 6 years at 3%: how much a month?" is the calculator's: the goal agent projects with the
+    risk profile's assumed return, not the rate the message gives (chain eval, Nov 2026). A question about the plan
+    saved on the Goals tab stays with the goal agent."""
+    typed = state.get("original_question") or state["question"]
+    if "goal" not in intents or R.refers_to_plan(typed) or not (_RATE_GIVEN.search(typed) and TAXC.amounts(typed)):
+        return intents
+    return list(dict.fromkeys("calc" if i == "goal" else i for i in intents))
 
 
 def _with_saved_plan(intents: list[str], state: FinanceState) -> list[str]:
@@ -580,6 +616,7 @@ def _route(state: FinanceState) -> dict:
                 return {"intent": ["off_topic"], "entities": entities, "router_mode": "llm",
                         "trace": ["router (LLM): not about finance → off_topic guard"]}
             intents = [i for i in intents if i != "off_topic"] or ["qa"]       # a finance part is answered; the rest is left out
+            intents = _goal_with_own_rate(_without_stray_tax(intents, state), state)   # the LLM's pick only: the rules below may still add tax
             intents = _example_tax_to_tax_agent(_with_income_tax(_tax_to_tax_agent(_with_saved_plan(_with_screen(_without_stray_goal(_without_stray_portfolio(_with_listed_tickers(intents, text), state), state), state), state), state), state), state)
             return _routed({"intent": intents, "entities": entities, "router_mode": "llm", "trace": [f"router (LLM): {', '.join(intents)}"]}, state)
         log.warning("router LLM reply unusable; falling back to keywords")
@@ -1868,7 +1905,8 @@ def calc_node(state: FinanceState, config: RunnableConfig):
     prompt = (f"Recent conversation:\n{recent or '(none)'}\n\n"
               + (f"Figures from the previous answer:\n{known}\n\n" if known else "")
               + (f"{plan}\n\n" if plan else "") + f"Message: {q}")
-    out = calculate(q, prompt, f"{q}\n{recent}\n{known}\n{plan}")
+    memory = CTX.carried(state).get("calc")       # the previous calculation, for a follow-up that builds on its results
+    out = calculate(q, prompt, f"{q}\n{recent}\n{known}\n{plan}", memory=memory)
     steps = [f"calc step {line}" for line in out.trace]
     if out.kind == "needs":
         res = _out("calc", CALC.needs_input_text(out.needs.label, out.needs.inputs), status="need_info",
@@ -1886,18 +1924,20 @@ def calc_node(state: FinanceState, config: RunnableConfig):
                    for q_ in out.result.get("quotes", []) for s in q_["sources"] if s.get("url")]
         res = _out("calc", CALC.plan_text(out.result), verbatim=True, sources=sources,
                    trace=out.note or "calc (LLM steps): " + out.trace[-1])
+        res["turn_context"] = {"calc": CP.memory_of(out.result)}
     res["trace"] = steps + res["trace"]
     return res
 
 
-def calculate(question: str, prompt: str, known_text: str) -> CP.Outcome:
+def calculate(question: str, prompt: str, known_text: str, memory: dict | None = None) -> CP.Outcome:
     """The calculator's steps (calc_pipeline): a sourced equation when one fits, else the plan path. Every LLM call in
-    them uses the Calculator's model (`llm.role_models.calc` in config.yaml; the usual model when it has none)."""
+    them uses the Calculator's model (`llm.role_models.calc` in config.yaml; the usual model when it has none).
+    `memory`: the previous calculation (context["calc"]), whose results a follow-up may build on."""
     with llm_role("calc"):
-        return _calculate(question, prompt, known_text)
+        return _calculate(question, prompt, known_text, memory)
 
 
-def _calculate(question: str, prompt: str, known_text: str) -> CP.Outcome:
+def _calculate(question: str, prompt: str, known_text: str, memory: dict | None = None) -> CP.Outcome:
     def plan_path(example: bool, hint: str = "") -> CP.Outcome:
         result, errors, _ = plan_calculation(question, prompt + hint + (CP.EXAMPLE_NOTE if example else ""), known_text,
                                              example)
@@ -1914,7 +1954,7 @@ def _calculate(question: str, prompt: str, known_text: str) -> CP.Outcome:
         if result["set_aside"]:
             note += f"; {len(result['set_aside'])} check(s) set aside by the judge"
         return CP.Outcome("answer", result=result, errors=errors, note=note)
-    return CP.calculate(question, prompt, known_text, plan_path)
+    return CP.calculate(question, prompt, known_text, plan_path, memory)
 
 
 JUDGE_CALLS = 2                                         # most judge calls per question

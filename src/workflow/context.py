@@ -144,6 +144,10 @@ def describe(ctx: dict | None) -> str:
                      + (f"; federal total {t['total_federal']:.0f}" if t.get("total_federal") is not None else ""))
     if ctx.get("scenario"):                           # the worked example the answer gave, in full digits like the tax figures
         lines.append(scenario_line(ctx["scenario"]))
+    if ctx.get("calc"):                               # the previous calculation, in full digits too
+        from .calc_pipeline import memory_line        # (calc_pipeline imports the KB tools; loaded only when needed)
+        if line := memory_line(ctx["calc"]):
+            lines.append(line)
     for sym, f in (ctx.get("facts") or {}).items():
         bits = []
         if "price" in f:
@@ -266,6 +270,8 @@ def build(state: dict) -> dict:
             # the worked example this answer gave (or, for a follow-up, the one it went on discussing): "how would the tax
             # change in this case?" is about it
             "scenario": turn.get("scenario") or state.get("answer_scenario") or state.get("scenario_now") or prev.get("scenario"),
+            # the calculator's last calculation (inputs and results), for a follow-up that builds on a result
+            "calc": turn.get("calc") or prev.get("calc"),
             "facts": {s: f for s, f in facts.items() if s in symbols},
             # topic memory (mds/topic-memory.md): the topic node's choice when it ran, else only a follow-up stays in the
             # previous turn's topic. A calculation that doesn't point back ("how much will $10,000 grow at 7%?" after "what
