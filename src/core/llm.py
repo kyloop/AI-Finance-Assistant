@@ -3,6 +3,8 @@ when a key is present the router and synthesizer use it. Providers are imported 
 needs installing:  pip install langchain-anthropic | langchain-openai | langchain-google-genai"""
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import logging
 import os
 from functools import lru_cache
@@ -18,6 +20,7 @@ _PROVIDERS = {  # name -> (env var, pip package, import path)
 }
 _override: dict = {}      # tests / callers can force a model (or None)
 _health: dict = {"error": None}   # last LLM call outcome, so the UI can say "connected but failing"
+_role: contextvars.ContextVar[str | None] = contextvars.ContextVar("llm_role", default=None)
 
 
 def _friendly(e: Exception) -> str:
@@ -41,9 +44,22 @@ def clear_llm_override() -> None:
     get_llm.cache_clear()
 
 
+@contextlib.contextmanager
+def llm_role(role: str):
+    """Within this block (and the threads that copy its context) current_llm() is the model `llm.role_models[role]`
+    names for the provider in use, e.g. the Calculator on a bigger model than the rest of the app; the usual model when
+    the role has none."""
+    token = _role.set(role)
+    try:
+        yield
+    finally:
+        _role.reset(token)
+
+
 @lru_cache
-def get_llm():
-    """Returns a LangChain chat model, or None when no provider is usable."""
+def get_llm(role: str | None = None):
+    """Returns a LangChain chat model, or None when no provider is usable. `role`: a part of the app with its own model
+    in `llm.role_models` (`calc: {openai: gpt-4o}`); without one, or without an entry for the provider, the usual one."""
     cfg = get_config()["llm"]
     provider = cfg.get("provider", "auto")
     if provider == "none":
@@ -53,9 +69,12 @@ def get_llm():
         env, package, (module, cls) = _PROVIDERS[name]
         if not os.getenv(env):
             continue
+        model = ((cfg.get("role_models") or {}).get(role) or {}).get(name) if role else None
+        if model is None and role:
+            return get_llm()                            # no model of its own for this provider: the shared one
         try:
             chat = getattr(__import__(module, fromlist=[cls]), cls)
-            return chat(model=cfg["models"][name], temperature=cfg.get("temperature", 0.2))
+            return chat(model=model or cfg["models"][name], temperature=cfg.get("temperature", 0.2))
         except ImportError:
             log.warning("%s key found but `%s` is not installed; run: pip install %s", name, module, package)
         except Exception as e:  # bad key format, etc.
@@ -64,7 +83,7 @@ def get_llm():
 
 
 def current_llm():
-    return _override["llm"] if "llm" in _override else get_llm()
+    return _override["llm"] if "llm" in _override else get_llm(_role.get())
 
 
 def llm_status() -> dict:

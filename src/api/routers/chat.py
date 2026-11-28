@@ -13,7 +13,8 @@ from src.core.config import DISCLAIMER, get_config
 from src.core.llm import ask_llm, llm_status
 from src.db.models import Conversation, Message, Session
 from src.db.session import get_db
-from src.workflow.graph import flow_edges, flow_layout, run_chat, stream_chat
+from src.workflow.calc import readable_quotes_in
+from src.workflow.graph import flow_edges, flow_layout, run_chat, stream_chat, traced
 from src.workflow.safety import REFUSAL_NOTE  # noqa: F401  (re-exported for tests)
 from src.workflow.topics import candidates, drop_links, record_turn
 
@@ -104,7 +105,13 @@ def delete_conversation(conversation_id: int, s: Session = Depends(get_session),
 
 @router.get("/sessions/{session_id}/messages", response_model=list[schemas.MessageOut])
 def list_messages(conversation_id: int | None = None, s: Session = Depends(get_session), db: DBSession = Depends(get_db)):
-    return resolve_conversation(s, db, conversation_id).messages
+    out = []
+    for m in resolve_conversation(s, db, conversation_id).messages:
+        msg = schemas.MessageOut.model_validate(m)
+        if m.role == "assistant":                       # answers saved with a quote's raw LaTeX (before Nov 2026)
+            msg.content = readable_quotes_in(msg.content)
+        out.append(msg)
+    return out
 
 
 class _Turn:
@@ -159,7 +166,10 @@ class _Turn:
     def record_topic(self, reply: Message) -> None:
         """Topic memory (mds/topic-memory.md): the reply's topic and summary, after it is saved. Never raises."""
         if reply.context:
-            record_turn(self.db, self.conv, reply)
+            try:                                   # its own Langfuse trace, so the summary call is costed too
+                traced(lambda: record_turn(self.db, self.conv, reply), "finnie_topic_memory", self.graph_args["trace"])
+            except Exception:  # noqa: BLE001 — record_turn never raises; this guards the tracing wrapper
+                log.exception("topic memory tracing failed")
 
 
 @router.post("/sessions/{session_id}/chat", response_model=schemas.MessageOut)

@@ -318,6 +318,22 @@ def check_numbers(p: dict, question: str, known_text: str) -> None:
             if bad := [k for k in percents if re.search(rf"\b1\s*[-+]\s*{re.escape(k)}\b|\b{re.escape(k)}\s*[-+]\s*1\b", f)]:
                 raise PlanError(f"step {s['name']}: {', '.join(bad)} is a percentage (unit \"percent\") added to 1 in "
                                 f"{f.strip()!r}; give it as a rate, a decimal (0.07 for 7%)")
+    for s in p["steps"]:                                # 5000 * tax_rate with tax_rate = 15 gave $75,000: a percent needs /100
+        if s["unit"] != "money":
+            continue
+        for f in _checked_formulas(s):
+            if re.search(r"\b100\b", f):
+                continue
+            if bad := sorted(k for k in percents if re.search(rf"[*/]\s*\(?\s*{re.escape(k)}\b|\b{re.escape(k)}\s*\)?\s*[*/]", f)):
+                raise PlanError(f"step {s['name']}: {', '.join(bad)} is a percentage (unit \"percent\", e.g. 15 for 15%) "
+                                f"multiplied into a money amount in {f.strip()!r}; divide it by 100, or give it as a rate, a "
+                                "decimal (0.15 for 15%)")
+    decimals = {k for k, i in p["inputs"].items() if i["unit"] == "rate"}
+    for s in p["steps"]:                                # 0.05/100/12: a rate already a decimal divided by 100 again
+        for f in _checked_formulas(s):
+            if bad := sorted(k for k in decimals if re.search(rf"\b{re.escape(k)}\s*\)?\s*/\s*100\b", f)):
+                raise PlanError(f"step {s['name']}: {', '.join(bad)} is already a decimal rate (0.05 for 5%), so "
+                                f"dividing it by 100 in {f.strip()!r} makes it 100 times too small; drop the /100")
     rates = {k for k, i in p["inputs"].items() if i["unit"] == "rate"} | {s["name"] for s in p["steps"] if s["unit"] == "rate"}
     for s in p["steps"]:                                # rm - rf with rm = 8 and rf = 0.03: 8 - 0.03 is a unit error
         for f in _checked_formulas(s):
@@ -361,6 +377,28 @@ def check_all_used(p: dict, question: str, values: dict) -> None:
         if not any(_close(q, c) for c in candidates):
             raise PlanError(f"the question's number {q:g} isn't used: make it a \"user\" input that a step uses, "
                             "compute it in a step, or list it in \"ignored\" with why")
+    check_changed_kept(p, question)
+
+
+def check_changed_kept(p: dict, question: str) -> None:
+    """A follow-up that changes a number ("what if it only earns 5% instead?" after 7%) must use the new one: a rate (or
+    an amount) of the question set aside as "ignored" while a user input of the same kind comes only from the
+    conversation is the old number kept. Raises PlanError."""
+    asked = question_numbers(question)
+    pct = {float(m[1]) for m in re.finditer(r"(\d+(?:\.\d+)?)\s*(?:%|percent\b)", question)}
+    dollars = {x for x in asked if re.search(rf"\$\s*{re.escape(f'{x:,.0f}')}|\${re.escape(f'{x:g}')}\b", question)}
+    for g in p["ignored"]:
+        q = g.get("number") if isinstance(g, dict) else None
+        if not isinstance(q, (int, float)):
+            continue
+        for k, i in p["inputs"].items():
+            if i["from"] != "user" or any(_close(abs(i["value"]), x) or _close(abs(i["value"]) * 100, x) for x in asked):
+                continue
+            old = abs(i["value"]) * 100 if i["unit"] == "rate" else abs(i["value"])
+            if (q in pct and i["unit"] in ("rate", "percent")) or (q in dollars and i["unit"] == "money"):
+                raise PlanError(f"the question gives {q:g}{'%' if q in pct else ''} but the plan uses {k} = {old:g} from "
+                                f"earlier in the conversation and sets {q:g} aside: the message changes it, so use "
+                                f"{q:g} for {k}")
 
 
 def _constants(formula: str) -> list[tuple[float, bool]]:
@@ -469,6 +507,12 @@ class _Executor:
                 raise PlanError(f"step {s['name']}: the state stopped being a finite number in period {done + 1}")
             done += 1
             rows.append((done, dict(state)))
+        overpaid = {k: v for k, v in state.items() if re.search(r"balance|debt|owed|owing|principal|loan", k, re.I) and v < -1}
+        if stopped and overpaid:                         # the last payment paid more than was owed: totals overcount it
+            k, v = next(iter(overpaid.items()))
+            raise PlanError(f"step {s['name']}: {k} ends at {v:,.2f}, so the last period paid more than was owed: pay at "
+                            f"most what is owed (\"payment\": \"min(P, {k} + interest)\") and keep the interest paid as a "
+                            "state variable, and take totals from those running totals, not payment × periods")
         if s["until"] and not stopped:
             result = None                                # the condition never came within the limit
         else:
@@ -534,6 +578,27 @@ class _Executor:
         return done
 
 
+_PAID = re.compile(r"\binterest\b|\b(payments?|fees?|cost)\b", re.I)
+_NET = re.compile(r"sav|differ|change|\bvs\b|compar|left|short|gain|net|more|less|reduc|balance", re.I)
+
+
+def check_signs(p: dict, values: dict) -> None:
+    """An amount paid (interest, a payment, a fee) can't be negative: a negative one means its formula is the wrong way
+    round, as in "interest with extra payments = interest before - (payment + extra) * months"."""
+    for s in p["steps"]:
+        v = values.get(s["name"])
+        label = s.get("label") or ""
+        if s.get("unit") == "money" and isinstance(v, (int, float)) and v < -0.005 and re.search(r"\binterest\b", label, re.I) \
+                and re.search(r"\bsav", label, re.I) and not re.search(r"differ|change|\bvs\b|compar|net\b", label, re.I):
+            raise PlanError(f"step {s['name']} ({label}) comes out at {v:,.2f}: paying more each month can't cost more "
+                            "interest, so check its formula (interest saved = interest before - interest after, each = "
+                            "everything paid - the amount borrowed)")
+        if (s.get("unit") == "money" and isinstance(v, (int, float)) and v < -0.005
+                and _PAID.search(label) and not _NET.search(label)):
+            raise PlanError(f"step {s['name']} ({s.get('label')}) comes out at {v:,.2f}, but an amount paid can't be "
+                            "negative: check its formula (total interest = everything paid - the amount borrowed)")
+
+
 def run(plan, question: str, known_text: str, skip: frozenset[int] = frozenset(), require_checks: bool = True,
         example: bool = False) -> dict:
     """Validate and execute a plan; `skip`: indexes of checks a judge set aside; `require_checks` False for a plan built
@@ -553,6 +618,7 @@ def run(plan, question: str, known_text: str, skip: frozenset[int] = frozenset()
     ex = _Executor(p)
     values, details = ex.run(top=True)
     check_all_used(p, question, values)
+    check_signs(p, values)
     checks = ex.checks(skip)
     if skip and not checks and require_checks and _needs_checks(p):
         raise PlanError("every check was set aside as wrong, so nothing verifies the plan: add a check you are sure of "

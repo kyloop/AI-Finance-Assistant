@@ -79,7 +79,7 @@ FLOW_NODES = [
     ("router", "Router", 1, "Reads your question and decides which agents should handle it (several can run at once)."),
     ("topic", "Topic", 2, "Decides which topic of the conversation the message belongs to: the one just discussed, an older one it names again (\"back to Tesla\") or a new one, linked to earlier chats about the same thing."),
     ("qa_agent", "Q&A", 3, "Answers finance concepts from the knowledge base."),
-    ("tax_agent", "Tax", 3, "Explains tax rules and accounts in general terms, from the knowledge base."),
+    ("tax_agent", "Tax", 3, "Works out your federal tax step by step from your figures (pay, investments, a rental, deductions, credits), answers what-ifs, and explains the rules with this year's IRS figures."),
     ("market_agent", "Market", 3, "Looks up prices and index moves."),
     ("news_agent", "News", 3, "Finds recent headlines for a company, its industry peers, or the market."),
     ("portfolio_agent", "Portfolio", 3, "Analyses your holdings: allocation, diversification, risk."),
@@ -121,6 +121,14 @@ def _run_config(db, trace: dict | None) -> dict:
     """Per-turn graph config: the DB session, plus Langfuse callbacks and session metadata when tracing is on."""
     return {**RUN_CONFIG, "configurable": {"db": db}, "callbacks": tracing.run_callbacks(),
             "metadata": tracing.run_metadata(**(trace or {})), "run_name": "finnie_chat"}
+
+
+def traced(fn, name: str, trace: dict | None):
+    """Run `fn()` as its own Langfuse trace (same session as the chat turns), so LLM calls made outside the graph, such as
+    topic memory's summary after the reply, are traced and costed too."""
+    from langchain_core.runnables import RunnableLambda
+    return RunnableLambda(lambda _: fn()).invoke(None, config={"callbacks": tracing.run_callbacks(), "run_name": name,
+                                                               "metadata": tracing.run_metadata(**(trace or {}))})
 
 
 def run_chat(question: str, *, history: list[dict], profile: dict, holdings: list[dict], db, saved_goal: dict | None = None, view: dict | None = None,

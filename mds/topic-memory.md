@@ -199,6 +199,9 @@ topic
    NVDA question scores close on wording but is a different subject.
 2. **No entities and no subject of its own → continue the current topic**, whatever `follow_up` says. The follow-up
    regex also gains "show", "example", "explain more", "more detail".
+   A message that points back at the previous answer's case ("how would the tax change in this case?", "what about
+   that scenario?", `context.refers_back`) also continues it, and proofread completes it with that answer's worked
+   example (`context.with_scenario`), even when the proofread model calls it a new question.
 3. **Several topics match → continue the most recent and link the rest.** "Can we do swing trading on NVIDIA?" after an
    NVDA topic and a swing-trading topic continues swing trading and links the NVDA topic.
 4. **Embeddings are the last resort**: only for messages with no entities that do have a subject.

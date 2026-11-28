@@ -6,8 +6,10 @@ from __future__ import annotations
 
 import ast
 import contextvars
+import itertools
 import json
 import keyword
+import math
 import random
 import re
 from concurrent.futures import ThreadPoolExecutor
@@ -60,12 +62,23 @@ DEFINE_SYSTEM = (
     "purchasing power, current yield). Add \"concept\": its standard name, \"kb_query\" and \"web_query\": searches "
     "that would find its equation (\"present value of a lump sum formula\").\n"
     "- \"arithmetic\": plain arithmetic on given numbers or earlier targets: a split, a share, a sum or difference "
-    "(total interest = payments - amount borrowed, savings = interest before - interest after). Add \"expr\": the "
+    "(total interest = payment * number of payments - amount borrowed, savings = interest before - interest after, how "
+    "much sooner = months before - months after). Every quantity the question asks about is a target: \"how much sooner "
+    "is it paid off and how much interest do I save?\" needs both the months saved and the interest saved; \"how much "
+    "would I have, and how much of that is growth?\" needs the total and the growth (total - everything paid in: the "
+    "starting amount + deposit * number of deposits). Add \"expr\": the "
     "formula over short names, and \"variables\": {name: meaning} for each name in it that isn't an earlier target. A "
     "yes/no question (is it enough? which costs less?) is the difference (cash saved - price) with a label saying what "
     "its sign means (\"left over after buying (negative: short by)\"); never a comparison with < or >.\n"
+    "A loan paid with a fixed payment plus a fixed extra amount each month is still a formula: the number of payments "
+    "to pay it off with payment + extra.\n"
     "- \"simulation\": only when no equation fits because the amount changes period by period with a condition (a "
     "payment that is a percentage of the remaining balance, withdrawals that rise every year).\n"
+    "Two shapes need several targets: a starting balance plus regular deposits is the balance's growth (future value "
+    "of a lump sum) + the deposits' growth (future value of an annuity); payments that start years from now, valued "
+    "today, are their value when they start (present value of an annuity) discounted back to today (present value of "
+    "a lump sum).\n"
+    "- \"earlier\": only when you are given Earlier results: one of them, used as it is (see below).\n"
     "Add \"assumptions\": the readings you take (\"the monthly payment stays the same after the lump sum\").\n"
     'Reply with ONLY JSON: {"targets": [...], "assumptions": ["..."]}')
 
@@ -371,6 +384,12 @@ def extract(target: dict, passages: list[dict] | None) -> tuple[dict | None, str
     if read is None:
         return None, why
     equation, unknown = read["equation"], read["for"]
+    if not EQ.variables(equation) - {unknown}:
+        return None, f"{equation!r} is a worked example's numbers, not an equation"
+    lhs, _, rhs = equation.partition("=")
+    if unknown in EQ.variables(lhs) and unknown in EQ.variables(rhs) and any(
+            n not in PLAN.STRUCTURAL for n, _ in PLAN._constants(rhs)):     # "n = 360/(1 - (1 + i)^(-n))": an example misread
+        return None, f"{equation!r} has {unknown} on both sides and an example's numbers in it"
     stated = {float(n) for n in re.findall(r"\d+(?:\.\d+)?", quote)}
     if extra := sorted({f"{n:g}" for n, _ in PLAN._constants(equation.replace("=", "-(") + ")")
                         if n not in PLAN.STRUCTURAL and n not in stated}):
@@ -388,14 +407,47 @@ def extract(target: dict, passages: list[dict] | None) -> tuple[dict | None, str
             "variables": {n: read["variables"].get(n, n) for n in sorted(names) if n != unknown}}, ""
 
 
+def same_form(a: dict, b: dict) -> bool:
+    """The two equations are one formula under different names (`FV = PV*(1 + i)^n` and `FV = PV(1+r)^n`): some
+    one-to-one renaming of b's variables onto a's, with each one's unknown onto the other's, gives the same value at
+    several random points. Python decides this, so the judge can't call them different."""
+    fa, fb = a.get("formula") or _isolated(a["equation"], a["for"]), b.get("formula") or _isolated(b["equation"], b["for"])
+    if not fa or not fb:
+        return False
+    try:
+        va, vb = sorted(EQ.variables(fa)), sorted(EQ.variables(fb))
+    except EQ.EquationError:
+        return False
+    if len(va) != len(vb) or not 0 < len(va) <= 6 or a["for"] in va or b["for"] in vb:
+        return False
+    rng = random.Random(7)
+    points = [{v: rng.uniform(0.01, 0.2) if k % 2 else rng.uniform(2, 30) for k, v in enumerate(va)} for _ in range(3)]
+    try:
+        want = [EQ.evaluate(fa, p) for p in points]
+    except Exception:  # noqa: BLE001 — a formula that can't be evaluated here isn't judged by Python
+        return False
+    for perm in itertools.permutations(va):
+        try:
+            got = [EQ.evaluate(fb, {vb[j]: p[perm[j]] for j in range(len(vb))}) for p in points]
+        except Exception:  # noqa: BLE001
+            continue
+        if all(w is not None and g is not None and math.isfinite(w) and abs(g - w) <= 1e-9 * max(1.0, abs(w))
+               for w, g in zip(want, got)):
+            return True
+    return False
+
+
 def _match(question: str, target: dict, a: dict, b: dict) -> tuple[bool, str, dict, dict | None]:
     """(match?, the judge's reasoning, the equation to use, the one misread from its source when they don't match)."""
     def show(e):
         return f"{e['where']} ({e['title']}): {e['equation']}, where " + "; ".join(f"{k} = {v}" for k, v in e["variables"].items())
     reply = first_json(ask_llm(MATCH_SYSTEM, f"QUESTION: {question}\n{_target_text(target)}\n\nA, {show(a)}\nB, {show(b)}")) or {}
     why = " ".join(str(reply.get("reasoning") or "").split())[:300]
-    if reply.get("match") is True and reply.get("fits") is False:
+    alike = same_form(a, b)      # the same formula under other names, checked in Python: the judge only says if it fits
+    if (alike or reply.get("match") is True) and reply.get("fits") is False:
         return False, f"they agree, but don't compute what the question asks: {why}", a, None
+    if alike:
+        return True, "the same formula with different variable names (checked in Python)", b if reply.get("use") == "B" else a, None
     same = reply.get("match") is True
     misread = None if same else {"A": a, "B": b}.get(str(reply.get("misread") or "").strip().upper())
     return same, why, b if reply.get("use") == "B" else a, misread
@@ -468,9 +520,48 @@ def _rename(text: str, mapping: dict[str, str]) -> str:
     return re.sub(r"[A-Za-z][A-Za-z0-9_]*", lambda m: mapping.get(m[0], m[0]), text)
 
 
+_GENERIC = {"calculation", "calculated", "computed", "formula", "result", "value", "total"}
+
+
+def _same_quantity(a, b) -> bool:
+    """Two descriptions of one quantity ("monthly payment" and "monthly payment calculation"): the same words once
+    generic ones are left out. "monthly payment at 5.5%" is not "monthly payment" (a second scenario)."""
+    wa, wb = _words(a) - _GENERIC, _words(b) - _GENERIC
+    return bool(wa) and wa == wb
+
+
+def _names_target(meaning, label) -> bool:
+    """A variable's meaning names what a target computes: the same words, or the target's (two or more) and more
+    ("number of payments over the loan's lifetime" for a target "number of payments")."""
+    wm, wl = _words(meaning) - _GENERIC, _words(label) - _GENERIC
+    return bool(wl) and (wm == wl or (len(wl) >= 2 and wl <= wm))
+
+
+def dedupe_targets(targets: list[dict]) -> tuple[list[dict], list[str]]:
+    """Step 2 sometimes lists one quantity twice (P "monthly payment" and M "monthly payment calculation", or the same
+    name twice): keep the first, and point later targets' formulas at it. Returns (targets, what was dropped)."""
+    kept, alias, dropped = [], {}, []
+    for t in targets:
+        twin = next((k for k in kept if k["name"] == t["name"] or (
+            k["kind"] == t["kind"] == "formula" and k["unit"] == t["unit"] and _same_quantity(k["label"], t["label"]))), None)
+        if twin is None:
+            kept.append(t)
+            continue
+        if twin["name"] != t["name"]:
+            alias[t["name"]] = twin["name"]
+        dropped.append(f"{t['name']} ({t['label']}, the same as {twin['name']})")
+    for t in kept:
+        if t["kind"] == "arithmetic" and alias:
+            t["expr"] = _rename(t["expr"], alias)
+            t["variables"] = {v: m for v, m in t["variables"].items() if v not in alias}
+    return kept, dropped
+
+
 def name_equations(targets: list[dict], found: dict[str, dict]) -> dict[str, dict]:
     """Each formula target's equation with its unknown named after the target and its other variables given names
-    unique across the calculation (i, i_2), so one value per name."""
+    unique across the calculation (i, i_2), so one value per name. A variable that means what another target computes
+    (the payment formula's "monthly interest rate" r beside a target r = r_year/12) takes that target's name, so the
+    target's step feeds the equation instead of step 4 giving a second value for it."""
     taken = {t["name"] for t in targets} | {v for t in targets if t["kind"] == "arithmetic" for v in t["variables"]}
     out = {}
     for t in targets:
@@ -479,6 +570,12 @@ def name_equations(targets: list[dict], found: dict[str, dict]) -> dict[str, dic
         e = found[t["name"]]["eq"]
         mapping = {e["for"]: t["name"]}
         for v in sorted(EQ.variables(e["equation"]) - {e["for"]}):
+            other = next((o["name"] for o in targets if o is not t and o["kind"] != "formula"
+                          and t["name"] not in EQ.variables(o.get("expr") or "0")       # no loop back to this target
+                          and _names_target(e["variables"].get(v, ""), o["label"])), None)
+            if other and other not in mapping.values():
+                mapping[v] = other
+                continue
             new, k = (v if _usable(v) else f"{v}_"), 2
             while new in taken:
                 new, k = f"{v}_{k}", k + 1
@@ -545,6 +642,53 @@ def _paired(missing: list[str], need: dict[str, str], inputs: dict, derived: dic
     return {v: {"expr": k} for v, k in pairs.items()}
 
 
+def _lift_literals(inputs: dict, derived: dict, need: dict[str, str]) -> None:
+    """Step 4 often writes the user's number into a derived value ("r": "6.5/100/12") instead of giving it as an input:
+    make each such number an input ("from": "user", so the plan's guard still checks it is the user's), and the
+    derived value a formula over it. Changes `inputs` and `derived` in place."""
+    for k, d in list(derived.items()):
+        d = d if isinstance(d, dict) else {"expr": d}
+        expr = str(d.get("expr") or "")
+        try:
+            literals = [n for n, exponent in PLAN._constants(expr)
+                        if n not in PLAN.STRUCTURAL and not (exponent and n in PLAN.EXPONENTS)]
+        except PLAN.PlanError:
+            continue
+        for j, n in enumerate(dict.fromkeys(literals)):
+            text = f"{n:g}"
+            number = rf"(?<![\w.]){re.escape(text)}(?:\.0+)?(?![\w.])"
+            pct = re.search(rf"{number}\s*/\s*100\b", expr)
+            # an input step 4 already gave with this value (r_year: 0.065 for "6.5/100", t: 30 for "30*12") is reused
+            same = next((i for i, v in inputs.items() if isinstance(v.get("value"), (int, float)) and (
+                (pct and v.get("unit") == "rate" and abs(v["value"] * 100 - n) < 1e-9)
+                or (v.get("unit") != "rate" and abs(v["value"] - n) < 1e-9))), None)
+            if same and pct and inputs[same].get("unit") == "rate":
+                expr = re.sub(rf"{number}\s*/\s*100\b", same, expr)
+                continue
+            if same:
+                expr = re.sub(number, same, expr)
+                continue
+            name = f"{k}_given" if j == 0 else f"{k}_given{j + 1}"
+            expr = re.sub(number, name, expr)
+            inputs[name] = {"value": n, "from": "user", "unit": "percent" if pct else "rate" if 0 < n < 1 else "number",
+                            "means": f"{need.get(k, k)}, as given"}
+        derived[k] = {**d, "expr": expr}
+
+
+def _percent_to_rate(inputs: dict, derived: dict) -> None:
+    """A yearly rate given as a percent (annual_rate: 5.5) and used as a decimal ("r": "annual_rate/12", unit rate) is
+    the decimal 0.055: convert the input when every derived value using it is a rate per period computed without /100.
+    A plain rename ("r": "annual_rate") is left alone: a formula such as the Rule of 72 takes the rate as a percent."""
+    for k, i in inputs.items():
+        if i.get("unit") != "percent":
+            continue
+        users = [d for d in derived.values() if isinstance(d, dict) and re.search(rf"\b{re.escape(k)}\b", str(d.get("expr") or ""))]
+        per_period = rf"\b{re.escape(k)}\s*/\s*(?:\d+|[A-Za-z_]\w*)"    # "annual_rate/12": a rate per period, a decimal
+        if users and all(d.get("unit") == "rate" and not re.search(r"\b100\b", str(d.get("expr") or ""))
+                         and re.search(per_period, str(d.get("expr") or "")) for d in users):
+            inputs[k] = {**i, "value": i["value"] / 100, "unit": "rate"}
+
+
 def build_plan(targets: list[dict], eqs: dict[str, dict], filled: dict | None, assumptions: list[str]) -> dict:
     """The executable plan: step 4's inputs, its derived values and the targets as steps, in dependency order. Raises
     PlanError when a variable has no value or the steps can't be ordered."""
@@ -554,6 +698,7 @@ def build_plan(targets: list[dict], eqs: dict[str, dict], filled: dict | None, a
     need = _needed(targets, eqs)
     names = {t["name"] for t in targets}
     derived = {k: d for k, d in derived.items() if k not in names}    # a target is computed by its own step
+    _lift_literals(inputs, derived, need)
     derived |= _paired(sorted(set(need) - set(inputs) - set(derived)), need, inputs, derived)
     if missing := sorted(set(need) - set(inputs) - set(derived)):
         used = " ".join(str((d.get("expr") if isinstance(d, dict) else d) or "") for d in derived.values())
@@ -571,21 +716,31 @@ def build_plan(targets: list[dict], eqs: dict[str, dict], filled: dict | None, a
         expr = str((d.get("expr") if isinstance(d, dict) else d) or "").strip()
         if expr in inputs and k not in inputs and sum(
                 str((x.get("expr") if isinstance(x, dict) else x) or "").strip() == expr for x in derived.values()) == 1:
-            inputs[k] = {**inputs.pop(expr), "means": need.get(k) or inputs[expr].get("means")}
+            renamed = inputs.pop(expr)
+            inputs[k] = {**renamed, "means": need.get(k) or renamed.get("means")}
             del derived[k]
     for k, d in derived.items():
         d = d if isinstance(d, dict) else {"expr": d}
         steps.append({"name": k, "label": need.get(k, k), "expr": str(d.get("expr") or ""),
                       "unit": d.get("unit") if d.get("unit") in UNITS else "number"})
+    lifted = {t["name"]: {"expr": t["expr"], "unit": t["unit"]} for t in targets if t["kind"] == "arithmetic"}
+    _lift_literals(inputs, lifted, {t["name"]: t["label"] for t in targets})   # step 2 wrote "6.5/100/12" as the target
+    _percent_to_rate(inputs, {**{k: d for k, d in derived.items() if isinstance(d, dict)}, **lifted})
     for t in targets:
         step = {"name": t["name"], "label": t["label"], "unit": t["unit"]}
         if t["kind"] == "arithmetic":
-            step["expr"] = t["expr"]
+            step["expr"] = lifted[t["name"]]["expr"]
         elif eqs[t["name"]]["formula"]:
             step.update(expr=eqs[t["name"]]["formula"], satisfies=eqs[t["name"]]["equation"], sourced=True)
         else:
             step.update(solve=eqs[t["name"]]["equation"], sourced=True, **{"for": t["name"]})
         steps.append(step)
+
+    for s in steps:                                     # the Rule of 72 (69, 70) divides by the rate in percent: 72/7
+        if s.get("sourced") and re.fullmatch(r"\s*(?:72|69\.3|69|70)\s*/\s*\(?\s*[A-Za-z_]\w*\s*\)?\s*", str(s.get("expr") or "")):
+            for k in EQ.variables(s["expr"]) & set(inputs):
+                if inputs[k].get("unit") == "rate" and 0 < abs(inputs[k]["value"]) < 1:
+                    inputs[k] = {**inputs[k], "value": inputs[k]["value"] * 100, "unit": "percent"}
 
     def deps(s: dict) -> set[str]:
         text = " ".join(str(s.get(k) or "") for k in ("expr", "satisfies", "solve"))
@@ -659,6 +814,140 @@ def _targets(defined: dict | None) -> tuple[list[dict] | None, str]:
     return out, ""
 
 
+# ---------------------------------------------------------------- memory of the previous calculation
+MEMORY_RESULTS = 8
+
+
+def memory_of(result: dict) -> dict:
+    """What a finished calculation leaves for the next turn (context["calc"]): its inputs and each step's result, so a
+    follow-up ("the present value of that goal today") builds on the figure instead of working it out again."""
+    vals = result.get("values") or {}
+    return {"label": result.get("label") or "",
+            "inputs": {k: {"value": i["value"], "unit": i.get("unit"), "means": i.get("means") or k}
+                       for k, i in (result.get("inputs") or {}).items() if isinstance(i.get("value"), (int, float))},
+            "results": [{"name": st["name"], "label": st.get("label") or st["name"], "unit": st.get("unit"),
+                         "value": _kept(vals[st["name"]])} for st in result.get("steps") or []
+                        if isinstance(vals.get(st["name"]), (int, float))][-MEMORY_RESULTS:]}
+
+
+def _kept(value: float) -> float:
+    """A result as the answer shows it and the next turn reuses it: to the cent from 100 up, else 6 significant digits."""
+    return round(value, 2) if abs(value) >= 100 else float(f"{value:.6g}")
+
+
+def _figure(value: float, unit: str | None) -> str:
+    """In full digits, as the no-invented-numbers check reads them; a rate also as a percentage."""
+    text = f"{value:.2f}" if abs(value) >= 100 else f"{value:.6g}"
+    return f"{text} ({value * 100:.4g}%)" if unit == "rate" else text
+
+
+def memory_line(m: dict | None) -> str:
+    """The previous calculation as one prompt line."""
+    if not m or not m.get("results"):
+        return ""
+    ins = "; ".join(f"{i['means']} = {_figure(i['value'], i.get('unit'))}" for i in (m.get("inputs") or {}).values())
+    res = "; ".join(f"{r['label']} = {_figure(r['value'], r.get('unit'))}" for r in m["results"])
+    return f"Previous calculation ({m.get('label')}): inputs {ins}; results {res}"
+
+
+EARLIER_NOTE = ("\nEarlier results (the previous calculation). When the message builds on one of them without changing "
+                "what it was worked out from (\"the present value of that goal today\" after the goal's value at "
+                "retirement), list it as a target with \"kind\": \"earlier\" and \"earlier\": its label exactly as "
+                "below, and Python uses its value; when the message changes one of its inputs (\"what if the rate is "
+                "5.5%?\"), work it out again as usual:\n")
+
+
+def _earlier(targets: list, memory: dict | None) -> tuple[list, dict, list[str]]:
+    """Step 2's "earlier" targets made inputs with the remembered value. Returns (the other targets, the inputs, why
+    any couldn't be used)."""
+    results = (memory or {}).get("results") or []
+    rest, given, missed = [], {}, []
+    for t in targets:
+        if not (isinstance(t, dict) and t.get("kind") == "earlier"):
+            rest.append(t)
+            continue
+        want = str(t.get("earlier") or t.get("label") or "")
+        hit = next((r for r in results if r["label"].strip().lower() == want.strip().lower()), None) or next(
+            (r for r in results if _same_quantity(r["label"], want) or _names_target(want, r["label"])), None)
+        name = str(t.get("name") or "")
+        if hit is None or not _usable(name):
+            missed.append(want)
+            continue
+        given[name] = {"value": hit["value"], "from": "user", "unit": hit.get("unit") if hit.get("unit") in UNITS else "number",
+                       "means": f"{hit['label']} (from the previous answer)"}
+    return rest, given, missed
+
+
+# ---------------------------------------------------------------- the shape of a many-part question
+# Two shapes the model got wrong in the chain eval (mds/calc-chain-eval.md): a starting balance plus regular deposits
+# (one formula, so one part left out), and payments that start years from now valued today (no discounting back).
+_PERIODIC = r"\$\s?\d[\d,]*(?:\.\d+)?\s*(?:k\b)?\s*(?:a|per|each|every)\s+(?:month|year)"
+_DEPOSITS = re.compile(rf"{_PERIODIC}|\b(?:add|adding|contribut\w*|deposit\w*|sav\w*|invest\w*|put)\b[^.?!]{{0,30}}{_PERIODIC}", re.I)
+_MONEY = re.compile(r"\$\s?\d[\d,]*(?:\.\d+)?\s*(?:k\b|thousand\b|million\b)?")
+_EVERY = re.compile(r"\s*(?:a|per|each|every)\s+(?:month|year)\b", re.I)
+_BALANCE_CUE = re.compile(r"\b(?:have|had|saved|already|start\w*|initial|current\w*|existing|balance|invest\w*|lump|"
+                          r"account)\b", re.I)
+
+
+def _has_balance(text: str) -> bool:
+    """An amount already there: a one-off sum (not "$300 a month") that the message says is saved, invested or a
+    starting balance, or that is joined to regular deposits ("$25,000 plus $300 a month")."""
+    for m in _MONEY.finditer(text):
+        if _EVERY.match(text, m.end()):
+            continue
+        before, after = text[max(0, m.start() - 40):m.start()], text[m.end():m.end() + 40]
+        if _BALANCE_CUE.search(before) or re.match(r"\s*(?:plus|and|\+)\s*\$", after):
+            return True
+    return False
+
+
+_DEBT = re.compile(r"\b(?:borrow\w*|loans?|mortgage|owe|owing|debt|credit card|apr)\b", re.I)
+_STREAM = re.compile(rf"{_PERIODIC}[^.?!]{{0,60}}\bfor\s+(?:\d+|one|two|three|four|five|ten)\s+(?:years|months)\b|"
+                     r"\b(?:per|a|each) (?:year|month) for (?:\d+|one|two|three|four|five|ten) (?:years|months)\b", re.I)
+_LATER = re.compile(r"\b(?:in|after|start\w* in|begin\w* in|retire in)\s+\d+\s+years\b", re.I)
+_TODAY = re.compile(r"\b(?:today|present value|worth now|now)\b", re.I)
+_AT_START = re.compile(r"\bat the time\b|\bat retirement\b|\bwhen (?:i|they|we) retire\b", re.I)
+_PART_DEPOSITS = re.compile(r"deposit|contribution|annuity|monthly|payments|series|regular|saving|added", re.I)
+_PART_BALANCE = re.compile(r"initial|lump|starting|current|existing|balance|single|principal|present sum|investment|"
+                           r"already|account", re.I)
+_PART_STREAM = re.compile(r"annuity|payments|stream|series|withdrawals?|tuition|income|costs", re.I)
+_PART_BACK = re.compile(r"today|discount|back|present value of (?:a|the) (?:lump|single|future)|now", re.I)
+
+SHAPE_DEPOSITS = ("the message has a starting balance and regular deposits: list one formula target for how the "
+                  "balance grows (future value of a lump sum), one for how the deposits grow (future value of an "
+                  "annuity: regular payments), and an arithmetic target for their total (and for growth, the total - "
+                  "everything paid in)")
+SHAPE_LATER = ("the payments start years from now and the question asks for their value today: list one formula target "
+               "for their value when they start (present value of an annuity: the payments over their years, at the "
+               "rate), then one that discounts that value back to today (present value of a lump sum over the years "
+               "until they start). Payments that rise by g% a year until then start at payment * (1 + g)^years")
+
+
+SHAPE_GROWTH = ("the message asks how much of the total is growth: add an arithmetic target for it (the total - "
+                "everything paid in: the starting amount + each deposit * the number of deposits)")
+_ASKS_GROWTH = re.compile(r"\bhow much (?:of (?:that|it|this)|is) (?:is )?(?:growth|interest|earnings?|gains?)\b|"
+                          r"\b(?:growth|interest earned|earnings) (?:part|portion)\b", re.I)
+_PART_GROWTH = re.compile(r"growth|interest (?:earned|gained|part|portion)|total interest|earn|gain", re.I)   # not "interest rate"
+
+
+def _labels(targets: list[dict]) -> str:
+    return " | ".join(f"{t.get('label', '')} {t.get('concept', '')}" for t in targets)
+
+
+def shape_problem(question: str, targets: list[dict]) -> str:
+    """Why step 2's targets miss a part the question's shape needs (empty: none missing); every missing part, joined."""
+    text, problems = _labels(targets), []
+    if (_DEPOSITS.search(question) and _has_balance(question) and not _DEBT.search(question)
+            and not (_PART_DEPOSITS.search(text) and _PART_BALANCE.search(text) and len(targets) >= 2)):
+        problems.append(SHAPE_DEPOSITS)
+    if (_STREAM.search(question) and _LATER.search(question) and _TODAY.search(question) and not _AT_START.search(question)
+            and not (_PART_STREAM.search(text) and _PART_BACK.search(text) and len(targets) >= 2)):
+        problems.append(SHAPE_LATER)
+    if _ASKS_GROWTH.search(question) and not _PART_GROWTH.search(" | ".join(t.get("label", "") for t in targets)):
+        problems.append(SHAPE_GROWTH)
+    return "; and ".join(problems)
+
+
 _FILLER = {"the", "a", "an", "of", "my", "your", "their", "its", "in", "to", "for", "per", "amount"}
 
 
@@ -679,7 +968,8 @@ EXAMPLE_NOTE = ("\nThe user asked for a worked example and may give no numbers o
                 "numbers for every value they didn't give (\"from\": \"sample\").")
 
 
-def calculate(question: str, prompt: str, known_text: str, fallback: Callable[[bool, str], Outcome]) -> Outcome:
+def calculate(question: str, prompt: str, known_text: str, fallback: Callable[[bool, str], Outcome],
+              memory: dict | None = None, typed: str = "") -> Outcome:
     """Steps 1 to 7. `prompt`: the conversation and the message, as the LLM steps see them; `fallback(example, hint)`:
     the plan path, for a question with a simulation or one the steps can't handle (`hint`: the sourced equations it
     must build on, when step 3 found them)."""
@@ -694,14 +984,36 @@ def calculate(question: str, prompt: str, known_text: str, fallback: Callable[[b
     # the targets come from the message as step 1 understood it (a follow-up's figures included), not from the
     # conversation: an earlier answer's calculations would come back as extra targets
     define = f"Message: {question}\n\nUnderstanding: {json.dumps(understanding)[:2000]}"
+    if memory and memory.get("results"):
+        define += EARLIER_NOTE + "\n".join(f"- {r['label']} = {_figure(r['value'], r.get('unit'))}" for r in memory["results"])
     defined = first_json(ask_llm(DEFINE_SYSTEM, define))
+    reused = {}
+
+    def split(d):                                       # step 2's "earlier" targets become inputs with their values
+        nonlocal reused
+        if not isinstance(d, dict) or not isinstance(d.get("targets"), list):
+            return d
+        rest, reused, missed = _earlier(d["targets"], memory)
+        if reused or missed:
+            trace.append("2 earlier results used: " + ", ".join(f"{k} = {v['value']:.6g}" for k, v in reused.items())
+                         + (f" (not found: {', '.join(missed)})" if missed else ""))
+        return {**d, "targets": rest}
+    defined = split(defined)
     targets, why = _targets(defined)
+    asked = f"{question} {typed}"                       # what the user typed too: a rewrite may drop a part they asked
+    def parts(ts):                                      # an earlier result reused counts as the part it is
+        return ts + [{"label": v["means"]} for v in reused.values()]
+    if targets is not None and (shape := shape_problem(asked, parts(targets))):
+        targets, why = None, shape                       # a part the question's shape needs is missing: repair
     if targets is None:                                  # one repair round, with Python's reason
         trace.append(f"2 targets rejected: {why}")
         defined = first_json(ask_llm(DEFINE_SYSTEM, f"{define}\n\nYour previous targets were rejected: {why}\n"
                                                     f"Previous reply: {json.dumps(defined)[:3000]}\n"
                                                     "Reply with ONLY corrected JSON."))
+        defined = split(defined)
         targets, why = _targets(defined)
+        if targets is not None and (shape := shape_problem(asked, parts(targets))):
+            trace.append(f"2 targets still miss a part: {shape[:120]}")   # go on: the plan's own checks still apply
     if targets is None:
         return _fallback(fallback, trace, f"step 2 gave no usable targets ({why})", example, understanding)
     if given := [t for t in targets if _is_given(t, understanding)]:
@@ -709,6 +1021,9 @@ def calculate(question: str, prompt: str, known_text: str, fallback: Callable[[b
             targets = [t for t in targets if t not in given]
             trace.append("2 dropped targets the message gives: "
                          + ", ".join(f"{t['name']} ({t['label']})" for t in given))
+    targets, twins = dedupe_targets(targets)
+    if twins:
+        trace.append("2 dropped duplicate targets: " + ", ".join(twins))
     trace.append("2 targets: " + "; ".join(f"{t['name']} ({t['kind']}: {t['label']})" for t in targets))
     if any(t["kind"] == "simulation" for t in targets):
         return _fallback(fallback, trace, "a target changes period by period (simulation)", example, understanding)
@@ -727,11 +1042,17 @@ def calculate(question: str, prompt: str, known_text: str, fallback: Callable[[b
     eqs = name_equations(targets, found)
     assumptions = [" ".join(str(a).split())[:160] for a in ((defined or {}).get("assumptions") or [])[:4] if str(a).strip()]
     ask = _variables_prompt(prompt, understanding, targets, eqs) + (EXAMPLE_NOTE if example else "")
+    if reused:
+        ask += ("\nAlready given (from the previous answer; don't give values for them): "
+                + "; ".join(f"{k} = {v['value']:.10g} ({v['means']})" for k, v in reused.items()))
     errors = []
     for attempt in (1, 2):
         filled = first_json(ask_llm(VARIABLES_SYSTEM, ask if attempt == 1 else
                                     f"{ask}\n\nYour previous values were rejected: {errors[-1]}\nPrevious reply: "
                                     f"{json.dumps(filled)[:3000]}\nReply with ONLY corrected JSON."))
+        if reused:
+            filled = filled if isinstance(filled, dict) else {}
+            filled = {**filled, "inputs": {**(filled.get("inputs") if isinstance(filled.get("inputs"), dict) else {}), **reused}}
         try:
             plan = build_plan(targets, eqs, filled, assumptions)
             result = PLAN.run(plan, question, known_text, require_checks=False, example=example)

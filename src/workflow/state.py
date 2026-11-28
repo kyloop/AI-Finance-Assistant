@@ -46,6 +46,8 @@ class TurnContext(TypedDict, total=False):
     symbol: str | None
     period: dict | None           # {label, start}
     facts: dict[str, dict]        # per symbol: price, return, start_price, end_price, as_of, period
+    tax: dict | None              # the tax agent's last estimate (tax_calc)
+    scenario: dict | None         # the worked example the answer gave: {kind, goal_type, text, figures} (context.scenario_line)
     topic_id: str | None          # "t1": carried from the previous turn, else assigned after the turn (topics.record_turn)
     summary: str                  # one sentence on what was discussed, no figures; written after the reply
     source_ids: list[str]         # kb:… | wikipedia:… | web:… | news:… (mds/topic-memory.md)
@@ -64,6 +66,8 @@ class FinanceState(TypedDict, total=False):
     holdings: list[dict]
     view: dict | None                                      # {tab, selected, watchlist} from the UI
     screen: dict | None                                    # proofread: the message is about the tab on screen (context.screen)
+    scenario_now: dict | None                              # proofread: the previous answer's example as the message changes it
+                                                           # (context.scenario_change: the house example with a loan)
     saved_goal: dict | None                                # the user's latest plan from the Goals tab
     topics_in: dict | None                                 # {"current": [...], "earlier": [...]}: topics the message may belong to
                                                            # (topics.candidates); None (run_chat without it) = no topic memory

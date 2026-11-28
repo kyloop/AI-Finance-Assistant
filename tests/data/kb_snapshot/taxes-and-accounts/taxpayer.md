@@ -1,0 +1,35 @@
+# Taxpayer
+
+<!-- https://en.wikipedia.org/wiki/Taxpayer | revision 1386266346 -->
+
+A taxpayer is a person or organization (such as a company) subject to pay a tax. Modern taxpayers may have an  identification number, a reference number issued by a government to citizens or firms.
+The term "taxpayer" generally characterizes one who pays taxes. A taxpayer is an individual or entity that is obligated to make payments to municipal or government taxation-agencies.
+Taxes can exist in the form of income taxes and/or property taxes imposed on owners of real property (such as homes and vehicles), along with many other forms. People may pay taxes when they pay for goods and services which are taxed. The term "taxpayer" often refers to the workforce of a country which pays for government systems and projects through taxation. The taxpayers' money becomes part of the public funds, which comprise all money spent or invested by government to satisfy individual or collective needs or to generate future benefits. For tax purposes, business entities are also taxpayers, making their revenues and expenditures subject to taxation.
+
+## Types of taxes
+
+Taxes on income
+The government levy income taxes on personal and business revenue and interest income. In addition to income taxes, the government can also mandate that employers subtract payroll taxes from their workers' paychecks each pay period, and then match the sums deducted. Capital gains taxes are those paid on any profits made from the sale of an asset and are usually applied to stock and bond transactions. Estate taxes are imposed on the transfer of property upon the death of the owner.
+
+Taxes on property
+Property tax, sometimes known as an ad valorem tax, is imposed on the value of real estate or other personal property. Property taxes are usually imposed by local governments and charged on a recurring basis. Real estate taxes are often subject to fluctuation based upon a jurisdiction's assessment of the worth of a property based on its condition, location and market value, and/or changes to the amounts apportioned to various recipients of the tax.
+
+Taxes on goods and services
+The sales tax is most often used as a method for states and local governments to raise revenue. Purchases made at the retail level are assessed a percentage of the sales price of a particular item. Rates vary between jurisdictions and the type of item bought. Excise taxes are based on the quantity of an item and not on its value. User fees are taxes that are assessed on a wide variety of services, including airline tickets, rental cars, toll roads, utilities, hotel rooms, licenses, financial transactions and many others. So-called sin taxes are imposed on items like cigarettes and alcohol. Luxury taxes are imposed on certain items, such as expensive cars or jewelry.
+
+## Types of taxpayers
+
+Taxpayers can be classified into two major categories – individual and corporation. A corporation is a legal entity that is separate from the owners for tax purposes. These major categories can be further divided in different subcategories.
+Individual taxpayers can be classified as either a citizen or an alien (an alien is a person who resides within the borders of a country and is not a national of that country). A citizen can further be classified as either a resident citizen or a non-resident citizen.
+Corporations can be classified into domestic, foreign and partnership. A foreign corporation is either resident foreign or non-resident foreign corporation. A resident foreign corporation is a foreign corporation engaged in trade or business in the country. A non-resident foreign corporation is a foreign corporation not engaged in trade or business within the country but deriving income from sources in the country. A partnership is a business structure where ownership and management responsibility of a company is split between two or more individuals. A partnership is not a legal entity that is separate from the owners and therefore the partnership itself does not pay taxes.
+The classification depends on given country and may vary.
+Net taxpayers are individuals which pay more taxes to the government than they receive benefits from the government in a given year or over life time.
+
+## Taxpayers' money
+
+Taxpayers' money help to pay for the items on the federal budget. The gap between revenue (money collected via taxes) and spending is known as the budget deficit. The money the federal government borrows to cover the budget deficit is what creates the national debt. The government spends money for a variety of reasons: reduce inequality ("safety net" programs), provide public goods (fire, police, national defence), provide important public services like education and health (merit goods), debt interest payments, transport and military spending. The "safety net" programs are initiatives that give extra financial support to the elderly, unemployed, disabled and the poor. Examples include the earned income tax credit, child tax credits, unemployment insurance, food stamps, subsidized school meals, low-income housing assistance, energy assistance and more. The federal government spends its money in four major ways: direct payments, grants, contracts and insurance.
+
+## Tax avoidance and tax evasion
+
+Tax avoidance is the use of legal methods to modify an individual's financial situation to lower the amount of income tax owed.
+Tax evasion is an illegal practice where a person, organization or corporation intentionally avoids paying his true tax liability. Those caught evading taxes are generally subject to criminal charges and substantial penalties. It's considered tax evasion if the taxpayer knowingly fails to report income or under-report income (claiming less income than you actually received from a specific source), provides false information to the IRS about business income or expenses, deliberately underpays taxes owed or substantially understates taxes (by stating a tax amount on return which is less than the amount owed for the income reported).

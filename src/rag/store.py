@@ -72,10 +72,20 @@ def build_collection(client: QdrantClient, name: str, chunks: list[Chunk]) -> No
         client.upsert(name, points=points[i:i + 500])
 
 
-def search(client: QdrantClient, name: str, query: str, *, k: int = 5, category: str | None = None) -> list[dict]:
-    """Top-k chunks as payload dicts with a `score` (cosine similarity)."""
+def category_filter(category: str | list[str] | None) -> models.Filter | None:
+    """Only chunks of `category` (one name, or any of a list); None for no filter."""
+    if not category:
+        return None
+    match = models.MatchAny(any=list(category)) if isinstance(category, (list, tuple)) else models.MatchValue(value=category)
+    return models.Filter(must=[models.FieldCondition(key="category", match=match)])
+
+
+def search(client: QdrantClient, name: str, query: str, *, k: int = 5, category: str | list[str] | None = None) -> list[dict]:
+    """Top-k chunks as payload dicts with a `score` (cosine similarity); only from `category` (one or a list) when given."""
     qvec = next(iter(get_embedder().embed([QUERY_PREFIX + query]))).tolist()
-    flt = models.Filter(must=[models.FieldCondition(key="category", match=models.MatchValue(value=category))]) if category else None
+    if category:
+        ensure_indexes(client, name)                  # Qdrant Cloud needs the payload index to filter on category
+    flt = category_filter(category)
     with QDRANT_LOCK:
         hits = client.query_points(name, query=qvec, limit=k, query_filter=flt, with_payload=True).points
     return [{"score": h.score, **h.payload} for h in hits]

@@ -446,3 +446,11 @@ def test_lowercase_company_names_next_to_a_cue_are_found():
 def test_without_an_llm_a_lowercase_company_goes_to_the_market_agent(client, sid):
     reply = _chat(client, sid, "ho'ws tesla stock doing?")
     assert "Market Analysis" in reply["agents"]
+
+
+def test_turn_summary_sees_the_start_of_the_answer():
+    from src.workflow import topics as TOP
+    prompt = TOP._turn_prompt({}, {"question": "How is my goal planning?", "intents": ["goal"]}, [],
+                              "Your retirement plan is projected to fall short of its target.")
+    assert "Answer (start; say what it covered, not its figures): Your retirement plan is projected" in prompt
+    assert "Answer" not in TOP._turn_prompt({}, {"question": "q"}, [])

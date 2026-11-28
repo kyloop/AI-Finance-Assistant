@@ -5,7 +5,7 @@ The measurements behind these numbers are in [kb-token-stats-basics.md](kb-token
 
 | | |
 |---|---|
-| Status | Decided: hierarchy, Qdrant, one chunk per section with no merging, and **max 250 tokens per chunk** (switched from 512 on 2026-09-30: nearly equal quality at about 35% fewer tokens, see [Validation](#validation)). To recheck when other categories get their own test. Indexed: basics, bonds, stocks and etfs-and-mutual-funds, used by the chatbot's Q&A and tax agents ([§7](#7-current-index)). |
+| Status | Decided: hierarchy, Qdrant, one chunk per section with no merging, and **max 250 tokens per chunk** (switched from 512 on 2026-09-30: nearly equal quality at about 35% fewer tokens, see [Validation](#validation)). To recheck when other categories get their own test. Indexed: basics, bonds, stocks, etfs-and-mutual-funds, taxes-and-accounts and retirement (the last two since 2026-11-24), used by the chatbot's Q&A and tax agents ([§7](#7-current-index)). |
 | Date | 2026-09-30 |
 | Deviates from | spec §5.1 / §5.4 (FAISS, ~800-token chunks). See [Spec deviations](#spec-deviations). |
 
@@ -162,15 +162,15 @@ for off-topic questions (a plain score threshold doesn't work, see Validation).
 Categories are indexed **one at a time**, each only after its own token statistics and retrieval test
 (`mds/kb-token-stats-<category>.md`).
 
-Built 2026-10-01 (etfs-and-mutual-funds added the same day) with `python -m src.rag.build_index --offline` (indexes `rag.categories` in config.yaml):
+Built 2026-10-01 (etfs-and-mutual-funds added the same day; taxes-and-accounts and retirement added 2026-11-24; taxes-and-accounts grown to 300 pages 2026-11-25, then made US only at 338 pages) with `python -m src.rag.build_index --offline` (indexes `rag.categories` in config.yaml):
 
 | | |
 |---|---|
-| Categories indexed | **basics**, **bonds**, **stocks**, **etfs-and-mutual-funds** (all tested) |
-| Documents | 300 (basics 50, bonds 50, stocks 150, etfs-and-mutual-funds 50) |
-| Chunks (Qdrant points) | 5,717 (basics 1,332, bonds 947, stocks 2,569, etfs-and-mutual-funds 869), median 161 tokens, max 250. These are the same chunks as the max 250 retrieval tests. |
+| Categories indexed | **basics**, **bonds**, **stocks**, **etfs-and-mutual-funds**, **taxes-and-accounts**, **retirement** (all tested) |
+| Documents | 662 (basics 50, bonds 50, stocks 150, etfs-and-mutual-funds 50, taxes-and-accounts 338, retirement 15, tax-notes 9: our own notes, `rag.local_categories`) |
+| Chunks (Qdrant points) | 13,270 (basics 1,332, bonds 947, stocks 2,569, etfs-and-mutual-funds 869, taxes-and-accounts 6,997, retirement 504, tax-notes 52; the last three US only, `rag.us_only`), median 162 tokens, max 250. These are the same chunks as the max 250 retrieval tests. |
 | Source text | Full Wikipedia pages in `src/data/raw/wikipedia/<category>/` (not truncated) |
-| Store | Local Qdrant at `src/data/qdrant/` (git-ignored), collection `finnie_kb` |
+| Store | Qdrant Cloud when `QDRANT_CLUSTER_ENDPOINT` is set, else local Qdrant at `src/data/qdrant/` (git-ignored); collection `finnie_kb` |
 | Chunk list | [data/kb_index_chunks.csv](data/kb_index_chunks.csv) |
 
 **Used by the chatbot:** the Q&A and tax agents search `finnie_kb` with the user's question (`kb_search` in

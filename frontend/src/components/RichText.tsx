@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { COLORS } from "./common";
+import { COLORS, categoryAxis } from "./common";
 
 /** Safe Markdown subset for assistant answers. No raw HTML.
  *  Blocks: paragraphs, # headings, "- " and "1. " lists, | tables |, ``` code ```, > quotes, and ```chart JSON``` blocks.
@@ -52,7 +52,7 @@ export function ChatChart({ spec }: { spec: ChartSpec }) {
   const tip = <Tooltip formatter={(v: number) => fmtFull(unit)(v)} contentStyle={{ background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 8, fontSize: 12 }} />;
   const axes = <>
     <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" />
-    <XAxis dataKey={x} tick={{ fontSize: 11, fill: "var(--muted)" }} stroke="var(--line)" />
+    <XAxis {...(type === "bar" ? categoryAxis(data, x) : { dataKey: x })} tick={{ fontSize: 11, fill: "var(--muted)" }} stroke="var(--line)" />
     <YAxis tickFormatter={fmtTick(unit)} tick={{ fontSize: 11, fill: "var(--muted)" }} stroke="var(--line)" width={52} />
   </>;
   const legend = y.length > 1 && <Legend wrapperStyle={{ fontSize: 12 }} />;

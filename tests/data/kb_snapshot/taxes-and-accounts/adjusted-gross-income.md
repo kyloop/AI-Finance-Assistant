@@ -1,0 +1,37 @@
+# Adjusted gross income
+
+<!-- https://en.wikipedia.org/wiki/Adjusted_gross_income | revision 1350976510 -->
+
+In the United States income tax system, adjusted gross income (AGI) is an individual's total gross income minus specific deductions.  It is used to calculate taxable income, which is AGI minus allowances for personal exemptions and itemized deductions.  For most individual tax purposes, AGI is more relevant than gross income.
+Gross income is sales price of goods or property, minus cost of the property sold, plus other income.  It includes wages, interest, dividends, business income, rental income, and all other types of income.  Adjusted gross income is gross income less deductions from a business or rental activity and 21 other specific items.
+Several deductions (e.g. medical expenses and miscellaneous itemized deductions) are limited based on a percentage of AGI.  Certain phase outs, including those of lower tax rates and itemized deductions, are based on levels of AGI.  Many states base state income tax on AGI with certain deductions.
+Adjusted gross income is calculated by subtracting above-the-line deduction from gross income.
+
+## Gross income
+
+Gross income includes "all income from whatever source", and is not limited to cash received.  It specifically includes wages, salary, bonuses, interest, dividends, rents, royalties, income from operating a business, alimony, pensions and annuities, share of income from partnerships and S corporations, and income tax refunds.  Gross income includes net gains for disposal of assets, including capital gains and capital losses.  Losses on personal assets are not deducted in computing gross income or adjusted gross income. Gifts and inheritances are excluded.
+
+## Adjustments
+
+Gross income is reduced by certain items to arrive at adjusted gross income.  These include:
+
+Expenses of carrying on a trade or business including most rental activities (other than as an employee)
+Certain business expenses of teachers, reservists, performing artists, and fee-basis government officials,
+Health savings account deductions,
+Certain moving expenses
+One-half of self-employment tax,
+Allowable contributions to certain retirement arrangements (SEP IRA, SIMPLE IRA, and qualified plans) and Individual Retirement Accounts (IRAs),
+Penalties imposed by financial institutions and others on early withdrawal of savings,
+Alimony paid (which the recipient must include in gross income),
+College tuition, fees, and student loan interest (with limitations and exceptions),
+Jury duty pay remitted to the juror's employer,
+Domestic production activities deduction, and
+Certain other items of limited applicability.
+
+## Reporting on Form 1040
+
+Gross income is reported on U.S. federal individual income tax returns (Form 1040 series) type of income.  Supporting schedules and forms are required in some cases, e.g., Schedule B for interest and dividends.  Income of business and rental activities, including those through partnerships or S corporations, is reported net of the expenses of the business. These are reported on Schedule C for business income, Schedule E for rental income, and Schedule F for farm income.
+
+## Modified AGI
+
+Certain tax calculations are based on modified versions of AGI. The definition of "modified AGI" varies according to the purpose for which the related calculation is being used. These modified versions of AGI may add certain items to AGI that were excluded in computing both gross income and adjusted gross income. Common additions include tax exempt interest, the excluded portion of Social Security benefits and tax-free foreign earned income.

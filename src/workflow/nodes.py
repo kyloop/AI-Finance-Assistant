@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session as DBSession
 from src.core import calc_plan as PLAN
 from src.core.calculators import analyze_portfolio, project_goal
 from src.core.config import get_config
-from src.core.llm import ask_llm, current_llm
+from src.core.llm import ask_llm, current_llm, llm_role
 from src.core.market_service import SymbolNotFound
 from src.core.portfolio_data import portfolio_dividends, portfolio_history, portfolio_instruments, with_purchase_prices
 from src.core.tavily import WebSearchUnavailable, web_news, web_news_enabled, web_search, web_search_enabled
@@ -31,6 +31,9 @@ from . import news as NEWS
 from . import portfolio_report as PR
 from . import router as R
 from . import symbols as SYM
+from . import tax_calc as TAXC
+from . import tax_tools as TT
+from . import tax_whatif as TW
 from . import topics as TOP
 from .jsonreply import first_json
 from .safety import finalize
@@ -82,7 +85,9 @@ PROOFREAD_SYSTEM = (
     "You are the proofreader in front of a personal-finance assistant. Rewrite the user's latest message with spelling, grammar and "
     "abbreviations fixed, so the agents after you can read it: \"yrs\" -> \"years\", \"mo\" -> \"months\", \"tsla\" -> \"TSLA\", "
     "\"nvdia\" -> \"NVIDIA\", \"wht abt\" -> \"what about\". Keep the meaning, every number and every ticker symbol; never answer "
-    "the message, add facts or drop a request. If a word may be a ticker or name you don't know, leave it unchanged. "
+    "the message, add facts or drop a request. Keep what each amount is: \"I'm borrowing $350,000 for a house\" is a $350,000 "
+    "loan (\"a $350,000 mortgage\"), never \"a $350,000 house\"; a price, a loan, a deposit and a saving are different "
+    "figures. If a word may be a ticker or name you don't know, leave it unchanged. "
     "If the message says what the user does NOT want, rewrite it as what they do want and leave out what they ruled out: "
     "\"I am not looking for DHSB news. I just want earlier news of today\" -> \"What were the market headlines earlier today?\"; "
     "\"not Apple, show me Microsoft's price\" -> \"What is Microsoft's stock price?\".\n"
@@ -92,13 +97,19 @@ PROOFREAD_SYSTEM = (
     "rewrite it as a complete question that names them, using ticker symbols from the CONTEXT: "
     "\"compare to starbucks\" after TSLA over the last month -> \"Compare TSLA and Starbucks over the last month.\"; "
     "\"which did better?\" -> \"Which did better over the last month, TSLA or SBUX?\"; \"what if it's $20000?\" after how much "
-    "$10,000 grows at 8% a year for 5 years -> \"How much does $20,000 grow at 8% a year for 5 years?\". A reply to the "
+    "$10,000 grows at 8% a year for 5 years -> \"How much does $20,000 grow at 8% a year for 5 years?\". \"Also\", \"on top of that\" or \"as well\" adds to the earlier situation, so keep every earlier figure: \"what if I "
+    "also add $300 a month at 5%?\" after $25,000 at 7% for 20 years -> \"How much will $25,000 plus $300 a month grow to "
+    "at 5% a year over 20 years?\". A reply to the "
     "assistant's last message (\"yes\", \"confirm\", \"the first one\", \"no, 6%\", or a value it asked for) answers it: rewrite it "
     "as the complete question the assistant proposed or asked about, with the value given; that is the question to answer "
     "itself (the calculation), never a question about the assumption it confirms: \"yes, confirm\" or \"yes, no extra "
     "contributions\" after \"You want to know how much $30,000 grows at 7% a year over 10 years; is 7% the yearly rate?\" -> "
     "\"How much does $30,000 grow at 7% a year over 10 years with no extra contributions?\", not \"Is 7% the yearly rate?\"; "
     "\"3%\" after \"what risk-free rate should I use?\" -> the earlier question with a 3% risk-free rate. "
+    "A message about the previous answer's worked example (\"in this case\", \"that scenario\", \"here\") names the example "
+    "with its figures: \"how would the tax change in this case?\" after an example of saving $60,000 over 5 years for a 20% "
+    "down payment on a $300,000 house -> \"How would federal tax apply to saving $60,000 over 5 years for a 20% down payment "
+    "on a $300,000 house?\". "
     "Set follow_up to true then. If the message starts a new topic, only correct it and set follow_up to false; never replace the subject "
     "it names with an earlier one (\"What's the latest technology sector news?\" after a question about the Pentagon is about the "
     "technology sector). A message that states every "
@@ -109,9 +120,21 @@ PROOFREAD_SYSTEM = (
 _TICKER_TOKEN = re.compile(r"\b[A-Z]{2,5}\b")
 _NAME_WORD = re.compile(r"\b[A-Z][A-Za-z&.\-]+")          # a capitalised word: a ticker or a name the rewrite must not invent
 _NUMBER = re.compile(r"\d+(?:\.\d+)?")
+_LOAN_WORD = re.compile(r"\b(?:borrow\w*|loans?|lend\w*|owe[sd]?|owing|debts?|principal)\b", re.I)   # an amount that is a loan
 _THOUSANDS = re.compile(r"(?<=\d),(?=\d{3}\b)")         # "$20,000" and "$20000" are the same number
 PROOFREAD_MAX_CHARS = 500                  # longer messages go to the router as typed
 FOLLOW_UP_EXTRA_CHARS = 200                # room a completed follow-up may add (company names, the period)
+
+
+def _typed_acronym_typo(original: str, market_key: str) -> bool:
+    """A market found only through a short acronym alias typed in lower case ("how much tsx i need to pay": TSX, the
+    Toronto index, for "tax"): a typo the proofreader may fix, unlike "TSX" in capitals or the market's name."""
+    e = next((x for x in MK.entries() if x.get("key", x.get("symbol")) == market_key or x.get("symbol") == market_key), None)
+    if e is None:
+        return False
+    names = [e.get("name") or "", *(e.get("aliases") or [])]
+    hits = [a for a in names if re.search(rf"(?<!\w){re.escape(a)}(?!\w)", original, re.I)]
+    return bool(hits) and all(a.isupper() and len(a) <= 4 and not re.search(rf"(?<!\w){re.escape(a)}(?!\w)", original) for a in hits)
 
 
 def _proofread_ok(original: str, fixed: str, ctx: dict | None = None, recent: str = "") -> bool:
@@ -123,10 +146,13 @@ def _proofread_ok(original: str, fixed: str, ctx: dict | None = None, recent: st
     original, fixed = _THOUSANDS.sub("", original), _THOUSANDS.sub("", fixed)
     if any(n not in fixed for n in _NUMBER.findall(original)):
         return False
+    if _LOAN_WORD.search(original) and not _LOAN_WORD.search(fixed) and not re.search(r"\bmortgage of\b|\$[\d.]+[km]? mortgage", fixed, re.I):
+        return False                                      # "borrowing $350,000 for a house" must not become "a $350,000 house"
     ruled_out = SYM.excluded(original)                    # "not looking for DHSB news": the rewrite may drop DHSB
     if any(t not in fixed for t in _TICKER_TOKEN.findall(original) if not original.isupper() and t.lower() not in ruled_out):
         return False
-    if {m["key"] for m in MK.in_text(SYM.without_excluded(original))} - {m["key"] for m in MK.in_text(fixed)}:
+    lost = {m["key"] for m in MK.in_text(SYM.without_excluded(original))} - {m["key"] for m in MK.in_text(fixed)}
+    if any(not _typed_acronym_typo(original, key) for key in lost):
         return False                                      # the market the message names is its subject: never swapped for an earlier one
     if ctx is not None:
         known = _THOUSANDS.sub("", f"{original} {CTX.describe(ctx)} {recent}").upper()
@@ -178,13 +204,23 @@ def proofread_node(state: FinanceState, config: RunnableConfig):
     A message about what is on screen after a tab switch ("what about this?") is not a follow-up: `screen` says what it means."""
     q, ctx = state["question"], state.get("context_in") or None
     on_screen = CTX.screen(state, q)
-    base = {"original_question": q, "screen": on_screen,
-            "follow_up": not on_screen and bool(ctx or state.get("history")) and CTX.looks_like_follow_up(q)}
+    # "how would the tax change in this case?": about the previous answer whatever the model says, and completed with
+    # its worked example when the rewrite leaves it out (the agents only see the question)
+    back = not on_screen and bool(ctx) and CTX.refers_back(q)
+    # "what if I borrow 200000 at 1.5%?": the example with that change, for the goal and tax agents (and the next turn)
+    a = get_config().get("tax_assumptions") or {}
+    changed = None if on_screen or not ctx else CTX.scenario_change(q, ctx.get("scenario"), float(a.get("mortgage_rate", 0.065)),
+                                                                    int(a.get("mortgage_years", 30)))
+    back = back or bool(changed)
+    base = {"original_question": q, "screen": on_screen, "scenario_now": changed,
+            "follow_up": not on_screen and bool(ctx or state.get("history")) and (CTX.looks_like_follow_up(q) or back)}
     note = " (follow-up: carrying the earlier context)" if base["follow_up"] else ""
     if on_screen:
         note = f" (about {on_screen['label']}" + (f"; switched from {on_screen['switched']})" if on_screen["switched"] else ")")
         ctx = None
     if not get_config()["workflow"].get("proofread", True) or current_llm() is None:
+        if back and (completed := CTX.with_scenario(q, ctx)) != q:
+            base["question"], note = completed, note + " (completed with the earlier example)"
         return {**base, "trace": [("proofread: skipped (no LLM)" if current_llm() is None else "proofread: off") + note]}
     if R.is_gibberish(q) or len(q) > PROOFREAD_MAX_CHARS:
         return {**base, "trace": ["proofread: left as typed" + note]}
@@ -198,14 +234,19 @@ def proofread_node(state: FinanceState, config: RunnableConfig):
     if got is None:
         return {**base, "trace": ["proofread: no reply, left as typed" + note]}
     fixed, follow_up = got
-    follow_up = follow_up and not _own_subject(q)
+    follow_up = (follow_up and not _own_subject(q)) or back
     if not _proofread_ok(q, fixed, (ctx or {}) if follow_up else None, recent if follow_up else ""):
         log.info("proofread rewrite rejected: %r -> %r", q, fixed)
+        if back and (completed := CTX.with_scenario(q, ctx)) != q:
+            return {**base, "question": completed, "trace": [f"proofread: rewrite rejected; “{q}” → “{completed}” (the earlier example)"]}
         return {**base, "trace": ["proofread: rewrite rejected, left as typed" + note]}
+    if back:
+        fixed = CTX.with_scenario(fixed, ctx)
     tag = " (follow-up of the previous question)" if follow_up else ""
     if fixed == q:
         return {**base, "follow_up": follow_up, "trace": [f"proofread: no changes{tag}"]}
-    return {"question": fixed, "original_question": q, "follow_up": follow_up, "trace": [f"proofread: “{q}” → “{fixed}”{tag}"]}
+    return {"question": fixed, "original_question": q, "follow_up": follow_up, "scenario_now": changed,
+            "trace": [f"proofread: “{q}” → “{fixed}”{tag}"] + ([f"example changed: {changed['text']}"] if changed else [])}
 
 
 # ---------------------------------------------------------------- router
@@ -217,7 +258,7 @@ AGENTS AND THEIR RESPONSIBILITIES
 - market: Live and recent market DATA at every level. A company or fund: prices, quotes, valuation (P/E, dividend yield, market cap), performance over a period, comparisons between tickers. A sector: its return against the S&P 500 and how its largest companies moved. A sector's industries and what it is made of. A region or country: its stock index. The US market as a whole: the main indices, every sector ranked, the largest companies, today's most active stocks, whether the market is open. Asset classes: rates, commodities, currencies, crypto. Anything about the current STATE or PERFORMANCE of a security, sector, region, market or asset class.
 - news: Recent headlines and developments ("latest", "recent", "what happened", "what's being reported", "any news") about a company, sector, region, topic or the whole market. Summarizes and gives context.
 - goal: Builds a savings plan: monthly amount needed to reach a target amount by a date (risk appetite may apply). Only when they want a plan or "how much should I save". Also reads and explains the plan the user saved on the Goals tab whenever they ask about "my plan", "my goal(s)", "the plan" or whether they are on track.
-- tax: Tax rules and account types (401k, IRA, Roth, HSA, 529), contribution limits, capital gains, deductions, tax treatment of investments.
+- tax: Tax rules and account types (401k, IRA, Roth, HSA, 529), contribution limits, capital gains, deductions, tax treatment of investments. Also works out anyone's own taxes from their figures: income, taxable income, rental income and expenses, deductions, credits, the tax owed, what-ifs.
 - calc: Computes a specific number: future value, loan/mortgage payment, doubling time, present value, real return, APY, bond yield, how long savings last with yearly withdrawals, or any other finance formula. Use when the user wants a figure calculated, not explained.
 
 ROUTING RULES
@@ -251,6 +292,7 @@ EXAMPLES
 "Is my portfolio too concentrated in tech?" -> ["portfolio","qa"]
 "What's the monthly payment on a $400k mortgage at 6.5% for 30 years?" -> ["calc"]
 "I want $50k for a down payment in 4 years, how much per month?" -> ["goal"]
+"Dana earns $90,000, gets $18,000 of rent and pays $6,000 of rental repairs and $4,000 of property tax on the rental. What is her net rental income?" -> ["tax"] (a tax situation: the tax agent works out its figures)
 "If I split $600 a month equally into 3 accounts, how much goes into each and how much does it grow at 6%?" -> ["calc"] (two calculations, nothing to explain)
 "Can you show me an example of how to calculate WACC?" -> ["calc"]
 "I plan to retire with $1 million and need $50,000 a year" -> ["calc","qa"] (how long the money lasts, not a savings plan)
@@ -407,7 +449,117 @@ def _with_screen(intents: list[str], state: FinanceState) -> list[str]:
     return list(dict.fromkeys([*intents, *on_screen["intents"]]))
 
 
-_FIGURE_ASKED = re.compile(r"\b(how much|how many dollars|estimate|work out|calculat\w*|figure out)\b", re.I)
+# "how is my plan cost me on the tax?" asks for a figure as much as "how much tax?" does
+_FIGURE_ASKED = re.compile(r"\b(how much|how many dollars|estimate|work out|calculat\w*|figure out|cost(s|ing)? me|owe|"
+                           r"(do|will|would|must|should) i (need to |have to )?pay)\b", re.I)
+
+
+_TAX_TOPIC = re.compile(r"\b(tax|taxes|taxed|taxable|irs|deduct\w*|itemi[sz]\w*|salt|401\(?k\)?|403\(?b\)?|\bira\b|roth|hsa|"
+                        r"rmd|required minimum|capital gains?|gift tax|estate tax|w-?2|1099|withholding|refund|section 121|"
+                        r"home[- ]sale|cost basis|adjusted basis)\b", re.I)
+
+
+def _tax_scenario(text: str) -> bool:
+    """Amounts of income or tax-deductible costs with tax words: someone's tax situation, whoever it's about."""
+    return bool(TAXC.amounts(text) and _TAX_TOPIC.search(text) and TAXC._FIGURE.search(text))
+
+
+_EDUCATION = re.compile(r"\b(529|tuition|college|coverdell|education (savings|account))\b", re.I)   # tax-advantaged saving
+_NUMBER_QUESTION = re.compile(r"\$\s?\d|\d\s?%|\b\d[\d,]*\s*(years?|months?)\b", re.I)
+
+
+def _without_stray_tax(intents: list[str], state: FinanceState) -> list[str]:
+    """The tax agent only for a tax question: the router LLM sends "$12,000 split 60/30/10", "a salary with 3% raises"
+    and "saving for a roof" there (chain eval, Nov 2026), and it then estimates income tax on the salary. Without a tax
+    word, a tax situation, education saving or an estimate being followed up, a question with figures goes to the
+    calculator and anything else to Q&A."""
+    if "tax" not in intents:
+        return intents
+    typed = state.get("original_question") or state["question"]
+    q = f"{typed} {state['question']}"
+    if (_TAX_TOPIC.search(q) or _EDUCATION.search(q) or _tax_scenario(q) or TAXC.is_scenario(typed)
+            or _last_estimate(state) or (state.get("context_in") or {}).get("tax")):    # a figure added to an estimate
+        return intents
+    instead = "calc" if _NUMBER_QUESTION.search(q) else "qa"
+    return list(dict.fromkeys(instead if i == "tax" else i for i in intents))
+
+
+def _tax_to_tax_agent(intents: list[str], state: FinanceState) -> list[str]:
+    """A question about a tax rule goes to the tax agent rather than Q&A: it states this year's figures (the router LLM
+    sent "What is the SALT deduction cap?" to Q&A, which repeated Wikipedia's out-of-date $10,000)."""
+    q = f"{state.get('original_question') or ''} {state['question']}"
+    if "qa" in intents and _TAX_TOPIC.search(q):            # with the tax agent there, Q&A would only repeat it
+        return list(dict.fromkeys(["tax" if i == "qa" else i for i in intents]))
+    return intents
+
+
+def _with_income_tax(intents: list[str], state: FinanceState) -> list[str]:
+    """"I earn $200,000 ... how much tax do I pay?" is the tax agent's: it works out the figure with its tools and explains
+    each step, so the calculator and Q&A would only repeat it."""
+    plain = set(intents) <= {"qa", "tax", "calc", "goal", "clarify"}
+    typed = state.get("original_question") or state["question"]
+    # a figure of theirs with no question ("I also have $5,000 from a side job") is for the estimate; "I earn $60,000 and
+    # get 3% raises: what will my salary be in 10 years?" asks something else, so it needs a tax word too
+    figure = TAXC.states_tax_figure(typed) and ("?" not in typed or bool(_TAX_TOPIC.search(typed)))
+    follows_estimate = plain and (bool(_last_estimate(state)) or figure
+                                  or bool(TAXC.missing_amount(typed, None) and (state.get("context_in") or {}).get("tax")))
+    # a whole tax situation with its figures ("David earns $120,000, rent received $30,000 ... his net rental income?"):
+    # the router LLM sent it to the calculator, which can't place a dozen tax figures
+    scenario = plain and (TAXC.is_scenario(typed) or TAXC.is_scenario(state["question"]))
+    if not TAXC.asks_income_tax(state["question"]) and not follows_estimate and not scenario:
+        if "tax" in intents and TW.TAX_FIGURE.search(state["question"]) and TAXC.amounts(state["question"]):
+            return [i for i in intents if i not in ("calc", "qa")]  # Roth vs traditional for $10k, a sale's gain: the tax tools
+        return intents
+    rest = [i for i in intents if i not in ("tax", "calc", "qa")]
+    if not R.refers_to_plan(state.get("original_question") or state["question"]):
+        rest = [i for i in rest if i != "goal"]          # "retired", "my son's college": a tax question, not a savings plan
+    return ["tax", *rest]
+
+
+_GENERIC_TAX = {"tax", "taxes", "taxed", "taxable"}
+
+
+def _about_the_example(typed: str) -> bool:
+    """A tax question with no tax subject of its own ("how is that taxed?", "what about taxes?"), or one that points back
+    at the earlier case: it asks about the example. "What about Roth IRA limits?" names its own subject."""
+    found = {m.group(0).lower() for m in _TAX_TOPIC.finditer(typed)}
+    return CTX.refers_back(typed) or bool(found) and found <= _GENERIC_TAX
+
+
+def _example_tax_to_tax_agent(intents: list[str], state: FinanceState) -> list[str]:
+    """A tax question about the previous answer's savings example ("how would the tax change in this case?") is the tax
+    agent's alone: it works out the example's tax from its figures, and the goal agent would only repeat the example."""
+    q = f"{state.get('original_question') or ''} {state['question']}"
+    if state.get("scenario_now") and set(intents) <= {"qa", "tax", "calc", "goal"}:
+        return ["goal", "tax"]               # the changed example: the plan's new figures, and what the change does to tax
+    scen = CTX.carried(state).get("scenario") or {}
+    if (scen.get("kind") != "savings_goal" or not _TAX_TOPIC.search(q) or not _about_the_example(state.get("original_question") or q)
+            or not set(intents) <= {"qa", "tax", "calc", "goal"}):
+        return intents
+    return ["tax"]
+
+
+def _without_stray_goal(intents: list[str], state: FinanceState) -> list[str]:
+    """The goal agent only for a message about a goal or savings plan: the router LLM adds it to "I earn $200,000 ...
+    how much tax do I pay?" (its "how much tax ... my plan" example), and with no plan saved the goal agent then asks for
+    a target amount."""
+    q = f"{state.get('original_question') or ''} {state['question']}"
+    if "goal" not in intents or R.mentions_goal(q) or "goal" in (CTX.carried(state).get("intents") or []):
+        return intents
+    return [i for i in intents if i != "goal"] or ["qa"]
+
+
+_RATE_GIVEN = re.compile(r"\d(?:\.\d+)?\s?%|\b\d+(?:\.\d+)?\s?percent\b", re.I)
+
+
+def _goal_with_own_rate(intents: list[str], state: FinanceState) -> list[str]:
+    """"I need $15,000 in 6 years at 3%: how much a month?" is the calculator's: the goal agent projects with the
+    risk profile's assumed return, not the rate the message gives (chain eval, Nov 2026). A question about the plan
+    saved on the Goals tab stays with the goal agent."""
+    typed = state.get("original_question") or state["question"]
+    if "goal" not in intents or R.refers_to_plan(typed) or not (_RATE_GIVEN.search(typed) and TAXC.amounts(typed)):
+        return intents
+    return list(dict.fromkeys("calc" if i == "goal" else i for i in intents))
 
 
 def _with_saved_plan(intents: list[str], state: FinanceState) -> list[str]:
@@ -418,8 +570,10 @@ def _with_saved_plan(intents: list[str], state: FinanceState) -> list[str]:
         return intents
     if "goal" not in intents:
         intents = ["goal"] if intents == ["qa"] else [*intents, "goal"]   # Q&A alone can't add anything about their plan
-    if "tax" in intents and "calc" not in intents and _FIGURE_ASKED.search(q):   # the tax agent explains, it never computes
-        intents = [*intents, "calc"]
+    if "calc" not in intents and "tax" not in intents and _FIGURE_ASKED.search(q) and re.search(r"\btax", q, re.I):
+        intents = [*intents, "tax"]                  # a tax figure on the plan: the tax agent works it out per account
+    elif "tax" in intents:
+        intents = [i for i in intents if i != "calc"]    # the tax agent's tools give the plan's tax figures
     return intents
 
 
@@ -450,17 +604,23 @@ def _route(state: FinanceState) -> dict:
             intents, confidence = parsed
             if confidence < 0.3:
                 return {"intent": ["clarify"], "entities": entities, "router_mode": "llm", "trace": [f"router (LLM): low confidence {confidence:.1f} → clarify"]}
+            pending = ((state.get("context_in") or {}).get("tax") or {}).get("pending")
+            if "read_only" in intents and pending and TAXC.amounts(state.get("original_question") or text):
+                intents = ["tax"]                    # "about $12,000 a year": the answer to the tax agent's question, not a change
             if "read_only" in intents:
                 return {"intent": ["read_only"], "entities": {**entities, "write_request": "data"}, "router_mode": "llm",
                         "trace": ["router (LLM): asks to change something → read_only guard"]}
+            if intents == ["off_topic"] and _tax_scenario(text):
+                intents = ["tax"]                    # "Sarah is a single taxpayer ... salary $95,000": a tax scenario, not off topic
             if intents == ["off_topic"]:
                 return {"intent": ["off_topic"], "entities": entities, "router_mode": "llm",
                         "trace": ["router (LLM): not about finance → off_topic guard"]}
             intents = [i for i in intents if i != "off_topic"] or ["qa"]       # a finance part is answered; the rest is left out
-            intents = _with_saved_plan(_with_screen(_without_stray_portfolio(_with_listed_tickers(intents, text), state), state), state)
+            intents = _goal_with_own_rate(_without_stray_tax(intents, state), state)   # the LLM's pick only: the rules below may still add tax
+            intents = _example_tax_to_tax_agent(_with_income_tax(_tax_to_tax_agent(_with_saved_plan(_with_screen(_without_stray_goal(_without_stray_portfolio(_with_listed_tickers(intents, text), state), state), state), state), state), state), state)
             return _routed({"intent": intents, "entities": entities, "router_mode": "llm", "trace": [f"router (LLM): {', '.join(intents)}"]}, state)
         log.warning("router LLM reply unusable; falling back to keywords")
-    intents = _with_saved_plan(_with_screen(_with_listed_tickers(_with_market_words(R.classify(text), text), text), state), state)
+    intents = _example_tax_to_tax_agent(_with_income_tax(_tax_to_tax_agent(_with_saved_plan(_with_screen(_with_listed_tickers(_with_market_words(R.classify(text), text), text), state), state), state), state), state)
     if intents == ["qa"] and CTX.carried(state).get("companies"):                 # "which did better?" after a market answer
         intents = ["market"]
     return _routed({"intent": intents, "entities": entities, "router_mode": "keywords", "trace": [f"router (keywords): {', '.join(intents)}"]}, state)
@@ -545,12 +705,23 @@ def _reranked(fresh: list[dict], earlier: list[dict], k: int) -> list[dict]:
     return out[:k]
 
 
-def _kb_answer(agent: str, state: FinanceState, query: str, prefix: str = "") -> dict:
+LOCAL_SOURCE = "Finnie note, from the IRS"
+
+
+def _origin(hit: dict) -> str:
+    """Where a knowledge-base chunk comes from, for its source label: our own notes (rag.local_categories) or Wikipedia."""
+    return LOCAL_SOURCE if hit.get("category") in (get_config()["rag"].get("local_categories") or {}) else "Wikipedia"
+
+
+def _kb_answer(agent: str, state: FinanceState, query: str, prefix: str = "", searches: list[str] | None = None,
+               categories: tuple[str, ...] | None = None) -> dict:
     """Answer from the knowledge base (Qdrant). not_found (→ research on Wikipedia) when the index is missing or failing,
-    or the best match is below rag.min_score (the topic probably isn't indexed yet)."""
+    or the best match is below rag.min_score (the topic probably isn't indexed yet). `searches` replace the question as
+    the search text (the tax agent's searches for a saved plan); their hits are merged by score."""
     cfg = get_config()["rag"]
     try:
-        hits = kb_search(state["question"])
+        hits = kb_search(state["question"], categories=categories) if not searches else \
+            _reranked([h for s in searches for h in kb_search(s, categories=categories)], [], cfg["top_k"])
         earlier = [i for i in CTX.carried(state).get("source_ids") or [] if i.startswith("kb:")]
         if earlier:                     # a follow-up: the sections that answered the topic before, scored against this question
             try:
@@ -579,7 +750,8 @@ def _kb_answer(agent: str, state: FinanceState, query: str, prefix: str = "") ->
         seen.add(key)
         anchor = "" if h["section"] == "(lead)" else "#" + h["section"].split(" > ")[-1].replace(" ", "_")
         label = h["doc_title"] if h["section"] == "(lead)" else f"{h['doc_title']} › {h['section'].split(' > ')[-1]}"
-        sources.append({"id": f"kb:{h['doc_id']}#{h['section']}", "title": f"{label} (Wikipedia)", "url": h["source_url"] + anchor})
+        sources.append({"id": f"kb:{h['doc_id']}#{h['section']}", "title": f"{label} ({_origin(h)})",
+                        "url": h["source_url"] + ("" if _origin(h) != "Wikipedia" else anchor)})
     return _out(agent, prefix + body, sources=sources, query=query, prefix=prefix, origin="kb",
                 confidence="high" if top["score"] >= cfg["min_score"] + 0.08 else "medium",
                 trace=f"kb_search → {len(hits)} chunks, best {top['doc_title']} › {top['section']} ({top['score']:.2f})")
@@ -592,9 +764,239 @@ def qa_node(state: FinanceState, config: RunnableConfig):
 
 @safe("tax")
 def tax_node(state: FinanceState, config: RunnableConfig):
+    """The tax expert (mds/agent-tax-agent.md): works out the user's own tax with its tools when they give amounts or ask
+    about their saved Goals plan, and explains the rules from the tax and retirement pages only."""
     q = state["entities"]["wiki_query"]
     q = q if "tax" in q.lower() or "ira" in q.lower() or "401" in q else f"{q} tax"
-    return _kb_answer("tax", state, q, TAX_PREFIX)
+    question = state["question"]
+    profile = _last_estimate(state)                  # the last estimate's figures, for "what if I'm married?"
+    trace_first = []
+    last = (state.get("context_in") or {}).get("tax") or {}
+    typed_now = state.get("original_question") or question
+    statement = not TAXC.is_question(typed_now) and not re.search(r"\bwhat if\b", typed_now, re.I)
+    answering = bool(last.get("pending") and TAXC.amounts(typed_now)) or bool(
+        last.get("choices") and TAXC.changes_estimate(typed_now, last) and statement) or bool(
+        last.get("items") and statement and TAXC.states_tax_figure(typed_now))   # "We also gave $5,000 to charity": add it
+    # "how would the tax change in this case?" after a worked example of saving for a house: the example's tax, worked
+    # out from its figures (interest while saving, the first-home IRA rule, deductions after buying, the sale)
+    scen = None if answering else _savings_scenario(state)
+    if scen:
+        try:
+            text, did = TW.savings_goal_tax(scen, last or None)
+            return _out("tax", text, verbatim=True, explains_itself=True, origin="tax_tools", scenario_goal=scen.get("goal_type"),
+                        sources=TAXC.SOURCES + _tax_pages(EXAMPLE_TAX_PAGES.get(scen.get("goal_type"), question)),
+                        trace=f"tax tool {did}")
+        except TW.Refused as e:
+            trace_first.append(f"tax tool savings_goal_tax refused ({e}) → the usual path")
+    # the model picks a tool and its arguments; Python runs it. An answer to "how much mortgage interest?" goes straight
+    # into the running estimate instead.
+    picked = None if answering else _pick_tax_tool(state)
+    if picked:
+        name, args, note = picked
+        trace_first.append(note)
+        home = any(it.get("kind") == "home_sale_price" for it in (last.get("items") or [])) or bool(
+            re.search(r"\b(home|house|residence|section 121)\b", f"{question} {typed_now}", re.I))
+        if name == "capital_gain" and home:          # a home sale: the estimate works out basis, gain and Section 121
+            trace_first.append("tax tool capital_gain skipped (a home sale) → the estimate")
+            name, picked = "estimate_income_tax", ("estimate_income_tax", {}, note)
+        if name in TW.WHATIFS:
+            typed = state.get("original_question") or ""
+            try:
+                text, did = TW.WHATIFS[name](args, f"{question}\n{typed}", (state.get("context_in") or {}).get("tax"),
+                                             **({"goal": state.get("saved_goal")} if name == "compare_accounts" else {}))
+                return _out("tax", text, verbatim=True, explains_itself=True, origin="tax_tools",
+                            sources=TAXC.SOURCES + _tax_pages(question), trace=f"tax tool {did}") | {"trace": [*trace_first, f"tax tool {did}"]}
+            except TW.Refused as e:
+                trace_first.append(f"tax tool {name} refused ({e}) → the usual path")
+        elif name == "update_estimate" and not profile:
+            profile = (state.get("context_in") or {}).get("tax")
+        elif name == "explain_rules" and not (state.get("saved_goal") and saved_plan_figures(state)):
+            profile = None if not CTX.carried(state).get("tax") else profile
+    typed = state.get("original_question") or question
+    if current_llm() is not None and (ask := TAXC.missing_amount(typed, profile or (state.get("context_in") or {}).get("tax"))):
+        # "I have a monthly mortgage payment": ask for the yearly interest; the figures so far stay for the answer
+        kept = {**((state.get("context_in") or {}).get("tax") or {"items": [], "year": None, "filing_status": None}),
+                "pending": TAXC.pending_kind(typed)}
+        res = _out("tax", ask, status="need_info", confidence="medium", trace=f"tax: asks for the amount ({kept['pending']})")
+        res["turn_context"] = {"tax": kept}
+        return res
+    # the model picked the estimate ("Sarah is a single taxpayer ... salary $95,000 ..."): a scenario with no question
+    # a question about a rule that mentions a figure ("I sold shares for $3,000 that cost $7,000 and bought them back:
+    # can I deduct the loss?") is explained when the model picked explain_rules; an estimate there misread the sale
+    rule_question = bool(picked and picked[0] == "explain_rules" and TAXC.is_question(typed) and not TAXC.asks_income_tax(question))
+    figure = ((TAXC.states_tax_figure(typed) or TAXC.states_tax_figure(question)) and not rule_question) or TAXC.is_scenario(typed) or bool(
+        picked and picked[0] == "estimate_income_tax" and TAXC.amounts(question))
+    if current_llm() is not None and (profile or TAXC.asks_income_tax(question) or figure):
+        est, note = None, ""
+        if profile:
+            est, note = TT.estimate_income_tax(question, profile=profile, typed=state.get("original_question") or "")
+            trace_first.append(f"tax tool estimate_income_tax {note}")
+        if est is None and (TAXC.asks_income_tax(question) or (figure and not profile)):   # new figures, or a first one
+            recent = H.transcript(state.get("history")) if state.get("follow_up") else ""
+            est, note = TT.estimate_income_tax(question, f"Recent conversation:\n{recent}" if recent else "", typed=typed)
+            trace_first.append(f"tax tool estimate_income_tax: {note}")
+        if est is not None:
+            res = _out("tax", est.text, verbatim=True, explains_itself=True, origin="tax_tools",
+                       sources=TAXC.SOURCES + (_named_pages(est.topics) or _tax_pages(question)), choices=est.choices,
+                       asks_user=bool(est.choices))
+            res["turn_context"] = {"tax": est.profile}
+            res["trace"] = trace_first
+            return res
+    g = state.get("saved_goal")
+    last_tax = (state.get("context_in") or {}).get("tax")
+    # this year's limits (or the year of the user's last estimate), not Wikipedia's; and the user's own figures if the
+    # question follows an estimate ("how are long-term gains taxed differently?" after Sarah's)
+    yours = TAXC.estimate_facts(last_tax, f"{state.get('original_question') or ''} {question}")
+    figures = yours + TT.current_figures(f"{state.get('original_question') or ''} {question}", (last_tax or {}).get("year"))
+    if not (g and saved_plan_figures(state)):
+        res = _kb_answer("tax", state, q, TAX_PREFIX + figures, categories=TT.TAX_CATEGORIES)
+        out = res["agent_outputs"]["tax"]
+        if yours and out.get("status") == "answered":
+            out["verbatim_tail"] = yours.strip()        # the user's own figures, shown as worked out, never dropped
+        res["trace"] = trace_first + ["tax tool search_tax_pages"] + res["trace"]
+        return res
+    # "how does my plan cost me on the tax?": the question alone finds pages about financial planning; search for how the
+    # plan's kind of savings is taxed, give the synthesizer the plan's figures, and work out the tax per account
+    searches = PLAN_TAX_SEARCHES.get(g.get("goal_type"), PLAN_TAX_SEARCHES["other"])
+    res = _kb_answer("tax", state, q, TAX_PREFIX + figures + _plan_tax_facts(state, g), searches=searches,
+                     categories=TT.TAX_CATEGORIES)
+    table, note = TT.tax_on_plan(g, _saved_projection(state, g)[1])
+    out = res["agent_outputs"]["tax"]
+    if out.get("status") == "answered":
+        out["verbatim_tail"] = table                 # the figures go after the written explanation, never reworded
+    else:                                            # no pages: the figures still answer "how much"
+        res = _out("tax", table, verbatim=True, origin="tax_tools", sources=TAXC.SOURCES, trace="")
+    res["trace"] = [*trace_first, f"tax: saved {g.get('goal_type')} plan → tools search_tax_pages + tax_on_plan ({note})",
+                    *res["trace"]]
+    return res
+
+
+# what the Read-more links behind a savings example's tax are searched for
+EXAMPLE_TAX_PAGES = {"house": "mortgage interest deduction, property tax and the home sale exclusion",
+                     "education": "How is a 529 plan taxed?", "retirement": "How are traditional and Roth IRA withdrawals taxed?",
+                     "other": "How is interest on a savings account taxed?"}
+_SAVING = re.compile(r"\b(sav(e|es|ed|ing|ings)|put(ting)? (aside|away)|down ?payment|goal)\b", re.I)
+
+
+def _savings_scenario(state: FinanceState) -> dict | None:
+    """The savings goal a tax question is about: the previous answer's worked example when the message follows on from it,
+    else one the message states itself ("how is saving $60,000 over 5 years for a down payment taxed?"). None when the
+    message brings income or other amounts of its own (the estimate works those out) or isn't about saving."""
+    typed = state.get("original_question") or state["question"]
+    if state.get("scenario_now"):                # the example as the message changes it ("if I borrow $200,000 at 1.5%")
+        return state["scenario_now"]
+    if TAXC.asks_income_tax(typed) or TAXC.is_scenario(typed) or TAXC.states_tax_figure(typed):
+        return None
+    scen = CTX.carried(state).get("scenario") or {}
+    if scen.get("kind") == "savings_goal" and _about_the_example(typed):
+        own = set(TAXC.amounts(typed)) - CTX.scenario_numbers(scen)
+        return None if own else scen
+    e, q = state.get("entities") or {}, f"{typed} {state['question']}"
+    if e.get("target_amount") and e.get("years") and _SAVING.search(q) and _about_the_example(typed):
+        kind = R.goal_kind(q)
+        r = project_goal(float(e["target_amount"]), int(e["years"]), 0, 0, get_config()["risk_profiles"]["conservative"])
+        return _goal_scenario(kind, float(e["target_amount"]), int(e["years"]), r["required_monthly"],
+                              r["annual_return_assumption"])
+    return None
+
+
+def _pick_tax_tool(state: FinanceState) -> tuple[str, dict, str] | None:
+    """(tool, arguments, trace) the model picks for the message (tax_whatif.TOOL_SPECS), or None without a tool-calling
+    model, when it picks none, or when it fails: the agent then takes its usual path (estimate, follow-up, plan, pages)."""
+    llm = current_llm()
+    if llm is None or not hasattr(llm, "bind_tools"):
+        return None
+    last = (state.get("context_in") or {}).get("tax")
+    about = [f"LAST ESTIMATE:\n{TAXC.describe_profile(last)}\nFederal total "
+             + (f"{last['total_federal']:.0f}" if last.get("total_federal") is not None else "not worked out yet (no income)")
+             if last else
+             "LAST ESTIMATE: none"]
+    if state.get("saved_goal") and saved_plan_figures(state):
+        about.append("The message is about the user's saved Goals plan.")
+    typed = state.get("original_question") or ""
+    said = f"Message: {typed}\n(Reworded: {state['question']})" if typed and typed != state["question"] else f"Message: {state['question']}"
+    try:
+        from langchain_core.messages import HumanMessage, SystemMessage
+        reply = llm.bind_tools(TW.TOOL_SPECS).invoke([SystemMessage(TW.CHOOSER_SYSTEM), HumanMessage("\n".join(about) + "\n\n" + said)])
+    except Exception as e:  # noqa: BLE001 — the usual path still answers
+        log.warning("tax tool choice failed: %s", e)
+        return None
+    calls = getattr(reply, "tool_calls", None) or []
+    if not calls:
+        return None
+    name, args = calls[0]["name"], calls[0].get("args") or {}
+    shown = ", ".join(f"{k}={v}" for k, v in args.items())
+    return name, args, f"tax: model picked {name}({shown})"
+
+
+def _last_estimate(state: FinanceState) -> dict | None:
+    """The previous answer's tax figures when this message may change them: a follow-up, an answer button ("I held the
+    shares a year or less") or a "what if" about them. The proofreader doesn't always mark a short answer as a follow-up."""
+    prof = (state.get("context_in") or {}).get("tax")
+    if not prof:
+        return None
+    return prof if CTX.carried(state).get("tax") or TAXC.changes_estimate(state.get("original_question") or state["question"], prof) \
+        or TAXC.changes_estimate(state["question"], prof) else None
+
+
+def _named_pages(titles: list[str], most: int = 3) -> list[dict]:
+    """Links to the named tax pages (the credits and deductions an estimate used), found by title in the tax pages."""
+    out = []
+    for title in titles:
+        if len(out) >= most:
+            break
+        try:
+            hits = TT.search_tax_pages(title, 5)
+        except Exception as e:  # noqa: BLE001 — the estimate stands without them
+            log.warning("tax page search failed: %s", e)
+            return out
+        hit = next((h for h in hits if h["doc_title"].lower() == title.lower()), None)
+        if hit and all(o["url"] != hit["source_url"] for o in out):
+            out.append({"id": f"kb:{hit['doc_id']}#(lead)", "title": f"{hit['doc_title']} ({_origin(hit)})", "url": hit["source_url"]})
+    return out
+
+
+def _tax_pages(question: str, most: int = 3) -> list[dict]:
+    """Links to the tax pages behind a worked estimate (read more), best first; none if the search fails."""
+    try:
+        hits = TT.search_tax_pages(question)
+    except Exception as e:  # noqa: BLE001 — the estimate stands without them
+        log.warning("tax page search failed: %s", e)
+        return []
+    out, seen = [], set()
+    for h in hits:
+        if h["doc_id"] in seen or h["score"] < get_config()["rag"]["min_score"]:
+            continue
+        seen.add(h["doc_id"])
+        anchor = "" if h["section"] == "(lead)" else "#" + h["section"].split(" > ")[-1].replace(" ", "_")
+        out.append({"id": f"kb:{h['doc_id']}#{h['section']}", "title": f"{h['doc_title']} ({_origin(h)})",
+                    "url": h["source_url"] + ("" if _origin(h) != "Wikipedia" else anchor)})
+    return out[:most]
+
+
+PLAN_TAX_SEARCHES = {
+    "retirement": ["How are traditional 401(k) and IRA contributions and withdrawals taxed?",
+                   "Is investment growth in a Roth IRA taxed?",
+                   "How are long-term capital gains taxed in a regular brokerage account?"],
+    "education": ["How is a 529 plan taxed?", "How is a Coverdell education savings account taxed?",
+                  "How are long-term capital gains taxed in a regular brokerage account?"],
+    "other": ["How are long-term capital gains taxed?", "How are interest and dividends taxed?",
+              "What is a tax-advantaged account?"],
+}
+PLAN_TAX_SEARCHES["house"] = PLAN_TAX_SEARCHES["other"]
+
+
+def _plan_tax_facts(state: FinanceState, g: dict) -> str:
+    """The saved plan's figures for the tax answer (computed here): what is paid in, what grows, and what isn't known."""
+    _, r = _saved_projection(state, g)
+    years, current, monthly = g["horizon_years"], g.get("current_savings", 0) or 0, g.get("monthly_contribution", 0) or 0
+    paid_in = current + monthly * 12 * years
+    growth = r["projected_value"] - paid_in
+    return (f"**The user's {g['goal_type']} plan (Goals tab):** {CALC.money(paid_in)} paid in over {years} years "
+            f"({CALC.money(current)} now + {CALC.money(monthly)} a month), projected to {CALC.money(round(r['projected_value']))}, so about "
+            f"**{CALC.money(round(growth))} of investment growth**. The plan doesn't say which account the money is in, and the tax "
+            f"depends on it: explain each case the sources cover for this money (and that the account type decides it); "
+            f"don't compute a tax amount.\n\n")
 
 
 _PRICE_ASK = re.compile(r"\b(price|quote|trading at|share price|worth today|how much is)\b", re.I)
@@ -1343,16 +1745,123 @@ def _saved_goal_answer(state: FinanceState, g: dict) -> dict:
              + (" — on track." if r["on_track"] else f", ${r['shortfall']:,.0f} short of the target."),
              f"- Reaching the target would take about **${r['required_monthly']:,.0f} a month**.",
              "\n_This is a simple illustration. Real returns vary year to year and are never guaranteed._"]
-    return _out("goal", "\n".join(lines), trace=f"saved goal ({g['goal_type']}, ${r['target']:,.0f}, {g['horizon_years']}y) → ${r['required_monthly']:,.0f}/mo")
+    return _out("goal", "\n".join(lines), goal_type=g.get("goal_type"),
+                trace=f"saved goal ({g['goal_type']}, ${r['target']:,.0f}, {g['horizon_years']}y) → ${r['required_monthly']:,.0f}/mo")
+
+
+# Sample figures for "give me an example of a savings goal for a house": typical, round numbers, said to be samples
+GOAL_EXAMPLES = {"house": {"home_price": 300_000, "down_payment_pct": 0.20, "years": 5},
+                 "education": {"target": 100_000, "years": 15},
+                 "retirement": {"target": 1_000_000, "years": 30},
+                 "other": {"target": 15_000, "years": 3}}
+GOAL_EXAMPLE_WHAT = {"education": "a child's college fund", "retirement": "retirement savings", "other": "a big purchase"}
+SHORT_HORIZON_YEARS = 5          # money needed this soon usually sits in savings or conservative investments
+
+
+def _goal_kind(state: FinanceState) -> str | None:
+    """The goal type the message is about: the one it names, else the one of the worked example it follows on from."""
+    kind = R.goal_kind(f"{state.get('original_question') or ''} {state['question']}")
+    scen = CTX.current_scenario(state)
+    return kind or (scen.get("goal_type") if scen.get("kind") == "savings_goal" else None)
+
+
+def _goal_scenario(kind: str | None, target: float, years: int, monthly: float, annual_return: float, extra: dict | None = None,
+                   text: str = "") -> dict:
+    """The savings goal as the turn's worked example (context.scenario_line), for a follow-up such as "how is it taxed?"."""
+    figures = {**(extra or {}), "target": target, "years": years, "monthly": round(monthly), "annual_return": annual_return}
+    return {"kind": "savings_goal", "goal_type": kind or "other", "figures": figures,
+            "text": text or f"saving ${target:,.0f} over {years} years (about ${monthly:,.0f} a month)"
+                            + (f" for {GOAL_EXAMPLE_WHAT[kind]}" if kind in GOAL_EXAMPLE_WHAT else "")}
+
+
+def _example_goal(state: FinanceState, kind: str) -> dict:
+    """A worked example of a savings goal with sample figures, computed here (the writer once made one up)."""
+    ex = GOAL_EXAMPLES[kind]
+    years = ex["years"]
+    risk = "conservative" if years <= SHORT_HORIZON_YEARS else state.get("profile", {}).get("risk_tolerance", "moderate")
+    rate = get_config()["risk_profiles"][risk]
+    if kind == "house":
+        price, share = ex["home_price"], ex["down_payment_pct"]
+        target = price * share
+    else:
+        target = ex["target"]
+    r = project_goal(target, years, 0, 0, rate)
+    monthly = r["required_monthly"]
+    paid_in = monthly * 12 * years
+    if kind == "house":
+        head = [f"**Example: a savings goal for a house down payment** (sample figures)",
+                f"- Home price: **${price:,.0f}**. A {share * 100:.0f}% down payment is **${target:,.0f}**: that is the goal's target.",
+                f"- Time frame: **{years} years**, starting from $0."]
+        scen = _goal_scenario("house", target, years, monthly, rate, {"home_price": price, "down_payment_pct": share},
+                              f"saving ${target:,.0f} over {years} years (about ${monthly:,.0f} a month) for a "
+                              f"{share * 100:.0f}% down payment on a ${price:,.0f} house")
+    else:
+        head = [f"**Example: a savings goal for {GOAL_EXAMPLE_WHAT[kind]}** (sample figures)",
+                f"- Target: **${target:,.0f}** in **{years} years**, starting from $0."]
+        scen = _goal_scenario(kind, target, years, monthly, rate)
+    why = (f"Money needed within {SHORT_HORIZON_YEARS} years usually sits in savings or conservative investments, so this "
+           f"assumes a steady {rate * 100:g}% yearly return." if years <= SHORT_HORIZON_YEARS
+           else f"With a {risk} risk profile this assumes a steady {rate * 100:g}% yearly return.")
+    lines = [*head, f"- {why}",
+             f"- Saving about **${monthly:,.0f} a month** reaches it: ${paid_in:,.0f} paid in, about ${target - paid_in:,.0f} "
+             f"from growth (with no growth at all it would take ${target / (12 * years):,.0f} a month).",
+             "- To make it your own, put your figures on the **Goals** tab: it tracks the plan and shows the range of outcomes.",
+             "\n_This is a simple illustration with sample numbers. Real returns vary and are never guaranteed._"]
+    res = _out("goal", "\n".join(lines), verbatim=True, goal_type=kind,
+               trace=f"goal: worked example ({kind}, ${target:,.0f}, {years}y, {rate * 100:g}%) → ${monthly:,.0f}/mo")
+    res["turn_context"] = {"scenario": scen}
+    return res
+
+
+def _changed_goal(scen: dict) -> dict:
+    """The house example with a loan: the down payment left to save (price − loan) and its monthly saving, against the
+    example before the change, and the loan's monthly payment; computed here."""
+    from src.core.income_tax import mortgage_first_year
+    f, p = scen["figures"], scen.get("previous") or {}
+    price, loan, rate, term, years = f["home_price"], f["loan_amount"], f["loan_rate"], f["loan_years"], f["years"]
+    target, monthly = f["target"], f["monthly"]
+    pay = mortgage_first_year(loan, rate, term)
+    lines = [f"**Your house example with a ${loan:,.0f} loan at {rate * 100:g}%** (sample figures)",
+             f"- The home still costs **${price:,.0f}**, so the loan leaves **${target:,.0f}** to pay up front "
+             f"(${price:,.0f} − ${loan:,.0f})."]
+    if p.get("target"):
+        more = target - float(p["target"])
+        lines.append(f"- That is **${abs(more):,.0f} {'more' if more > 0 else 'less'}** to save than the example's "
+                     f"${float(p['target']):,.0f} down payment.")
+    lines.append(f"- Saving it over **{years} years** at a steady {f.get('annual_return', 0.04) * 100:g}% takes about "
+                 f"**${monthly:,.0f} a month**" + (f" (instead of ${float(p['monthly']):,.0f})." if p.get("monthly") else "."))
+    lines.append(f"- The loan: ${loan:,.0f} at {rate * 100:g}% over {term} years is **${pay['payment']:,.0f} a month**, "
+                 f"about ${pay['interest']:,.0f} of interest in the first year.")
+    if p.get("loan_amount") and p.get("loan_rate"):
+        old = mortgage_first_year(float(p["loan_amount"]), float(p["loan_rate"]), int(p.get("loan_years") or term))
+        lines.append(f"- Before the change: a ${float(p['loan_amount']):,.0f} mortgage at {float(p['loan_rate']) * 100:g}% is "
+                     f"${old['payment']:,.0f} a month, so the payment is **${abs(old['payment'] - pay['payment']):,.0f} a month "
+                     f"{'lower' if pay['payment'] < old['payment'] else 'higher'}**.")
+    for note in scen.get("assumed") or []:
+        lines.append(f"- Assumed: {note}.")
+    lines.append("\n_This is a simple illustration with sample numbers. Real returns and loan terms vary._")
+    res = _out("goal", "\n".join(lines), verbatim=True, goal_type="house",
+               trace=f"goal: changed example (loan ${loan:,.0f} at {rate * 100:g}%) → save ${target:,.0f}, ${monthly:,.0f}/mo; "
+                     f"loan ${pay['payment']:,.0f}/mo")
+    res["turn_context"] = {"scenario": scen}
+    return res
 
 
 @safe("goal")
 def goal_node(state: FinanceState, config: RunnableConfig):
     e = state["entities"]
     saved = state.get("saved_goal")
+    if state.get("scenario_now"):                                 # "what if I borrow $200,000 at 1.5%?" after the house example
+        return _changed_goal(state["scenario_now"])
+    kind = _goal_kind(state)
+    if saved and kind and kind != saved.get("goal_type"):        # a house question isn't about the saved retirement plan
+        saved = None
     if saved and not (e["target_amount"] or e["years"]):          # "am I on track?" -> use the plan saved on the Goals tab
         return _saved_goal_answer(state, saved)
     if not (e["target_amount"] and e["years"]):
+        typed = f"{state.get('original_question') or ''} {state['question']}"
+        if CP.wants_example(typed) and not (e["target_amount"] or e["years"]):
+            return _example_goal(state, kind or "other")
         return _out("goal", GOAL_ASK, status="need_info", choices=GOAL_CHOICES, confidence="medium", trace="goal: missing target or years → ask")
     cfg = get_config()
     risk = state.get("profile", {}).get("risk_tolerance", "moderate")
@@ -1364,7 +1873,11 @@ def goal_node(state: FinanceState, config: RunnableConfig):
                      + (" — on track." if r["on_track"] else f", ${r['shortfall']:,.0f} short of the target."))
     lines.append(f"- Reaching the target would take about **${r['required_monthly']:,.0f} a month**.")
     lines.append("\n_This is a simple illustration. Real returns vary year to year and are never guaranteed._")
-    return _out("goal", "\n".join(lines), trace=f"project_goal(${e['target_amount']:,.0f}, {e['years']}y, {risk}) → ${r['required_monthly']:,.0f}/mo")
+    res = _out("goal", "\n".join(lines), goal_type=kind,
+               trace=f"project_goal(${e['target_amount']:,.0f}, {e['years']}y, {risk}) → ${r['required_monthly']:,.0f}/mo")
+    res["turn_context"] = {"scenario": _goal_scenario(kind, float(e["target_amount"]), int(e["years"]),
+                                                      r["required_monthly"], r["annual_return_assumption"])}
+    return res
 
 
 @safe("calc")
@@ -1392,7 +1905,9 @@ def calc_node(state: FinanceState, config: RunnableConfig):
     prompt = (f"Recent conversation:\n{recent or '(none)'}\n\n"
               + (f"Figures from the previous answer:\n{known}\n\n" if known else "")
               + (f"{plan}\n\n" if plan else "") + f"Message: {q}")
-    out = calculate(q, prompt, f"{q}\n{recent}\n{known}\n{plan}")
+    memory = CTX.carried(state).get("calc")       # the previous calculation, for a follow-up that builds on its results
+    typed = state.get("original_question") or ""
+    out = calculate(q, prompt, f"{q}\n{recent}\n{known}\n{plan}", memory=memory, typed=typed if typed != q else "")
     steps = [f"calc step {line}" for line in out.trace]
     if out.kind == "needs":
         res = _out("calc", CALC.needs_input_text(out.needs.label, out.needs.inputs), status="need_info",
@@ -1410,15 +1925,23 @@ def calc_node(state: FinanceState, config: RunnableConfig):
                    for q_ in out.result.get("quotes", []) for s in q_["sources"] if s.get("url")]
         res = _out("calc", CALC.plan_text(out.result), verbatim=True, sources=sources,
                    trace=out.note or "calc (LLM steps): " + out.trace[-1])
+        res["turn_context"] = {"calc": CP.memory_of(out.result)}
     res["trace"] = steps + res["trace"]
     return res
 
 
-def calculate(question: str, prompt: str, known_text: str) -> CP.Outcome:
-    """The calculator's steps (calc_pipeline): a sourced equation when one fits, else the plan path."""
+def calculate(question: str, prompt: str, known_text: str, memory: dict | None = None, typed: str = "") -> CP.Outcome:
+    """The calculator's steps (calc_pipeline): a sourced equation when one fits, else the plan path. Every LLM call in
+    them uses the Calculator's model (`llm.role_models.calc` in config.yaml; the usual model when it has none).
+    `memory`: the previous calculation (context["calc"]), whose results a follow-up may build on."""
+    with llm_role("calc"):
+        return _calculate(question, prompt, known_text, memory, typed)
+
+
+def _calculate(question: str, prompt: str, known_text: str, memory: dict | None = None, typed: str = "") -> CP.Outcome:
     def plan_path(example: bool, hint: str = "") -> CP.Outcome:
         result, errors, _ = plan_calculation(question, prompt + hint + (CP.EXAMPLE_NOTE if example else ""), known_text,
-                                             example)
+                                             example, shape_of=f"{question} {typed}")
         if isinstance(result, PLAN.NeedsInput):
             return CP.Outcome("needs", needs=result, errors=errors)
         if result is None:
@@ -1432,14 +1955,14 @@ def calculate(question: str, prompt: str, known_text: str) -> CP.Outcome:
         if result["set_aside"]:
             note += f"; {len(result['set_aside'])} check(s) set aside by the judge"
         return CP.Outcome("answer", result=result, errors=errors, note=note)
-    return CP.calculate(question, prompt, known_text, plan_path)
+    return CP.calculate(question, prompt, known_text, plan_path, memory, typed)
 
 
 JUDGE_CALLS = 2                                         # most judge calls per question
 
 
-def plan_calculation(question: str, prompt: str, known_text: str,
-                     example: bool = False) -> tuple[dict | PLAN.NeedsInput | None, list[str], list]:
+def plan_calculation(question: str, prompt: str, known_text: str, example: bool = False,
+                     shape_of: str = "") -> tuple[dict | PLAN.NeedsInput | None, list[str], list]:
     """Ask the LLM for a plan and run it. When only one of the plan's own checks disagrees, a judge call decides which is
     wrong: a wrong check is set aside (and shown in the answer), a wrong plan goes to the repair round with the judge's
     reason. Any other rejection goes back to the LLM once with the error. Returns (the executed plan, or NeedsInput when
@@ -1450,6 +1973,10 @@ def plan_calculation(question: str, prompt: str, known_text: str,
         while True:
             try:
                 result = PLAN.run(plans[-1], question, known_text, skip, example=example)
+                # a part the question asks for that the plan leaves out ("how much of that is growth"): one repair
+                missing = CP.shape_problem(shape_of, [{"label": st["label"]} for st in result["steps"]]) if shape_of else ""
+                if missing and attempt == 1:
+                    raise PLAN.PlanError(f"the plan leaves out a part the question asks for: {missing}")
                 return {**result, "set_aside": set_aside}, errors, plans
             except PLAN.NeedsInput as e:
                 return e, errors, plans
@@ -1565,6 +2092,13 @@ def verifier_node(state: FinanceState, config: RunnableConfig):
         if o.get("verified"):
             continue
         status = o.get("status", "answered")
+        if status == "answered" and (wanted := _off_target_goal(state, o)):
+            # the saved retirement plan, replanned in for a question about the house example: about another goal, so unusable
+            updates[agent] = {**o, "status": "not_found", "content": "", "sources": [], "fallback": None, "verified": True,
+                              "researched": True, "web_searched": True, "handed_off": True,
+                              "missing": f"an answer about the {wanted} goal"}
+            trace.append(f"verifier: {agent} answers about the {o['goal_type']} goal, not the {wanted} one the question is about → dropped")
+            continue
         if status == "answered" and o.get("origin") in ("kb", "wikipedia", "web") and llm_on:
             others = _answered_by_others(outputs, agent)
             shown = "".join(f"\n[{a}]\n{c[:OTHERS_CHARS]}\n" for a, c in others.items())
@@ -1607,6 +2141,13 @@ def verifier_node(state: FinanceState, config: RunnableConfig):
         elif status == "answered":
             updates[agent] = {**o, "verified": True}
     return {"agent_outputs": updates, "trace": trace or ["verifier: all agent outputs usable"]}
+
+
+def _off_target_goal(state: FinanceState, o: AgentOutput) -> str | None:
+    """The goal type the question is about, when the output is about another one (None when it fits or either is unknown)."""
+    have = o.get("goal_type")
+    wanted = _goal_kind(state) if have else None
+    return wanted if wanted and wanted != have else None
 
 
 def _answered_by_others(outputs: dict, agent: str) -> dict[str, str]:
@@ -1787,8 +2328,9 @@ def illustrate_node(state: FinanceState, config: RunnableConfig):
     Skipped for calculations, non-numeric topics and basic mode (no LLM). Follow-up suggestions then let the user vary the
     numbers."""
     outputs = state.get("agent_outputs") or {}
-    concept = [o for k, o in outputs.items() if k in ("qa", "tax") and o.get("status", "answered") == "answered" and o.get("content")]
-    if not concept or "calc" in outputs or current_llm() is None:
+    concept = [o for k, o in outputs.items() if k in ("qa", "tax") and o.get("status", "answered") == "answered" and o.get("content")
+               and o.get("origin") != "tax_tools" and not o.get("verbatim_tail")]    # the tax agent's own figures need no example
+    if not concept or "calc" in outputs or current_llm() is None or "tax" in outputs:   # tax figures are the tax agent's
         return {"trace": []}
     figures = CTX.describe({"facts": {**(CTX.carried(state).get("facts") or {}), **_key_facts(state.get("market_data") or {})}})
     reply = _json(ask_llm(CALC.EXAMPLE_SYSTEM, f"Question: {state['question']}\n\nAnswer so far:\n{concept[0]['content'][:2500]}"
@@ -1824,7 +2366,9 @@ SYNTH_SYSTEM = (
     "figure (| A | B | header row, then |---|---|), never as a bullet list per item, so the numbers line up. Never tell the user what to buy or sell and never promise returns. Do not include a disclaimer "
     "(it is added separately). Keep any figures exactly as given. When comparing, compare figures for the same period (today's "
     "change with today's change), never one item's day with another's month. The conversation only explains what the question refers to: "
-    "answer the Question from the context, never by repeating an earlier answer or its subject.")
+    "answer the Question from the context, never by repeating an earlier answer or its subject. When the context gives "
+    "\"Current <year> figures\", use those figures over any older amount in the other sources and say they are the "
+    "<year> figures.")
 
 
 READING_NOTE = "_I took this as {}. If you meant something else, pick an option below or name the company or topic._"
@@ -1900,12 +2444,22 @@ def synthesizer_node(state: FinanceState, config: RunnableConfig):
     # (the tax rules, then the calculator's question about the missing rate)
     partial = [] if answered else [o["fallback"] for o in outputs if o.get("fallback")]
     answered = answered or partial                  # nothing better turned up: write from the research the verifier found incomplete
-    choices = list(dict.fromkeys(c for o in asks for c in o.get("choices") or []))[:3]
+    choices = list(dict.fromkeys(c for o in [*asks, *(o for o in answered if o.get("asks_user"))]
+                                 for c in o.get("choices") or []))[:3]          # the tax agent's one question, as buttons
     if answered:
         exact = [o for o in answered if o.get("verbatim")]          # calculator results: never reworded
         sector_lines = _sector_lines(state)
         prose = [o for o in answered if not o.get("verbatim") and not (sector_lines and o["agent"] == "market")]
         text, mode = "\n\n".join(o["content"] for o in prose), "extractive" if prose else "verbatim"
+        if any(o.get("explains_itself") for o in exact):
+            # the income-tax steps explain each rule as they apply it: a written intro only repeated their arithmetic
+            # (and did it itself); the explaining agents' pages are linked for further reading instead
+            links = list({x["url"]: x for o in [*prose, *exact] for x in o.get("sources", [])
+                          if x.get("url") and x.get("id", "").startswith("kb:")}.values())[:4]
+            text = ("**Read more:** " + " · ".join(f"[{re.sub(r' [(](Wikipedia|Finnie note, from the IRS)[)]$', '', x['title'])}]({x['url']})"
+                                                  for x in links)
+                    if links else "")
+            prose, mode = [], "verbatim (steps explain themselves)"
         if prose and current_llm() is not None:
             history = H.transcript(state.get("history")) if state.get("follow_up") else ""     # a new question can only be misled by it
             context = "\n\n".join(f"[{o['agent']}]\n{o['content']}" for o in prose)
@@ -1914,7 +2468,7 @@ def synthesizer_node(state: FinanceState, config: RunnableConfig):
                            "question asks for: don't do arithmetic, and never say that the figure, calculations, examples "
                            "or details are missing from the context. Explain the ideas behind it (for a tax figure: what "
                            "is taxed and when, and what changes the amount) and say the calculation below works it out."
-                           if exact else "")
+                           if exact or any(o.get("verbatim_tail") for o in prose) else "")
             data = "" if sector_lines else MT.data_block(state.get("market_data") or {})        # exact figures the market tools fetched (volume, P/E...)
             figures = (f"\n\nData (exact figures from the market tools; use only those the question needs, and keep them "
                        f"exactly as given):\n{data}" if data else "")
@@ -1932,7 +2486,12 @@ def synthesizer_node(state: FinanceState, config: RunnableConfig):
             if reply:
                 text, mode = drop_unknown_headlines(reply, [x for o in prose for x in o.get("sources", [])]), "llm"
         text = link_sources(text, [s for o in prose for s in o.get("sources", [])])
-        text = "\n\n".join(t for t in [sector_lines, text] + [o["content"] for o in exact] if t)
+        read_more = text if mode.startswith("verbatim (steps") else ""
+        tails = [o["verbatim_tail"] for o in answered if o.get("verbatim_tail") and not read_more]   # figures after the words
+        if tails:                       # the writer sometimes copies the figures it was given: they follow once, as worked out
+            text = re.sub(r"\n{3,}", "\n\n", re.sub(r"\*\*In your estimate[^\n]*\*\*:?\n(?:\s*- [^\n]*(?:\n|$))+", "", text)).strip()
+        text = "\n\n".join(t for t in [sector_lines, "" if read_more else text] + tails + [o["content"] for o in exact]
+                           + [read_more] if t)
         readings = [o for o in answered if o.get("reading")]       # answered on a guess: say how it was read, never left to the LLM
         if readings:
             text += "\n\n" + "\n".join(READING_NOTE.format(o["reading"]) for o in readings)
@@ -1998,7 +2557,43 @@ def followups_node(state: FinanceState, config: RunnableConfig):
     return {"choices": picked[:3], "trace": [f"follow-ups: {len(picked)} suggested" if picked else "follow-ups: none usable"]}
 
 
+SCENARIO_SYSTEM = (
+    "You read an answer from a personal-finance education assistant and note the worked example it goes through, if it "
+    "has one (sample or the user's figures). Reply with ONLY JSON: {\"text\": \"<the example in one line, with its "
+    "amounts, e.g. saving $60,000 over 5 years for a 20% down payment on a $300,000 house>\", \"goal_type\": "
+    "\"house|education|retirement|other|null\", \"figures\": {\"target\": 60000, \"years\": 5, \"monthly\": 1000, "
+    "\"home_price\": 300000, \"down_payment_pct\": 0.2}}. goal_type and target/years only for an amount saved up over "
+    "years; leave out any figure the answer doesn't state, and use other short snake_case names for other amounts. "
+    "Reply {} when the answer works through no example.")
+_EXAMPLE_IN_ANSWER = re.compile(r"(for example|for instance|example|let'?s say|say you|suppose|imagine)", re.I)
+
+
+def _answer_scenario(state: FinanceState, text: str) -> dict | None:
+    """The worked example a written answer went through ("for example, a $300,000 house with 20% down..."), when no agent
+    reported one: noted for the next turn ("how would the tax change in this case?"). Every figure must be in the answer."""
+    if (state.get("turn_context") or {}).get("scenario") or current_llm() is None or not state.get("answered"):
+        return None
+    if not (CP.wants_example(state.get("question") or "") or _EXAMPLE_IN_ANSWER.search(text)) or len(re.findall(r"\$\s?\d", text)) < 2:
+        return None
+    data = _json(ask_llm(SCENARIO_SYSTEM, f"Question: {state.get('question') or ''}\n\nANSWER:\n{text[:3000]}")) or {}
+    said = {round(float(n.replace(",", "")), 2) for n in re.findall(r"\d[\d,]*(?:\.\d+)?", text)}
+    figures = {}
+    for k, v in (data.get("figures") or {}).items():
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and re.fullmatch(r"[a-z_]{1,30}", str(k)):
+            shown = {round(float(v), 2), round(float(v) * 100, 2)} if (k.endswith("_pct") or k in ("annual_return", "rate")) else {round(float(v), 2)}
+            if shown & said:                              # a figure the answer states, never one the model worked out
+                figures[k] = v
+    line = " ".join(str(data.get("text") or "").split())[:240]
+    if not line or not figures:
+        return None
+    goal = data.get("goal_type") if data.get("goal_type") in ("house", "education", "retirement", "other") else None
+    kind = "savings_goal" if goal and figures.get("target") and figures.get("years") else "example"
+    return {"kind": kind, "goal_type": goal, "text": line, "figures": figures, "from": "answer"}
+
+
 def compliance_node(state: FinanceState, config: RunnableConfig):
     text, removed = finalize(state["final_response"])
-    return {"final_response": text, "context": CTX.build(state),            # saved with the answer for the next turn
-            "trace": [f"compliance: {'removed %d advice-like sentence(s)' % removed if removed else 'no advice patterns found'}; disclaimer added"]}
+    scenario = _answer_scenario(state, text)
+    return {"final_response": text, "context": CTX.build({**state, "answer_scenario": scenario}),   # saved for the next turn
+            "trace": [f"compliance: {'removed %d advice-like sentence(s)' % removed if removed else 'no advice patterns found'}; disclaimer added"]
+                     + ([f"context: noted the answer's worked example ({scenario['text']})"] if scenario else [])}

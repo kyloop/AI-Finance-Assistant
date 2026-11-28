@@ -1,0 +1,33 @@
+# Independent contractor-employee distinction in the United States
+
+<!-- https://en.wikipedia.org/wiki/Independent_contractor-employee_distinction_in_the_United_States | revision 1378173302 -->
+
+The United States maintains a legal distinction between independent contractors and employees for tax treatment and for the Fair Labor Standards Act (FLSA). The distinction has been contested since the passage of the FLSA, with employers often attempting the misclassification of employees as independent contractors. Similar practices exist in other countries, where it is often known as false self-employment.
+The U.S. Government Accountability Office (GAO) reports that the IRS claims to lose millions of dollars in uncollected payroll, social security, Medicare and unemployment insurance taxes because of misclassification of independent contractors by taxpayers.
+
+## Taxation
+
+Employers must report the incomes of employees and independent contractors using the IRS forms W-2 and 1099, respectively. Employers pay various taxes (i.e. Social Security and Medicare taxes, unemployment taxes, etc.) on the wages of a worker that is classified as an employee. These taxes are generally not paid by the employer on the compensation of a worker classified as an independent contractor. Instead, the contractor is responsible for their employer's share of the taxes when paying self-employment taxes at the end of the year.
+Classification affects whether a worker can receive unemployment benefits. In many states, independent contractors are not eligible for unemployment benefits because nothing has been paid into the unemployment insurance fund on their behalf. Employers who have no employees are not required to make payments to the unemployment insurance fund (since there is no one to claim benefits).
+
+## Employee vs. independent contractor
+
+IRS regulations state that a worker is an employee if the employer can control what is to be done and how it is to be done. This was codified in revenue ruling 87–41, and is generally called "the twenty factor test". By contrast, if the worker controls the means and method of achieving the required results, leaving the employer with the right only to define the desired result, they are correctly classified as an independent contractor.
+Employees and independent contractors have very different benefits. Employees are entitled to the protection of wage and hour laws and are protected from discrimination and retaliation by employers. Employees may be legally entitled to family medical leave and benefits such as medical insurance and pension plans. Employees are entitled to bargain collectively with their employers. Employees are entitled to workers' compensation for job-related injuries and employers must pay into social security, Medicare, and unemployment insurance for their employees. No benefits or employer tax payments are available to contractors, who must pay for their own benefits and unemployment taxes.
+In the United States, a worker is by default recognized as an employee unless otherwise stated and specific criteria are met. It is not enough to only classify a worker as an "independent contractor" in their contract, they also need to actually be treated as an independent contractor.
+Service sector employees are more likely than others to be misclassified as independent contractors. Commonly misclassified positions include delivery and taxi drivers, nurses and home health aides, housekeepers and adult entertainment workers.
+IRS Form SS-8 can be filed with the IRS to request that the agency determine the classification of a worker.
+
+## Reclassification
+
+IRS reclassification as an employee occurs where persons claimed as (or claiming to be) independent contractors are recategorized by the Internal Revenue Service (IRS), or by state tax authorities, as W-2 employees. The reclassification can result in the imposition of substantial fines, penalties and back-taxes for which the employer is generally liable.
+
+## Fair Labor Standards Act
+
+In July 2015, the U.S. Department of Labor issued new guidelines on worker classification. "A worker who is economically dependent on an employer is suffered or permitted to work by the employer. Thus, applying the economic realities test in view of the expansive definition of "employ" under the Act, most workers are employees under the Fair Labor Standards Act."
+
+... the economic realities of the relationship, and not the label an employer gives it, are determinative. Thus, an agreement between an employer and a worker designating or labeling the worker as an independent contractor is not indicative of the economic realities of the working relationship and is not relevant to the analysis of the worker's status.
+
+## Examples of disputes
+
+Several Uber drivers have claimed to be employees, despite their classification as independent contractors. Some of the drivers sued after California passed a law aimed at requiring gig economy companies to classify workers as employees that took effect January 1, 2020. Likewise, many more workers in the gig economy are making similar claims. This goes for, for example, Amazon's "last mile" delivery drivers and FedEx's ground delivery drivers.

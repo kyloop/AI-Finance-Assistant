@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "../api";
 import type { Analysis, Holding, Mover } from "../types";
-import { COLORS, ErrorBanner, FreshnessBadge, pct, usd } from "./common";
+import { COLORS, categoryAxis, ErrorBanner, FreshnessBadge, pct, usd } from "./common";
 
 const signedUsd = (n: number) => `${n >= 0 ? "+" : "−"}${usd(Math.abs(n))}`;
 const signedPct = (n: number, d = 1) => `${n >= 0 ? "+" : "−"}${pct(Math.abs(n), d)}`;
@@ -158,7 +158,7 @@ export default function PortfolioTab({ sid, onAsk }: { sid: string; onAsk: (q: s
                   <>
                     <div className="muted small">{usd(divs.total)} a year at today's share counts, a {pct(divs.yield, 2)} yield</div>
                     <ResponsiveContainer width="100%" height={220}>
-                      <BarChart data={divs.by_month}><XAxis dataKey="month" /><YAxis tickFormatter={(v) => usd(v)} width={70} />
+                      <BarChart data={divs.by_month}><XAxis {...categoryAxis(divs.by_month, "month")} /><YAxis tickFormatter={(v) => usd(v)} width={70} />
                         <Tooltip formatter={(v: number) => usd(v)} /><Bar dataKey="amount" name="Dividends" fill={COLORS[1]} /></BarChart>
                     </ResponsiveContainer>
                   </>
