@@ -218,3 +218,23 @@ def test_a_quotes_latex_is_shown_as_plain_formulas():
     assert "`c = rP/(1 - 1/(1 + r)^n)`" in out and "`c = rP/(1 - e^(-n ln (1 + r)))`" in out
     assert "\\frac" not in out and "$" not in out and "`P` = principal" in out
     assert readable_quote("It costs $1,000 and $500 more.") == "It costs $1,000 and $500 more."
+
+
+def test_a_saved_answer_gets_readable_quotes_when_the_history_loads():
+    from src.workflow.calc import readable_quotes_in
+    saved = 'Total: $2,212.24\n> "The formula is $c={\\frac {rP}{1-{\\frac {1}{(1+r)^{n}}}}}$"  \n> — Wikipedia'
+    out = readable_quotes_in(saved)
+    assert out.startswith("Total: $2,212.24\n") and "`c = rP/(1 - 1/(1 + r)^n)`" in out
+
+
+def test_a_quote_that_is_only_a_latex_formula_is_converted_too():
+    from src.workflow.calc import readable_quotes_in
+    out = readable_quotes_in('> "c={\\frac {rP}{1-{\\frac {1}{(1+r)^{n}}}}}"  \n> — Wikipedia')
+    assert out.startswith('> "`c = rP/(1 - 1/(1 + r)^n)`"')
+
+
+def test_a_formula_cut_off_before_its_closing_dollar_is_converted():
+    from src.workflow.calc import readable_quote
+    out = readable_quote("of an ordinary annuity is: ${\\text{FV}}_{\\text{annuity}}=PMT\\cdot {\\frac {(1+r)^{n}-1}{r}} …")
+    assert "$" not in out and out.endswith("`FV_annuity = PMT · ((1 + r)^n - 1)/r` …")
+    assert readable_quote("It costs $1,000.") == "It costs $1,000."

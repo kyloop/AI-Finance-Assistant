@@ -248,7 +248,7 @@ def _simple(x: str) -> bool:
 
 def tex_text(tex: str) -> str:
     """LaTeX maths as plain text: fractions as a/b, powers as ^, commands as words or symbols."""
-    t = _TEX_DROP.sub(" ", tex)
+    t = _TEX_DROP.sub(" ", tex.replace("$", ""))
     t = re.sub(r"\\(?:text|mathrm|mathit|operatorname)\s*\{([^{}]*)\}", r"\1", t)
     t = re.sub(r"\\([A-Za-z]+)", lambda m: "frac" if m[1] in ("frac", "dfrac", "tfrac") else f" {_TEX_WORDS.get(m[1], m[1])} ", t)
     t = re.sub(r"frac\s*\{", "frac{", t)
@@ -268,6 +268,17 @@ def tex_text(tex: str) -> str:
     return " ".join(t.split()).replace("( -", "(-").replace("= -", "= -")
 
 
+def readable_quotes_in(text: str) -> str:
+    """An answer saved before quotes were converted: its quoted lines ("> ...") with readable formulas."""
+    if ">" not in text or not re.search(r"\$|\\[A-Za-z]", text):
+        return text
+
+    def line(ln: str) -> str:
+        m = re.match(r'(\s*>\s*")(.*)("\s*)$', ln)     # > "the quote"
+        return f"{m[1]}{readable_quote(m[2])}{m[3]}" if m else (readable_quote(ln) if ln.lstrip().startswith(">") else ln)
+    return "\n".join(line(ln) for ln in text.split("\n"))
+
+
 def readable_quote(quote: str) -> str:
     """The quote with each LaTeX formula as plain text in code style; dollar amounts ("$1,000 and $500") are left."""
     def one(m):
@@ -275,7 +286,13 @@ def readable_quote(quote: str) -> str:
         if not re.search(r"[\\{}^_=]", tex) and not re.fullmatch(r"\s*[A-Za-z]{1,3}\s*", tex):
             return m[0]                                   # "$1,000 and $" is money, not maths
         return f"`{tex_text(tex)}`"
-    return _TEX_MATH.sub(one, quote)
+    if "$" not in quote and re.search(r"\\(?:frac|dfrac|ln|log|exp|times|cdot|left|right|sqrt)\b", quote):
+        return f"`{tex_text(quote)}`"                    # the quote is the formula alone, without $ delimiters
+    out = _TEX_MATH.sub(one, quote)
+    # a formula whose closing $ was cut off ("... is: ${\text{FV}}_{\text{annuity}} …"): the rest is the formula
+    if (m := re.search(r"(?<![\w`])\$(?=[^\d\s,.])([^`$]*?)(\s*…)?$", out)):
+        out = out[:m.start()] + f"`{tex_text(m[1])}`" + (m[2] or "")
+    return out
 
 
 def _same_simulation(a: dict, b: dict) -> bool:
