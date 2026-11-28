@@ -74,6 +74,10 @@ DEFINE_SYSTEM = (
     "to pay it off with payment + extra.\n"
     "- \"simulation\": only when no equation fits because the amount changes period by period with a condition (a "
     "payment that is a percentage of the remaining balance, withdrawals that rise every year).\n"
+    "Two shapes need several targets: a starting balance plus regular deposits is the balance's growth (future value "
+    "of a lump sum) + the deposits' growth (future value of an annuity); payments that start years from now, valued "
+    "today, are their value when they start (present value of an annuity) discounted back to today (present value of "
+    "a lump sum).\n"
     "- \"earlier\": only when you are given Earlier results: one of them, used as it is (see below).\n"
     "Add \"assumptions\": the readings you take (\"the monthly payment stays the same after the lump sum\").\n"
     'Reply with ONLY JSON: {"targets": [...], "assumptions": ["..."]}')
@@ -712,7 +716,8 @@ def build_plan(targets: list[dict], eqs: dict[str, dict], filled: dict | None, a
         expr = str((d.get("expr") if isinstance(d, dict) else d) or "").strip()
         if expr in inputs and k not in inputs and sum(
                 str((x.get("expr") if isinstance(x, dict) else x) or "").strip() == expr for x in derived.values()) == 1:
-            inputs[k] = {**inputs.pop(expr), "means": need.get(k) or inputs[expr].get("means")}
+            renamed = inputs.pop(expr)
+            inputs[k] = {**renamed, "means": need.get(k) or renamed.get("means")}
             del derived[k]
     for k, d in derived.items():
         d = d if isinstance(d, dict) else {"expr": d}
@@ -873,6 +878,76 @@ def _earlier(targets: list, memory: dict | None) -> tuple[list, dict, list[str]]
     return rest, given, missed
 
 
+# ---------------------------------------------------------------- the shape of a many-part question
+# Two shapes the model got wrong in the chain eval (mds/calc-chain-eval.md): a starting balance plus regular deposits
+# (one formula, so one part left out), and payments that start years from now valued today (no discounting back).
+_PERIODIC = r"\$\s?\d[\d,]*(?:\.\d+)?\s*(?:k\b)?\s*(?:a|per|each|every)\s+(?:month|year)"
+_DEPOSITS = re.compile(rf"{_PERIODIC}|\b(?:add|adding|contribut\w*|deposit\w*|sav\w*|invest\w*|put)\b[^.?!]{{0,30}}{_PERIODIC}", re.I)
+_MONEY = re.compile(r"\$\s?\d[\d,]*(?:\.\d+)?\s*(?:k\b|thousand\b|million\b)?")
+_EVERY = re.compile(r"\s*(?:a|per|each|every)\s+(?:month|year)\b", re.I)
+_BALANCE_CUE = re.compile(r"\b(?:have|had|saved|already|start\w*|initial|current\w*|existing|balance|invest\w*|lump|"
+                          r"account)\b", re.I)
+
+
+def _has_balance(text: str) -> bool:
+    """An amount already there: a one-off sum (not "$300 a month") that the message says is saved, invested or a
+    starting balance, or that is joined to regular deposits ("$25,000 plus $300 a month")."""
+    for m in _MONEY.finditer(text):
+        if _EVERY.match(text, m.end()):
+            continue
+        before, after = text[max(0, m.start() - 40):m.start()], text[m.end():m.end() + 40]
+        if _BALANCE_CUE.search(before) or re.match(r"\s*(?:plus|and|\+)\s*\$", after):
+            return True
+    return False
+
+
+_DEBT = re.compile(r"\b(?:borrow\w*|loans?|mortgage|owe|owing|debt|credit card|apr)\b", re.I)
+_STREAM = re.compile(rf"{_PERIODIC}[^.?!]{{0,60}}\bfor\s+(?:\d+|one|two|three|four|five|ten)\s+(?:years|months)\b|"
+                     r"\b(?:per|a|each) (?:year|month) for (?:\d+|one|two|three|four|five|ten) (?:years|months)\b", re.I)
+_LATER = re.compile(r"\b(?:in|after|start\w* in|begin\w* in|retire in)\s+\d+\s+years\b", re.I)
+_TODAY = re.compile(r"\b(?:today|present value|worth now|now)\b", re.I)
+_AT_START = re.compile(r"\bat the time\b|\bat retirement\b|\bwhen (?:i|they|we) retire\b", re.I)
+_PART_DEPOSITS = re.compile(r"deposit|contribution|annuity|monthly|payments|series|regular|saving|added", re.I)
+_PART_BALANCE = re.compile(r"initial|lump|starting|current|existing|balance|single|principal|present sum|investment|"
+                           r"already|account", re.I)
+_PART_STREAM = re.compile(r"annuity|payments|stream|series|withdrawals?|tuition|income|costs", re.I)
+_PART_BACK = re.compile(r"today|discount|back|present value of (?:a|the) (?:lump|single|future)|now", re.I)
+
+SHAPE_DEPOSITS = ("the message has a starting balance and regular deposits: list one formula target for how the "
+                  "balance grows (future value of a lump sum), one for how the deposits grow (future value of an "
+                  "annuity: regular payments), and an arithmetic target for their total (and for growth, the total - "
+                  "everything paid in)")
+SHAPE_LATER = ("the payments start years from now and the question asks for their value today: list one formula target "
+               "for their value when they start (present value of an annuity: the payments over their years, at the "
+               "rate), then one that discounts that value back to today (present value of a lump sum over the years "
+               "until they start). Payments that rise by g% a year until then start at payment * (1 + g)^years")
+
+
+SHAPE_GROWTH = ("the message asks how much of the total is growth: add an arithmetic target for it (the total - "
+                "everything paid in: the starting amount + each deposit * the number of deposits)")
+_ASKS_GROWTH = re.compile(r"\bhow much (?:of (?:that|it|this)|is) (?:is )?(?:growth|interest|earnings?|gains?)\b|"
+                          r"\b(?:growth|interest earned|earnings) (?:part|portion)\b", re.I)
+_PART_GROWTH = re.compile(r"growth|interest (?:earned|gained|part|portion)|total interest|earn|gain", re.I)   # not "interest rate"
+
+
+def _labels(targets: list[dict]) -> str:
+    return " | ".join(f"{t.get('label', '')} {t.get('concept', '')}" for t in targets)
+
+
+def shape_problem(question: str, targets: list[dict]) -> str:
+    """Why step 2's targets miss a part the question's shape needs (empty: none missing); every missing part, joined."""
+    text, problems = _labels(targets), []
+    if (_DEPOSITS.search(question) and _has_balance(question) and not _DEBT.search(question)
+            and not (_PART_DEPOSITS.search(text) and _PART_BALANCE.search(text) and len(targets) >= 2)):
+        problems.append(SHAPE_DEPOSITS)
+    if (_STREAM.search(question) and _LATER.search(question) and _TODAY.search(question) and not _AT_START.search(question)
+            and not (_PART_STREAM.search(text) and _PART_BACK.search(text) and len(targets) >= 2)):
+        problems.append(SHAPE_LATER)
+    if _ASKS_GROWTH.search(question) and not _PART_GROWTH.search(" | ".join(t.get("label", "") for t in targets)):
+        problems.append(SHAPE_GROWTH)
+    return "; and ".join(problems)
+
+
 _FILLER = {"the", "a", "an", "of", "my", "your", "their", "its", "in", "to", "for", "per", "amount"}
 
 
@@ -894,7 +969,7 @@ EXAMPLE_NOTE = ("\nThe user asked for a worked example and may give no numbers o
 
 
 def calculate(question: str, prompt: str, known_text: str, fallback: Callable[[bool, str], Outcome],
-              memory: dict | None = None) -> Outcome:
+              memory: dict | None = None, typed: str = "") -> Outcome:
     """Steps 1 to 7. `prompt`: the conversation and the message, as the LLM steps see them; `fallback(example, hint)`:
     the plan path, for a question with a simulation or one the steps can't handle (`hint`: the sourced equations it
     must build on, when step 3 found them)."""
@@ -925,6 +1000,11 @@ def calculate(question: str, prompt: str, known_text: str, fallback: Callable[[b
         return {**d, "targets": rest}
     defined = split(defined)
     targets, why = _targets(defined)
+    asked = f"{question} {typed}"                       # what the user typed too: a rewrite may drop a part they asked
+    def parts(ts):                                      # an earlier result reused counts as the part it is
+        return ts + [{"label": v["means"]} for v in reused.values()]
+    if targets is not None and (shape := shape_problem(asked, parts(targets))):
+        targets, why = None, shape                       # a part the question's shape needs is missing: repair
     if targets is None:                                  # one repair round, with Python's reason
         trace.append(f"2 targets rejected: {why}")
         defined = first_json(ask_llm(DEFINE_SYSTEM, f"{define}\n\nYour previous targets were rejected: {why}\n"
@@ -932,6 +1012,8 @@ def calculate(question: str, prompt: str, known_text: str, fallback: Callable[[b
                                                     "Reply with ONLY corrected JSON."))
         defined = split(defined)
         targets, why = _targets(defined)
+        if targets is not None and (shape := shape_problem(asked, parts(targets))):
+            trace.append(f"2 targets still miss a part: {shape[:120]}")   # go on: the plan's own checks still apply
     if targets is None:
         return _fallback(fallback, trace, f"step 2 gave no usable targets ({why})", example, understanding)
     if given := [t for t in targets if _is_given(t, understanding)]:

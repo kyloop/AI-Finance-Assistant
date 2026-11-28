@@ -707,3 +707,41 @@ def test_a_follow_up_uses_an_earlier_result_instead_of_working_it_out_again():
     q = "What is the present value of that retirement goal today if I use a 7% discount rate before retirement? I retire in 25 years."
     out = PLAN.run(plan, q, q + "\n" + CP.memory_line(memory), require_checks=False)
     assert round(out["values"]["T"], 2) == 226588.92
+
+
+T_ = lambda *labels: [{"label": label} for label in labels]   # noqa: E731
+
+
+@pytest.mark.parametrize("q,targets,missing", [
+    ("How much will $25,000 plus $300 a month grow to at 5% a year over 20 years?", T_("future value"), True),
+    ("How much will $25,000 plus $300 a month grow to at 5% a year over 20 years?",
+     T_("future value of the initial balance", "future value of monthly deposits", "total"), False),
+    ("If I invest $10,000 at 6% compounded monthly and also add $100 every month, how much after 15 years?", T_("fv"), True),
+    ("If I invest $800 a month for 30 years at 7%, how much will I have?", T_("future value"), False),
+    ("I want $50,000 in 5 years and already have $10,000 saved. How much a month?", T_("monthly saving"), False),
+    ("I'm borrowing $350,000 at 5.5% and pay an extra $200 a month. How much sooner?", T_("months"), False),
+    ("My child will start college in 12 years, and I expect tuition to cost $40,000 per year for four years. If I use a "
+     "6% discount rate, what is the present value of those future tuition payments?", T_("present value of tuition"), True),
+    ("My child will start college in 12 years, and I expect tuition to cost $40,000 per year for four years. If I use a "
+     "6% discount rate, what is the present value of those future tuition payments?",
+     T_("value of the tuition payments when college starts", "present value today"), False),
+    ("I retire in 25 years and want $80,000 per year for 30 years. At 5%, what are those withdrawals worth at the time "
+     "I retire?", T_("present value of the annuity"), False),
+])
+def test_a_many_part_question_needs_a_target_for_each_part(q, targets, missing):
+    # chain eval, Nov 2026: one formula for "$25,000 plus $300 a month" left a part out; tuition starting in 12 years
+    # was valued as if it started now
+    assert bool(CP.shape_problem(q, targets)) is missing
+
+
+def test_how_much_of_it_is_growth_needs_its_own_target():
+    q = "How much will $25,000 plus $300 a month grow to at 5% over 20 years, and how much of that is growth?"
+    parts = T_("future value of the starting balance", "future value of the deposits", "total")
+    assert CP.shape_problem(q, parts) == CP.SHAPE_GROWTH
+    assert CP.shape_problem(q, parts + T_("growth")) == ""
+
+
+def test_an_interest_rate_step_is_not_the_growth_part():
+    q = "How much will $25,000 plus $300 a month grow to at 5% over 20 years, and how much of that is growth?"
+    assert CP.SHAPE_GROWTH in CP.shape_problem(q, T_("interest rate per period", "future value of the initial amount",
+                                                     "future value of the monthly contributions", "total"))

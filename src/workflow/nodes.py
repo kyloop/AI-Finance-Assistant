@@ -1906,7 +1906,8 @@ def calc_node(state: FinanceState, config: RunnableConfig):
               + (f"Figures from the previous answer:\n{known}\n\n" if known else "")
               + (f"{plan}\n\n" if plan else "") + f"Message: {q}")
     memory = CTX.carried(state).get("calc")       # the previous calculation, for a follow-up that builds on its results
-    out = calculate(q, prompt, f"{q}\n{recent}\n{known}\n{plan}", memory=memory)
+    typed = state.get("original_question") or ""
+    out = calculate(q, prompt, f"{q}\n{recent}\n{known}\n{plan}", memory=memory, typed=typed if typed != q else "")
     steps = [f"calc step {line}" for line in out.trace]
     if out.kind == "needs":
         res = _out("calc", CALC.needs_input_text(out.needs.label, out.needs.inputs), status="need_info",
@@ -1929,18 +1930,18 @@ def calc_node(state: FinanceState, config: RunnableConfig):
     return res
 
 
-def calculate(question: str, prompt: str, known_text: str, memory: dict | None = None) -> CP.Outcome:
+def calculate(question: str, prompt: str, known_text: str, memory: dict | None = None, typed: str = "") -> CP.Outcome:
     """The calculator's steps (calc_pipeline): a sourced equation when one fits, else the plan path. Every LLM call in
     them uses the Calculator's model (`llm.role_models.calc` in config.yaml; the usual model when it has none).
     `memory`: the previous calculation (context["calc"]), whose results a follow-up may build on."""
     with llm_role("calc"):
-        return _calculate(question, prompt, known_text, memory)
+        return _calculate(question, prompt, known_text, memory, typed)
 
 
-def _calculate(question: str, prompt: str, known_text: str, memory: dict | None = None) -> CP.Outcome:
+def _calculate(question: str, prompt: str, known_text: str, memory: dict | None = None, typed: str = "") -> CP.Outcome:
     def plan_path(example: bool, hint: str = "") -> CP.Outcome:
         result, errors, _ = plan_calculation(question, prompt + hint + (CP.EXAMPLE_NOTE if example else ""), known_text,
-                                             example)
+                                             example, shape_of=f"{question} {typed}")
         if isinstance(result, PLAN.NeedsInput):
             return CP.Outcome("needs", needs=result, errors=errors)
         if result is None:
@@ -1954,14 +1955,14 @@ def _calculate(question: str, prompt: str, known_text: str, memory: dict | None 
         if result["set_aside"]:
             note += f"; {len(result['set_aside'])} check(s) set aside by the judge"
         return CP.Outcome("answer", result=result, errors=errors, note=note)
-    return CP.calculate(question, prompt, known_text, plan_path, memory)
+    return CP.calculate(question, prompt, known_text, plan_path, memory, typed)
 
 
 JUDGE_CALLS = 2                                         # most judge calls per question
 
 
-def plan_calculation(question: str, prompt: str, known_text: str,
-                     example: bool = False) -> tuple[dict | PLAN.NeedsInput | None, list[str], list]:
+def plan_calculation(question: str, prompt: str, known_text: str, example: bool = False,
+                     shape_of: str = "") -> tuple[dict | PLAN.NeedsInput | None, list[str], list]:
     """Ask the LLM for a plan and run it. When only one of the plan's own checks disagrees, a judge call decides which is
     wrong: a wrong check is set aside (and shown in the answer), a wrong plan goes to the repair round with the judge's
     reason. Any other rejection goes back to the LLM once with the error. Returns (the executed plan, or NeedsInput when
@@ -1972,6 +1973,10 @@ def plan_calculation(question: str, prompt: str, known_text: str,
         while True:
             try:
                 result = PLAN.run(plans[-1], question, known_text, skip, example=example)
+                # a part the question asks for that the plan leaves out ("how much of that is growth"): one repair
+                missing = CP.shape_problem(shape_of, [{"label": st["label"]} for st in result["steps"]]) if shape_of else ""
+                if missing and attempt == 1:
+                    raise PLAN.PlanError(f"the plan leaves out a part the question asks for: {missing}")
                 return {**result, "set_aside": set_aside}, errors, plans
             except PLAN.NeedsInput as e:
                 return e, errors, plans
