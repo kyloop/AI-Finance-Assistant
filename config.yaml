@@ -5,6 +5,9 @@ llm:
     anthropic: claude-sonnet-5-5
     openai: gpt-4o-mini
     gemini: gemini-2.0-flash
+  role_models:              # a bigger model for one part of the app, per provider; a provider left out uses `models`
+    calc:                   # the Calculator's steps and plan path (mds/calc-chain-eval.md: gpt-4o-mini gets many-step questions wrong)
+      openai: gpt-4o
 workflow:
   history_turns: 8          # prior messages passed to the graph
   history_window: 4         # of those, the latest messages that agent prompts and follow-up checks read

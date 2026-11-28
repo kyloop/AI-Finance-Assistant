@@ -667,3 +667,21 @@ def test_the_rule_of_72_takes_the_rate_in_percent():
     filled = {"inputs": {"rate": {"value": 0.07, "from": "user", "unit": "rate", "means": "the annual rate"}}}
     q = "How long does it take to double my money at 7% a year?"
     assert round(PLAN.run(CP.build_plan(targets, eqs, filled, []), q, q, require_checks=False)["values"]["t"], 2) == 10.29
+
+
+def test_the_calculator_can_run_on_its_own_model(monkeypatch):
+    from src.core import config as config_module, llm as L
+    cfg = config_module.get_config()
+    monkeypatch.setitem(cfg, "llm", {**cfg["llm"], "provider": "openai", "models": {"openai": "small"},
+                                     "role_models": {"calc": {"openai": "big"}}})
+    monkeypatch.setenv("OPENAI_API_KEY", "test")
+    L.clear_llm_override()
+    try:
+        assert L.current_llm().model_name == "small"
+        with L.llm_role("calc"):
+            assert L.current_llm().model_name == "big"
+            assert CP._parallel(lambda: L.current_llm().model_name) == ["big"]     # the parallel searches follow it
+        with L.llm_role("tax"):
+            assert L.current_llm().model_name == "small"
+    finally:
+        L.get_llm.cache_clear()

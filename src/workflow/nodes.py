@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session as DBSession
 from src.core import calc_plan as PLAN
 from src.core.calculators import analyze_portfolio, project_goal
 from src.core.config import get_config
-from src.core.llm import ask_llm, current_llm
+from src.core.llm import ask_llm, current_llm, llm_role
 from src.core.market_service import SymbolNotFound
 from src.core.portfolio_data import portfolio_dividends, portfolio_history, portfolio_instruments, with_purchase_prices
 from src.core.tavily import WebSearchUnavailable, web_news, web_news_enabled, web_search, web_search_enabled
@@ -1891,7 +1891,13 @@ def calc_node(state: FinanceState, config: RunnableConfig):
 
 
 def calculate(question: str, prompt: str, known_text: str) -> CP.Outcome:
-    """The calculator's steps (calc_pipeline): a sourced equation when one fits, else the plan path."""
+    """The calculator's steps (calc_pipeline): a sourced equation when one fits, else the plan path. Every LLM call in
+    them uses the Calculator's model (`llm.role_models.calc` in config.yaml; the usual model when it has none)."""
+    with llm_role("calc"):
+        return _calculate(question, prompt, known_text)
+
+
+def _calculate(question: str, prompt: str, known_text: str) -> CP.Outcome:
     def plan_path(example: bool, hint: str = "") -> CP.Outcome:
         result, errors, _ = plan_calculation(question, prompt + hint + (CP.EXAMPLE_NOTE if example else ""), known_text,
                                              example)
