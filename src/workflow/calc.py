@@ -231,6 +231,52 @@ def _same_text(a: str, b: str) -> bool:
 
 QUOTE_CHARS = 300
 
+# ---------------------------------------------------------------- a quote's LaTeX as readable text
+# Wikipedia passages keep their formulas as LaTeX ("$c={\\frac {rP}{1-{\\frac {1}{(1+r)^{n}}}}}$"), which the chat
+# shows as raw markup: each $…$ becomes the formula in plain notation, in code style (`c = rP/(1 - 1/(1+r)^n)`).
+_TEX_DROP = re.compile(r"\\(?:displaystyle|textstyle|left|right|qquad|quad|[,;! ])")
+_TEX_WORDS = {"ln": "ln", "log": "log", "exp": "exp", "cdot": "·", "times": "×", "approx": "≈", "le": "≤", "ge": "≥",
+              "leq": "≤", "geq": "≥", "pm": "±", "infty": "∞", "sum": "Σ", "alpha": "α", "beta": "β", "gamma": "γ",
+              "delta": "δ", "Delta": "Δ", "mu": "μ", "pi": "π", "rho": "ρ", "sigma": "σ", "theta": "θ", "lambda": "λ"}
+_TEX_MATH = re.compile(r"\$\$(.+?)\$\$|\$([^$]+?)\$")
+
+
+def _simple(x: str) -> bool:
+    """Needs no brackets around it in a fraction: a name or number, or one bracketed group raised to a power."""
+    return bool(re.fullmatch(r"[\w.]+(?:\^[\w.]+)?|\([^()]*\)(?:\^[\w.]+)?", x))
+
+
+def tex_text(tex: str) -> str:
+    """LaTeX maths as plain text: fractions as a/b, powers as ^, commands as words or symbols."""
+    t = _TEX_DROP.sub(" ", tex)
+    t = re.sub(r"\\(?:text|mathrm|mathit|operatorname)\s*\{([^{}]*)\}", r"\1", t)
+    t = re.sub(r"\\([A-Za-z]+)", lambda m: "frac" if m[1] in ("frac", "dfrac", "tfrac") else f" {_TEX_WORDS.get(m[1], m[1])} ", t)
+    t = re.sub(r"frac\s*\{", "frac{", t)
+    t = re.sub(r"\}\s*\{", "}{", t)
+    for _ in range(30):
+        before = t
+        t = re.sub(r"([\^_])\s*\{([^{}]*)\}", lambda m: m[1] + (m[2].strip() if _simple(m[2].strip()) else f"({m[2].strip()})"), t)
+        t = re.sub(r"frac\{([^{}]*)\}\{([^{}]*)\}", lambda m: (m[1].strip() if _simple(m[1].strip()) else f"({m[1].strip()})")
+                   + "/" + (m[2].strip() if _simple(m[2].strip()) else f"({m[2].strip()})"), t)
+        t = re.sub(r"(?<!frac)(?<!\})\{([^{}]*)\}(?!\{)", r"\1", t)   # a plain group, not a fraction's numerator or denominator
+        if t == before:
+            break
+    t = re.sub(r"\s*([=+\-])\s*", r" \1 ", t)
+    t = re.sub(r"([(^/=]) - ", r"\1 -", t)              # a minus sign, not a subtraction: ^(-n ln(1 + r))
+    t = re.sub(r"\(\s+", "(", re.sub(r"\s+\)", ")", t))
+    t = re.sub(r"\s+([\^/])\s*", r"\1", t)
+    return " ".join(t.split()).replace("( -", "(-").replace("= -", "= -")
+
+
+def readable_quote(quote: str) -> str:
+    """The quote with each LaTeX formula as plain text in code style; dollar amounts ("$1,000 and $500") are left."""
+    def one(m):
+        tex = m[1] or m[2]
+        if not re.search(r"[\\{}^_=]", tex) and not re.fullmatch(r"\s*[A-Za-z]{1,3}\s*", tex):
+            return m[0]                                   # "$1,000 and $" is money, not maths
+        return f"`{tex_text(tex)}`"
+    return _TEX_MATH.sub(one, quote)
+
 
 def _same_simulation(a: dict, b: dict) -> bool:
     return a is not b and a["kind"] == b["kind"] == "simulate" and all(
@@ -295,7 +341,10 @@ def plan_text(r: dict) -> str:
             lines += ["", f"{qt['label'][:1].upper()}{qt['label'][1:]}: `{qt['equation']}` ({agreed})"]
             for src in qt["sources"]:
                 link = f"[{src['title']}]({src['url']})" if src.get("url") else src["title"]
-                quote = src["quote"] if len(src["quote"]) <= QUOTE_CHARS else src["quote"][:QUOTE_CHARS].rsplit(" ", 1)[0] + " …"
+                quote = readable_quote(src["quote"])
+                quote = quote if len(quote) <= QUOTE_CHARS else quote[:QUOTE_CHARS].rsplit(" ", 1)[0] + " …"
+                if quote.count("`") % 2:                  # cut inside a formula: close its code style
+                    quote = quote.removesuffix(" …") + "` …"
                 lines.append(f"> \"{quote}\"  \n> — {link}, {src['where']}")
     if r.get("model_note"):
         lines += ["", f"_{r['model_note']}_"]

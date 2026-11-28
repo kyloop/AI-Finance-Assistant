@@ -207,3 +207,14 @@ def test_percent_change_applies_a_rise_or_fall_to_an_amount():
     text = CALC.run("percent_change", {"amount": 94.71, "percent": 2})
     assert "**Result: about $96.60**, up $1.89." in text
     assert "down $9.47" in CALC.run("percent_change", {"amount": 94.71, "percent": -10})
+
+
+def test_a_quotes_latex_is_shown_as_plain_formulas():
+    # seen in the chat, Nov 2026: Wikipedia's quote showed raw "$c={\frac {rP}{1-{\frac {1}{(1+r)^{n}}}}}$"
+    from src.workflow.calc import readable_quote
+    q = (r"An exact formula for the monthly payment ( $c$) is $c={\frac {rP}{1-{\frac {1}{(1+r)^{n}}}}}$ or "
+         r"equivalently $c={\frac {rP}{1-e^{-n\ln(1+r)}}}$ where: $c$ = monthly payment $P$ = principal")
+    out = readable_quote(q)
+    assert "`c = rP/(1 - 1/(1 + r)^n)`" in out and "`c = rP/(1 - e^(-n ln (1 + r)))`" in out
+    assert "\\frac" not in out and "$" not in out and "`P` = principal" in out
+    assert readable_quote("It costs $1,000 and $500 more.") == "It costs $1,000 and $500 more."
