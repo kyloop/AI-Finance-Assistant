@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "../api";
 import type { Envelope, EstimateRow, Statement, StockProfile } from "../types";
-import { COLORS, ErrorBanner, FreshnessBadge } from "./common";
+import { COLORS, categoryAxis, ErrorBanner, FreshnessBadge } from "./common";
 
 const EXAMPLES = ["AAPL", "MSFT", "NVDA", "KO", "JNJ"];
 const SECTIONS = ["Earnings & estimates", "Financial statements", "Dividends & splits"] as const;
@@ -224,7 +224,7 @@ function Statements({ s }: { s: StockProfile }) {
           {chart.length > 1 && (
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={chart}>
-                <CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="period" /><YAxis tickFormatter={(v) => big(v, cur)} width={70} />
+                <CartesianGrid strokeDasharray="3 3" /><XAxis {...categoryAxis(chart, "period")} /><YAxis tickFormatter={(v) => big(v, cur)} width={70} />
                 <Tooltip formatter={(v) => big(v as number, cur)} /><Legend />
                 <Bar dataKey={a} fill={COLORS[0]} name={a.replace(" Net Minority Interest", "")} /><Bar dataKey={b} fill={COLORS[1]} name={b.replace(" Net Minority Interest", "")} />
               </BarChart>
@@ -257,7 +257,7 @@ function Actions({ s }: { s: StockProfile }) {
         {byYear.length === 0 ? <p className="muted small">{s.symbol} hasn't paid dividends in Yahoo's records.</p> : (
           <>
             <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={byYear}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="year" fontSize={11} /><YAxis tickFormatter={(v) => `$${v}`} width={45} />
+              <BarChart data={byYear}><CartesianGrid strokeDasharray="3 3" /><XAxis {...categoryAxis(byYear, "year")} fontSize={11} /><YAxis tickFormatter={(v) => `$${v}`} width={45} />
                 <Tooltip formatter={(v) => `$${(v as number).toFixed(2)}`} /><Bar dataKey="amount" name="Per share" fill={COLORS[1]} /></BarChart>
             </ResponsiveContainer>
             <p className="muted small">Cash paid to shareholders for each share they own, by year. Steady or rising payments are a sign of a mature, profitable business.</p>
